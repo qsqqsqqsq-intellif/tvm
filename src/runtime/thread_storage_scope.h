@@ -19,7 +19,7 @@
 
 /*!
  * \file thread_storage_scope.h
- * \brief Extract launch parameters configuration from TVMArgs.
+ * \brief Extract thread axis configuration from TVMArgs.
  */
 #ifndef TVM_RUNTIME_THREAD_STORAGE_SCOPE_H_
 #define TVM_RUNTIME_THREAD_STORAGE_SCOPE_H_
@@ -59,6 +59,17 @@ enum class StorageRank {
   kWMMAMatrixB = 5,
   /*! \brief wmma scope memory of accumulator */
   kWMMAAccumulator = 6,
+  /*! \brief nnp scope memory of accumulator */
+  kBUF = 7,
+  kDM = 8,
+  kWM = 9,
+  kVM = 10,
+  kCM = 11,
+  kDDR = 12,
+  kBBUF = 13,
+  kWBUF = 14,
+  kIOBUF = 15,
+  kCUBE = 16,
 };
 
 /*!
@@ -108,6 +119,26 @@ struct StorageScope {
         return "wmma.matrix_b" + tag;
       case StorageRank::kWMMAAccumulator:
         return "wmma.accumulator" + tag;
+      case StorageRank::kBUF:
+        return "buf" + tag;
+      case StorageRank::kDM:
+        return "dm" + tag;
+      case StorageRank::kWM:
+        return "wm" + tag;
+      case StorageRank::kVM:
+        return "vm" + tag;
+      case StorageRank::kCM:
+        return "cm" + tag;
+      case StorageRank::kDDR:
+        return "ddr" + tag;
+      case StorageRank::kBBUF:
+        return "bbuf" + tag;
+      case StorageRank::kWBUF:
+        return "wbuf" + tag;
+      case StorageRank::kIOBUF:
+        return "iobuf" + tag;
+      case StorageRank::kCUBE:
+        return "cube" + tag;
       default:
         LOG(FATAL) << "unknown storage scope";
         return "";
@@ -143,6 +174,36 @@ struct StorageScope {
     } else if (s.compare(0, 16, "wmma.accumulator") == 0) {
       r.rank = StorageRank::kWMMAAccumulator;
       r.tag = s.substr(16, std::string::npos);
+    } else if (s.compare(0, 3, "buf") == 0) {
+      r.rank = StorageRank::kBUF;
+      r.tag = s.substr(3, std::string::npos);
+    } else if (s.compare(0, 2, "dm") == 0) {
+      r.rank = StorageRank::kDM;
+      r.tag = s.substr(2, std::string::npos);
+    } else if (s.compare(0, 2, "wm") == 0) {
+      r.rank = StorageRank::kWM;
+      r.tag = s.substr(2, std::string::npos);
+    } else if (s.compare(0, 2, "vm") == 0) {
+      r.rank = StorageRank::kVM;
+      r.tag = s.substr(2, std::string::npos);
+    } else if (s.compare(0, 2, "cm") == 0) {
+      r.rank = StorageRank::kCM;
+      r.tag = s.substr(2, std::string::npos);
+    } else if (s.compare(0, 3, "ddr") == 0) {
+      r.rank = StorageRank::kDDR;
+      r.tag = s.substr(3, std::string::npos);
+    } else if (s.compare(0, 4, "bbuf") == 0) {
+      r.rank = StorageRank::kBBUF;
+      r.tag = s.substr(4, std::string::npos);
+    } else if (s.compare(0, 4, "wbuf") == 0) {
+      r.rank = StorageRank::kWBUF;
+      r.tag = s.substr(4, std::string::npos);
+    } else if (s.compare(0, 5, "iobuf") == 0) {
+      r.rank = StorageRank::kIOBUF;
+      r.tag = s.substr(5, std::string::npos);
+    } else if (s.compare(0, 4, "cube") == 0) {
+      r.rank = StorageRank::kCUBE;
+      r.tag = s.substr(4, std::string::npos);
     } else {
       LOG(FATAL) << "unknown storage scope " << s;
     }
