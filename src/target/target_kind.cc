@@ -403,6 +403,16 @@ TVM_REGISTER_TARGET_KIND("hybrid", kDLCPU)  // line break
 TVM_REGISTER_TARGET_KIND("composite", kDLCPU).add_attr_option<Array<Target>>("devices");
 
 
+TVM_REGISTER_TARGET_KIND("edgex", kDLEdgeX)
+    .add_attr_option<Array<String>>("mattr")
+    .add_attr_option<String>("mcpu")
+    .add_attr_option<String>("mtriple")
+    .add_attr_option<String>("mfloat-abi")
+    .add_attr_option<Bool>("system-lib")
+    .add_attr_option<String>("runtime")
+    .add_attr_option<Bool>("link-params", Bool(false))
+    .set_default_keys({"edgex"});
+
 /**********  Registry  **********/
 
 TVM_REGISTER_GLOBAL("target.ListTargetKinds").set_body_typed(TargetKindRegEntry::ListTargetKinds);

@@ -357,3 +357,6 @@ set(USE_GTEST AUTO)
 # Enable using CUTLASS as a BYOC backend
 # Need to have USE_CUDA=ON
 set(USE_CUTLASS OFF)
+
+# Whether to use EdgeX
+set(USE_EDGEX OFF)

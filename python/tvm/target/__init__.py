@@ -70,6 +70,7 @@ from .target import (
     bifrost,
     riscv_cpu,
     hexagon,
+    edgex,
 )
 from .se_scope import make_se_scope
 from .compilation_config import make_compilation_config

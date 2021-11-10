@@ -644,6 +644,20 @@ def hexagon(cpu_ver="v66", **kwargs):
     return Target(" ".join(["hexagon"] + args_list))
 
 
+def edgex(model="unknown", options=None):
+    """Returns a edgex target.
+
+    Parameters
+    ----------
+    model: str
+        The model of edgex device (e.g. edge10/edge100)
+    options : str or list of str
+        Additional options
+    """
+    opts = _merge_opts(["-device=edgex", "-model=%s" % model], options)
+    return Target(" ".join(["edgex"] + opts))
+
+
 def create(target):
     """Deprecated. Use the constructor of :py:mod:`tvm.target.Target` directly."""
     warnings.warn("tvm.target.create() is being deprecated. Please use tvm.target.Target() instead")

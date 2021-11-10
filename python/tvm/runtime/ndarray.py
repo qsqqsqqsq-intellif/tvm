@@ -549,6 +549,22 @@ def webgpu(dev_id=0):
     return Device(15, dev_id)
 
 
+def edgex(dev_id=0):
+    """Construct an EdgeX device.
+
+    Parameters
+    ----------
+    dev_id : int, optional
+        The integer device id
+
+    Returns
+    -------
+    dev : Device
+        The created device
+    """
+    return Device(16, dev_id)
+
+
 cl = opencl
 mtl = metal
 
