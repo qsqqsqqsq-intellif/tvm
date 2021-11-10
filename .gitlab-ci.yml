@@ -1,0 +1,135 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Global Settings
+stages:
+  - build
+  - test
+
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  CMAKE_BUILD_TYPE: Release
+  DEP_ROOT: /workspace
+  DCL_ROOT_DIR: $DEP_ROOT/de-dcl
+
+default:
+  image: 192.168.13.215/tvm_ci:v0.1
+  interruptible: true
+  tags:
+    - tvmci
+
+
+# Jobs
+lint:
+  stage: build # use build to parallel even .pre is the best
+  image: 192.168.13.215/tvm_ci_lint:v0.1_f0aedc4
+  tags:
+    - tvmci-lint
+  before_script:
+    - echo "********** START LINT **********"
+    - pip install flake8==3.9.2 mypy==0.902
+  script:
+    - ./tests/scripts/task_lint.sh
+
+build:
+  stage: build
+  before_script:
+    - echo "********** START COMPILING **********"
+  script:
+    - |
+      rm -rf build && mkdir build
+      pushd build
+      cp ../cmake/config.cmake .
+      echo set\(CMAKE_CXX_FLAGS "-Werror ${CMAKE_CXX_FLAGS}"\) >> config.cmake
+      echo set\(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE}\) >> config.cmake
+      echo set\(USE_LLVM ${DEP_ROOT}/llvm/bin/llvm-config\) >> config.cmake
+      echo set\(USE_EDGEX ${DCL_ROOT_DIR}/client\) >> config.cmake
+      cmake .. && make -j32
+      popd
+  artifacts:
+    when: always
+    paths:
+    - build
+    expire_in: 1 day
+
+.tvm_env: &tvm_env
+  - |
+    echo "********** SET TVM ENV **********"
+    export TVM_HOME=$(pwd)
+    export PYTHONPATH=$TVM_HOME/python:${PYTHONPATH}
+    # TODO: tvm_test found no *.so, but it doesn't really need those libs
+    export EDGEX_ROOT_DIR=${DCL_ROOT_DIR}/client
+    export EDGEX_SERVER_DIR=${DCL_ROOT_DIR}/server
+
+tvm_edgex:
+  stage: test
+  needs: [build]
+  before_script:
+    - *tvm_env
+    - |
+      echo "***** START SERVER *****"
+      pushd ${DCL_ROOT_DIR}/server/bin
+      export LD_LIBRARY_PATH=${DCL_ROOT_DIR}/server/lib/
+      ./dclsim_rpc_server --dcl_cfg=dcl.cfg &
+      popd
+      pip install synr==0.5
+      sleep 5
+  script:
+    - |
+      export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
+      export EDGEX_MODELS_DIR=${DEP_ROOT}/models
+      export EDGEX_DEBUG_ISS=on
+      echo "********** TEST EDGEX UNIT TEST **********"
+      if [ "$CI_PIPELINE_SOURCE" == "schedule" ]
+      then
+        shopt -s expand_aliases
+        alias pytest='pytest --runedgexslow'
+      fi
+      type pytest
+      pytest -vv tests/python/contrib/edgex/
+
+#tvm_test:
+#  stage: test
+#  needs: [build]
+#  before_script:
+#    - *tvm_env
+#    - export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
+#  script:
+#    - |
+#      echo "********** TEST TVM UNIT TEST **********"
+#      pytest -vv tests/python/tir
+#      pytest -vv tests/python/unittest/test_arith_*
+#      pytest -vv tests/python/unittest/test_tir_* tests/python/unittest/test_ir_*
+#      pytest -vv tests/python/unittest/test_tvmscript_*
+
+#tvm_quant:
+#  stage: test
+#  needs: [build]
+#  before_script:
+#    - *tvm_env
+#    - export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
+#  script:
+#    - |
+#      echo "********** TEST TVM QUANTIZATION **********"
+#      export QUANT_DIR=${DEP_ROOT}/quant
+#      if [ "$CI_PIPELINE_SOURCE" == "schedule" ]
+#      then
+#        shopt -s expand_aliases
+#        alias pytest='pytest --runedgexslow'
+#      fi
+#      type pytest
+#      pytest -vv tests/python/relay/quantization/test_*
