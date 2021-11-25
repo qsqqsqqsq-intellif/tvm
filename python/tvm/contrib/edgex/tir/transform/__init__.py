@@ -14,8 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Edgex APIs of TVM python package.
-"""
-from .edgex_runtime import *
-from .edgex import *
-from . import tir
+"""Namespace for edgex Specialized TIR transformations"""
+# pylint: disable=wildcard-import, invalid-name
+
+from .transform import *
