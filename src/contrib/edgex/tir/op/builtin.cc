@@ -32,6 +32,8 @@
 #include <tvm/tir/op.h>
 #include <tvm/tir/op_attr_types.h>
 
+#include "../../topi/op.h"
+
 namespace tvm {
 namespace tir {
 namespace edgex {
@@ -101,6 +103,18 @@ TIR_DEFINE_BUILTIN_FUNC(nnp_veltadd)
 TIR_DEFINE_BUILTIN_FUNC(nnp_vacc_madd_right_shift)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
     .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU));
+
+TIR_DEFINE_BUILTIN_FUNC(nnp_round_right_shift)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::ALL))
+    .set_attr<TVectorizable>("TVectorizable", true)
+    .set_attr<FLowerIntrinsic>("llvm.FLowerIntrinsic", [](const PrimExpr& e) {
+      Call call = Downcast<Call>(e);
+      ICHECK_EQ(call->args.size(), 2U);
+      const auto& x = call->args[0];
+      const auto& y = call->args[1];
+      return topi::round_right_shift(x, y);
+    });
 
 }  // namespace builtin
 }  // namespace edgex

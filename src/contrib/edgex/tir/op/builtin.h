@@ -144,6 +144,11 @@ TVM_DLL const Op& nnp_veltadd();
  */
 TVM_DLL const Op& nnp_vacc_madd_right_shift();
 
+/*!
+ * \brief tvm intrinsic for nnp round right shift.
+ */
+TVM_DLL const Op& nnp_round_right_shift();
+
 }  // namespace builtin
 }  // namespace edgex
 }  // namespace tir
