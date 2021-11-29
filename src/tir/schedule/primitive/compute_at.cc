@@ -607,12 +607,12 @@ void ComputeAtOrReverseComputeAtImpl(ScheduleState self, const StmtSRef& block_s
       /*analyzer=*/&analyzer);
   // The verifier can not prove region cover state if some complex predicte is introduced
   // so here it explicitly reset these flags below.
-  if (is_compute_at && !is_const_int(reconstructor.new_block_realize_->predicate)) {
+  /*if (is_compute_at && !is_const_int(reconstructor.new_block_realize_->predicate)) {
     self->GetBlockScope(scope_root_sref)->stage_pipeline = false;
     for (const StmtSRef& sref : GetConsumers(block_sref, scope)) {
       self->block_info[sref].region_cover = false;
     }
-  }
+  }*/
 }
 
 void ComputeAt(ScheduleState self, const StmtSRef& block_sref, const StmtSRef& loop_sref,
