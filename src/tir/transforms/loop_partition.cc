@@ -96,15 +96,16 @@ class CandidateSelector final : public StmtExprVisitor {
       : partition_const_loop_(partition_const_loop) {}
 
   void VisitStmt_(const ForNode* op) final {
+    const VarNode* var = op->loop_var.get();
+    // always treat var with hint to be partitioned
+    if (partition_hint_vars.count(var)) {
+      candidates.insert(GetRef<Stmt>(op));
+      StmtExprVisitor::VisitStmt_(op);
+      return;
+    }
     // partition const loop when sets partition_const_loop_
     if (!is_const_int(op->min) || !is_const_int(op->extent) || partition_const_loop_) {
       // always treat var with hint to be partitioned
-      const VarNode* var = op->loop_var.get();
-      if (partition_hint_vars.count(var)) {
-        candidates.insert(GetRef<Stmt>(op));
-        StmtExprVisitor::VisitStmt_(op);
-        return;
-      }
       record_.insert({var, false});
       StmtExprVisitor::VisitStmt_(op);
       if (record_.at(var) && !no_split_) {
@@ -121,14 +122,14 @@ class CandidateSelector final : public StmtExprVisitor {
       const IterVarNode* iv = op->node.as<IterVarNode>();
       ICHECK(iv);
       Var var = iv->var;
+      // always treat var with hint to be partitioned
+      if (partition_hint_vars.count(var.get())) {
+        candidates.insert(GetRef<Stmt>(op));
+        StmtExprVisitor::VisitStmt_(op);
+        return;
+      }
       runtime::ThreadScope scope = runtime::ThreadScope::Create(iv->thread_tag);
       if ((scope.rank == 0) && (!is_const_int(op->value) || partition_const_loop_)) {
-        // always treat var with hint to be partitioned
-        if (partition_hint_vars.count(var.get())) {
-          candidates.insert(GetRef<Stmt>(op));
-          StmtExprVisitor::VisitStmt_(op);
-          return;
-        }
         record_.insert({var.get(), false});
         StmtExprVisitor::VisitStmt_(op);
         if (record_.at(var.get()) && !no_split_) {

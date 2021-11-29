@@ -187,10 +187,65 @@ class IRConvertSSA final : public StmtExprMutator {
       return StmtExprMutator::VisitStmt_(op);
     }
   }
+  Stmt VisitStmt_(const BlockNode* op) final {
+    bool need_update = false;
+    std::vector<IterVar> new_iter_vars;
+    std::vector<const VarNode*> scoped_vars;
+    for (IterVar iter_var : op->iter_vars) {
+      Var v = iter_var->var;
+      Range dom = iter_var->dom;
+      auto new_min = VisitExpr(dom->min);
+      auto new_ext = VisitExpr(dom->extent);
+      if (!new_min.same_as(dom->min) || !new_ext.same_as(dom->extent)) {
+        iter_var.CopyOnWrite()->dom = Range(new_min, new_ext, iter_var->span);
+        need_update = true;
+      }
+      if (defined_.count(v.get())) {
+        Var new_var(v->name_hint, v.dtype());
+        iter_var.CopyOnWrite()->var = new_var;
+        scope_[v.get()].push_back(new_var);
+        scoped_vars.push_back(v.get());
+        need_update = true;
+      } else {
+        defined_.insert(v.get());
+      }
+      new_iter_vars.push_back(iter_var);
+    }
+    // rename block
+    std::string block_name = op->name_hint;
+    auto name_cnt_iter = block_name_cnt_.find(block_name);
+    if (name_cnt_iter != block_name_cnt_.end()) {
+      size_t cnt = name_cnt_iter->second;
+      std::string new_name = block_name + "_" + std::to_string(cnt);
+      while (block_name_cnt_.find(new_name) != block_name_cnt_.end()) {
+        cnt += 1;
+        new_name = block_name + "_" + std::to_string(cnt);
+      }
+      name_cnt_iter->second = cnt;
+      block_name = new_name;
+      block_name_cnt_[new_name] = 1;
+      need_update = true;
+    } else {
+      block_name_cnt_.insert(name_cnt_iter, {block_name, 1});
+    }
+    if (need_update) {
+      Stmt stmt = StmtExprMutator::VisitStmt_(op);
+      for (auto vn : scoped_vars) {
+        scope_[vn].pop_back();
+      }
+      auto n = CopyOnWrite(stmt.as<BlockNode>());
+      n->iter_vars = new_iter_vars;
+      n->name_hint = block_name;
+      return Block(n);
+    } else {
+      return StmtExprMutator::VisitStmt_(op);
+    }
+  }
 
  private:
   std::unordered_map<const VarNode*, std::vector<Var>> scope_;
   std::unordered_set<const VarNode*> defined_;
+  std::unordered_map<std::string, size_t> block_name_cnt_;
 };
 
 Stmt ConvertSSA(Stmt stmt) { return IRConvertSSA()(std::move(stmt)); }
