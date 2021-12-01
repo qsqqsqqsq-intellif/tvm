@@ -29,6 +29,7 @@
 #include <tvm/relay/op_attr_types.h>
 #include <tvm/runtime/device_api.h>
 #include <tvm/runtime/registry.h>
+#include <tvm/target/generic_func.h>
 #include <tvm/te/operation.h>
 #include <tvm/te/schedule.h>
 #include <tvm/te/schedule_pass.h>
@@ -78,6 +79,7 @@ CachedFunc::CachedFunc(tvm::Target target, GlobalVar prim_fn_var, tvm::Array<te:
   n->inputs = inputs;
   n->outputs = outputs;
   n->schedule = schedule;
+  n->prim_func = prim_func;
   n->shape_func_param_states = shape_func_param_states;
   n->funcs = funcs;
   data_ = std::move(n);
@@ -174,7 +176,31 @@ class ScheduleBuilder : public backend::MemoizedExprTranslator<Array<te::Tensor>
           schedule = Downcast<te::Schedule>(obj);
         }
       }
-      if (use_meta_schedule_) {
+
+      if (use_meta_schedule_ && Op::HasAttrMap("FEdgeXSchedule")) {
+        using FEdgeXSchedule = GenericFunc;
+        static auto edgex_sched_map_ = Op::GetAttrMap<FEdgeXSchedule>("FEdgeXSchedule");
+        if (edgex_sched_map_.count(anchor_op_)) {
+          auto fschedule = edgex_sched_map_[anchor_op_];
+          if (fschedule.GetPacked() != nullptr) {
+            With<Target> tctx(target_);
+            tec::CCacheKey key(relay_func, target_);
+            Array<te::Tensor> all_tensors(fn_inputs);
+            for (te::Tensor out : tensor_outs) {
+              all_tensors.push_back(out);
+            }
+            const auto* f_create_func = runtime::Registry::Get("te.CreatePrimFunc");
+            ICHECK(f_create_func) << "te.CreatePrimFunc is not registered";
+            prim_func = (*f_create_func)(all_tensors);
+            prim_func = fschedule(anchor_attrs_, prim_func, target_);
+            prim_func =
+                Downcast<tvm::tir::PrimFunc>(tvm::LowerPrimFunc(prim_func, prim_fn_var->name_hint)
+                                                 ->Lookup(prim_fn_var->name_hint));
+          }
+        }
+      }
+
+      if (use_meta_schedule_ && !prim_func.defined()) {
         const auto* f_create_func = runtime::Registry::Get("te.CreatePrimFuncFromOutputs");
         const auto* f_meta_schedule =
             runtime::Registry::Get("meta_schedule.MetaScheduleContextQueryInsideWithScope");

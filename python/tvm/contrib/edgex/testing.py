@@ -22,9 +22,8 @@ from tvm import relay
 from tvm.contrib.edgex import build_config_nnp
 from tvm.ir.module import IRModule
 from tvm.contrib import graph_executor
-
-# from tvm.contrib.edgex.relay.transform import PostScheduleArgumentRewrite
-# from tvm.contrib.edgex.relay.backend import ScheduleCache
+from tvm.contrib.edgex.relay.transform import PostScheduleArgumentRewrite
+from tvm.contrib.edgex.relay.backend import ScheduleCache
 from tvm.ir.transform import PassContext
 from tvm.relay.build_module import bind_params_by_name
 

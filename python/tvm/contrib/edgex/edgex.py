@@ -56,6 +56,7 @@ def build_config_nnp(extra_config=None, extra_disabled_pass=None, opt_level=2):
         "tir.add_lower_pass": pass_list,
         "relay.backend.use_meta_schedule": True,
         "relay.fallback_device_type": 16,
+        "relay.backend.use_multitarget_pass_context": True,
     }
     if extra_config is not None:
         config.update(extra_config)

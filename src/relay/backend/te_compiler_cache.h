@@ -170,6 +170,7 @@ class CachedFunc : public ObjectRef {
 
  public:
   TVM_DEFINE_OBJECT_REF_METHODS(CachedFunc, ObjectRef, CachedFuncNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(CachedFuncNode);
 };
 
 /*! \brief Node container for compile cache. */

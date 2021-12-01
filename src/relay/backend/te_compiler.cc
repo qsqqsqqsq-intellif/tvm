@@ -43,6 +43,7 @@
 #include <utility>
 #include <vector>
 
+#include "../../contrib/edgex/relay/backend/schedule_cache.h"
 #include "../op/annotation/annotation.h"
 #include "../op/call/call.h"
 #include "../op/memory/device_copy.h"
@@ -306,11 +307,38 @@ class TECompilerImpl : public TECompilerNode {
     // Enforce use the target.
     With<Target> target_scope(key->target);
 
+    // Enforce default pass context for host target
+    PassContext pass_ctx = PassContext::Current();
+    if (pass_ctx.defined() &&
+        pass_ctx->GetConfig<Bool>("relay.backend.use_multitarget_pass_context", Bool(false))
+            .value()) {
+      if (key->target->kind->name == "llvm") {
+        pass_ctx = PassContext::Create();
+        pass_ctx->config.Set("relay.backend.use_meta_schedule",
+                             Bool(backend::IsMetaScheduleEnabled()));
+      }
+    }
+    With<PassContext> pass_ctx_scope(pass_ctx);
+
     ICHECK(!value->cached_func.defined());
-    value->cached_func = PrimFuncFor(key->source_func, key->target, [&](std::string name) {
-      auto mangled = mangle_fn(name);
-      return GetUniqueName(mangled, &name_map_);
-    });
+
+    auto schedule_cache = ScheduleCache::Current();
+    if (schedule_cache.defined()) {
+      const auto hashkey = key->source_func->GetAttr<Integer>("ScheduleCacheKey");
+      if (hashkey.defined()) {
+        value->cached_func = schedule_cache.GetSchedule(hashkey.value());
+        if (value->cached_func.defined()) {
+          return value;
+        }
+      }
+    }
+
+    if (!value->cached_func.defined()) {
+      value->cached_func = PrimFuncFor(key->source_func, key->target, [&](std::string name) {
+        auto mangled = mangle_fn(name);
+        return GetUniqueName(mangled, &name_map_);
+      });
+    }
 
     if (value->cached_func->prim_func.defined()) {
       VLOG(1) << "already have PrimFunc";
@@ -427,6 +455,7 @@ TECompiler& TECompiler::Global() {
 }
 TVM_REGISTER_PASS_CONFIG_OPTION("relay.backend.use_auto_scheduler", Bool);
 TVM_REGISTER_PASS_CONFIG_OPTION("relay.backend.use_meta_schedule", Bool);
+TVM_REGISTER_PASS_CONFIG_OPTION("relay.backend.use_multitarget_pass_context", Bool);
 
 TVM_REGISTER_GLOBAL("relay.backend._TECompilerGlobal").set_body_typed([]() {
   return TECompiler::Global();
@@ -995,7 +1024,7 @@ void UpdateFunctionMetadata(BaseFunc func,
 
     // Workspace sizes
     Target prim_fn_target;
-    if (prim_fn->attrs->dict.count(tvm::attr::kTarget)) {
+    if (prim_fn->attrs.defined() && prim_fn->attrs->dict.count(tvm::attr::kTarget)) {
       prim_fn_target = Downcast<Target>(prim_fn->attrs->dict[tvm::attr::kTarget]);
     } else {
       prim_fn_target = relay_target.value();
@@ -1171,6 +1200,7 @@ Pass LowerTEPass(const String& module_name, ProcessFn process_fn, SEScope host_s
       {tvm::relay::transform::RelayToTIRTargetHook(),
        tvm::transform::CreateModulePass(pass_func, 0, "LowerTE", {"InferType"}), InferType()});
 }
+
 }  // namespace tec
 }  // namespace relay
 }  // namespace tvm
