@@ -364,6 +364,11 @@ class AvgPool2DAttrs(Attrs):
     """Attributes used in avg_pool2d operators"""
 
 
+@tvm._ffi.register_object("relay.attrs.SumPool2DAttrs")
+class SumPool2DAttrs(Attrs):
+    """Attributes used in sum_pool2d operators"""
+
+
 @tvm._ffi.register_object("relay.attrs.MaxPool1DAttrs")
 class MaxPool1DAttrs(Attrs):
     """Attributes used in max_pool1d operators"""

@@ -44,6 +44,7 @@ using namespace tvm::te;
 enum PoolType : int {
   kAvgPool,
   kMaxPool,
+  kSumPool,
 };
 
 inline Tensor pool_grad_impl(const Tensor& out_grad, const Tensor& x,
@@ -636,6 +637,21 @@ inline Tensor pool_impl_nd(const Tensor& x, const Array<PrimExpr>& kernel_size,
           }
         },
         "tensor", kElementWise);
+  } else if (pool_type == kSumPool) {
+    auto temp = do_pad ? pad(x, pad_before, pad_after, tvm::min_value(x->dtype), "pad_temp") : x;
+    return tvm::te::compute(
+        out_shape,
+        [&](const Array<Var>& output) {
+          Array<PrimExpr> indices;
+          for (const Var& var : output) indices.push_back(var);
+
+          for (int i = 0; i < k_size; i++) {
+            int ii = axis[i];
+            indices.Set(ii, output[ii] * stride[i] + daxis[i] * dilation[i]);
+          }
+          return tvm::sum(temp(indices), daxis);
+        },
+        "tensor", "pool_max");
   } else {
     LOG(ERROR) << "Unrecognized pool_type: " << pool_type;
     return x;

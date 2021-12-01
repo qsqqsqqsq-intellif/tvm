@@ -769,6 +769,50 @@ struct AvgPool2DAttrs : public tvm::AttrsNode<AvgPool2DAttrs> {
   }
 };
 
+/*! \brief Attributes for sum pool operator */
+struct SumPool2DAttrs : public tvm::AttrsNode<SumPool2DAttrs> {
+  Array<IndexExpr> pool_size;
+  Array<IndexExpr> strides;
+  Array<IndexExpr> padding;
+  Array<IndexExpr> dilation;
+  std::string layout;
+  tvm::String out_layout;
+  bool ceil_mode;
+
+  TVM_DECLARE_ATTRS(SumPool2DAttrs, "relay.attrs.SumPool2DAttrs") {
+    TVM_ATTR_FIELD(pool_size).describe("Size of the pooling windows.");
+    TVM_ATTR_FIELD(strides)
+        .set_default(Array<IndexExpr>({1, 1}))
+        .describe("Specifies the strides of the convolution.");
+    TVM_ATTR_FIELD(padding)
+        .set_default(Array<IndexExpr>({0, 0}))
+        .describe(
+            "If padding is non-zero, then the input is implicitly zero-padded"
+            "Padding support both symmetric and asymmetric as"
+            "one int : same padding used on all sides"
+            "two int : bottom, right will use same padding as top, left"
+            "four int : padding width in the order of (top, left, bottom, right)");
+    TVM_ATTR_FIELD(dilation)
+        .set_default(Array<IndexExpr>({1, 1}))
+        .describe("Specifies the dilation of the pooling.");
+    TVM_ATTR_FIELD(layout).set_default("NCHW").describe(
+        "Dimension ordering of data and weight. Can be 'NCHW', 'NHWC', etc."
+        "'N', 'C', 'H', 'W' stands for batch, channel, height, and width"
+        "dimensions respectively. Convolution is applied on the 'H' and"
+        "'W' dimensions.");
+    TVM_ATTR_FIELD(out_layout)
+        .set_default("")
+        .describe(
+            "Dimension ordering of output data. Can be 'NCHW', 'NHWC', etc."
+            "'N', 'C', 'H', 'W' stands for batch, channel, height, and width"
+            "dimensions respectively. Pooling is applied on the 'H' and"
+            "'W' dimensions.");
+    TVM_ATTR_FIELD(ceil_mode).set_default(false).describe(
+        "When true, will use ceil instead of floor to compute the output shape.");
+    // use 0 bits to indicate none.
+  }
+};
+
 /*! \brief Attributes for global pool operator */
 struct GlobalPool2DAttrs : public tvm::AttrsNode<GlobalPool2DAttrs> {
   tvm::String layout;

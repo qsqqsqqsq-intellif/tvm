@@ -1198,6 +1198,61 @@ def avg_pool3d(
     )
 
 
+def sum_pool2d(
+    data, pool_size=(1, 1), strides=(1, 1), padding=(0, 0), layout="NCHW", ceil_mode=False
+):
+    r"""2D sum pooling operator.
+
+    This operator takes data as input and does 2D average value calculation
+    with in pool_size sized window by striding defined by stride
+
+
+    In the default case, where the data_layout is `NCHW`
+    a data Tensor with shape `(batch_size, in_channels, height, width)`,
+    to produce an output Tensor with the following rule:
+
+    with data of shape (b, c, h, w), pool_size (kh, kw)
+
+    .. math::
+
+        \mbox{out}(b, c, y, x)  = \frac{1}{kh * kw} \sum_{m=0}^{kh-1} \sum_{n=0}^{kw-1}
+             \mbox{data}(b, c, \mbox{stride}[0] * y + m, \mbox{stride}[1] * x + n)
+
+    Padding is applied to data before the computation.
+    ceil_mode is used to take ceil or floor while computing out shape.
+    This operator accepts data layout specification.
+
+    Parameters
+    ----------
+    data : tvm.relay.Expr
+        The input data to the operator.
+
+    strides : tuple of int, optional
+        The strides of pooling.
+
+    padding : tuple of int, optional
+        The padding for pooling.
+
+    layout : str, optional
+        Layout of the input.
+
+    ceil_mode : bool, optional
+        To enable or disable ceil while pooling.
+
+    Returns
+    -------
+    result : tvm.relay.Expr
+        The computed result.
+    """
+
+    if isinstance(pool_size, int):
+        pool_size = (pool_size, pool_size)
+    if isinstance(strides, int):
+        strides = (strides, strides)
+    padding = get_pad_tuple2d(padding)
+    return _make.sum_pool2d(data, pool_size, strides, padding, layout, ceil_mode)
+
+
 def max_pool2d_grad(
     out_grad,
     data,
@@ -1382,6 +1437,40 @@ def global_avg_pool2d(data, layout="NCHW", out_layout=""):
         The computed result.
     """
     return _make.global_avg_pool2d(data, layout, out_layout)
+
+
+def global_sum_pool2d(data, layout="NCHW"):
+    r"""2D global sum pooling operator.
+
+    This operator takes data as input and does 2D average value calculation
+    across each window represented by WxH.
+
+
+    In the default case, where the data_layout is `NCHW`
+    a data Tensor with shape `(batch_size, in_channels, height, width)`,
+    to produce an output Tensor with the following rule:
+
+    with data of shape (b, c, h, w)
+
+    .. math::
+
+        \mbox{out}(b, c, 1, 1)  = \frac{1}{h * w} \sum_{m=0}^{h-1} \sum_{n=0}^{w-1}
+             \mbox{data}(b, c, m, n)
+
+    Parameters
+    ----------
+    data : tvm.relay.Expr
+        The input data to the operator.
+
+    layout : str, optional
+        Layout of the input.
+
+    Returns
+    -------
+    result : tvm.relay.Expr
+        The computed result.
+    """
+    return _make.global_sum_pool2d(data, layout)
 
 
 def upsampling(

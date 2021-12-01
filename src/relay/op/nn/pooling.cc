@@ -39,6 +39,7 @@ namespace relay {
 // relay.nn.max_pool2d & relay.nn.avg_pool2d
 TVM_REGISTER_NODE_TYPE(MaxPool2DAttrs);
 TVM_REGISTER_NODE_TYPE(AvgPool2DAttrs);
+TVM_REGISTER_NODE_TYPE(SumPool2DAttrs);
 
 template <typename T>
 InferCorrectLayoutOutput PoolInferCorrectLayout(const Attrs& attrs,
@@ -257,6 +258,51 @@ Average pooling operation for one dimensional data.
     .set_attr<FInferCorrectLayout>("FInferCorrectLayout", PoolInferCorrectLayout<AvgPool2DAttrs>)
     .set_attr<FTVMCompute>("FTVMCompute", Pool2DCompute<AvgPool2DAttrs, topi::nn::kAvgPool>);
 
+// SumPool2D
+Expr MakeSumPool2D(Expr data, Array<IndexExpr> pool_size, Array<IndexExpr> strides,
+                   Array<IndexExpr> padding, String layout, bool ceil_mode) {
+  auto attrs = make_object<SumPool2DAttrs>();
+  attrs->pool_size = std::move(pool_size);
+  attrs->strides = std::move(strides);
+  attrs->padding = std::move(padding);
+  attrs->layout = std::move(layout);
+  attrs->ceil_mode = ceil_mode;
+  static const Op& op = Op::Get("nn.sum_pool2d");
+  return Call(op, {data}, Attrs(attrs), {});
+}
+
+TVM_REGISTER_GLOBAL("relay.op.nn._make.sum_pool2d").set_body_typed(MakeSumPool2D);
+
+RELAY_REGISTER_OP("nn.sum_pool2d")
+    .describe(R"code(
+Sum pooling operation for one dimensional data.
+
+- **data**: This depends on the `layout` parameter. Input is 4D array of shape
+            (batch_size, channels, height, width) if `layout` is `NCHW`.
+- **out**: This depends on the `layout` parameter. Output is 4D array of shape
+           (batch_size, channels, out_height, out_width)  if `layout` is `NCHW`.
+           out_height and out_width are calculated as::
+
+               out_height = floor((height+padding[0]+padding[2]-pool_size[0])/strides[0])+1
+               out_width = floor((width+padding[1]+padding[3]-pool_size[1])/strides[1])+1
+
+           where padding will be an expanded array based on number of values passed as::
+               one int : all sides same padding used.
+               two int : bottom, right use same as top and left.
+               four int: padding width in the order of (top, left, bottom, right).
+
+           When `ceil_mode` is `True`, ceil will be used instead of floor in this
+           equation.
+
+)code" TVM_ADD_FILELINE)
+    .set_attrs_type<SumPool2DAttrs>()
+    .set_num_inputs(1)
+    .add_argument("data", "Tensor", "The input tensor.")
+    .set_support_level(2)
+    .add_type_rel("SumPool2D", Pool2DRel<SumPool2DAttrs>)
+    .set_attr<FInferCorrectLayout>("FInferCorrectLayout", PoolInferCorrectLayout<SumPool2DAttrs>)
+    .set_attr<FTVMCompute>("FTVMCompute", Pool2DCompute<SumPool2DAttrs, topi::nn::kSumPool>);
+
 // relay.nn.global_pool_2d & relay.nn.max_pool_2d
 TVM_REGISTER_NODE_TYPE(GlobalPool2DAttrs);
 
@@ -336,6 +382,34 @@ RELAY_REGISTER_OP("nn.global_avg_pool2d")
     .add_type_rel("GlobalAvgPool2D", GlobalPool2DRel)
     .set_attr<FInferCorrectLayout>("FInferCorrectLayout", PoolInferCorrectLayout<GlobalPool2DAttrs>)
     .set_attr<FTVMCompute>("FTVMCompute", GlobalPool2DCompute<topi::nn::kAvgPool>);
+
+// GlobalSumPool
+Expr MakeGlobalSumPool2D(Expr data, String layout) {
+  auto attrs = make_object<GlobalPool2DAttrs>();
+  attrs->layout = std::move(layout);
+  static const Op& op = Op::Get("nn.global_sum_pool2d");
+  return Call(op, {data}, Attrs(attrs), {});
+}
+
+TVM_REGISTER_GLOBAL("relay.op.nn._make.global_sum_pool2d").set_body_typed(MakeGlobalSumPool2D);
+
+// GlobalSumPool
+RELAY_REGISTER_OP("nn.global_sum_pool2d")
+    .describe(R"code(Global sum pooling operation for 2D data.
+
+- **data**: This depends on the `layout` parameter. Input is 4D array of shape
+            (batch_size, channels, height, width) if `layout` is `NCHW`.
+- **out**: This depends on the `layout` parameter. Output is 4D array of shape
+           (batch_size, channels, 1, 1)  if `layout` is `NCHW`.
+
+)code" TVM_ADD_FILELINE)
+    .set_attrs_type<GlobalPool2DAttrs>()
+    .set_num_inputs(1)
+    .add_argument("data", "Tensor", "The input tensor.")
+    .set_support_level(2)
+    .add_type_rel("GlobalSumPool2D", GlobalPool2DRel)
+    .set_attr<FInferCorrectLayout>("FInferCorrectLayout", PoolInferCorrectLayout<GlobalPool2DAttrs>)
+    .set_attr<FTVMCompute>("FTVMCompute", GlobalPool2DCompute<topi::nn::kSumPool>);
 
 // GlobalMaxPool
 Expr MakeGlobalMaxPool2D(Expr data, String layout, String out_layout) {
