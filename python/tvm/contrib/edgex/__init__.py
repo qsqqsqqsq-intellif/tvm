@@ -20,3 +20,4 @@ from .edgex_runtime import *
 from .edgex import *
 from . import tir
 from . import topi
+from . import relay

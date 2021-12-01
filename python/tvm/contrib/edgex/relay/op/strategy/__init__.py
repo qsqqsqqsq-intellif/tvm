@@ -18,3 +18,4 @@
 from __future__ import absolute_import as _ab
 
 from .general import *
+from .conv import *

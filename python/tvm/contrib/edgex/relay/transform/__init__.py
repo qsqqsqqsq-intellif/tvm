@@ -14,6 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Namespace for edgex specialized relay implementations"""
-from . import transform
-from . import op
+# pylint: disable=wildcard-import, redefined-builtin, invalid-name
+"""The edgex Relay IR namespace containing transformations."""
+from .transform import *
+from .post_schedule_argument_rewrite_manager import PostScheduleArgumentRewriteManager
