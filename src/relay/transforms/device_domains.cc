@@ -260,7 +260,9 @@ DeviceDomainPtr DeviceDomains::DomainForCallee(const Call& call) {
     args_and_result.emplace_back(free_domain);
     args_and_result.emplace_back(host_domain_);
     args_and_result.emplace_back(free_domain);
-  } else if (call->op->IsInstance<OpNode>()) {
+  } else if (call->op->IsInstance<OpNode>() ||
+             (call->op->IsInstance<FunctionNode>() &&
+              Downcast<Function>(call->op)->HasNonzeroAttr(attr::kPrimitive))) {
     // <primitive>(arg1, ..., argn)
     // <primitive>: fn(?x?, ..., ?x?):?x?
     // (all args and result must be first-order).
