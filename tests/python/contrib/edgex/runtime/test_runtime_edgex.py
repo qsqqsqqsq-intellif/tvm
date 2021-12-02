@@ -48,7 +48,7 @@ def verify_matmul(m, l, n, dtype="int8"):
     a = tvm.nd.array(a_np, ctx)
     b = tvm.nd.array(b_np, ctx)
     c = tvm.nd.empty((m, n), dtype, ctx)
-    f = tvm.build(s, [A, B, C], "edgex", target_host="llvm", name="add")
+    f = tvm.build(s, [A, B, C], "edgex", name="add")
     f(a, b, c)
     tvm.testing.assert_allclose(c.numpy(), c_np, rtol=1e-3)
 
@@ -71,7 +71,7 @@ def verify_add(shape, dtype="int8"):
     # copy data from host to device, in CreateTVMOp
     a = tvm.nd.array(a_np, ctx)
     b = tvm.nd.empty((shape[0] // 2,), dtype, ctx)
-    f = tvm.build(s, [A, B], "edgex", target_host="llvm", name="add")
+    f = tvm.build(s, [A, B], "edgex", name="add")
     f(a, b)
     tvm.testing.assert_allclose(b.numpy(), c_np, rtol=1e-3)
 

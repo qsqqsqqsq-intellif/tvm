@@ -266,7 +266,7 @@ def edgex_launch_iss(
         input_tensor_path = "input_tensor_%d.dat" % i
         output_tensor_path = "output_tensor_%d.dat" % i
         with open(os.path.join(output_dir, input_tensor_path), "w") as tfile:
-            data = t.asnumpy().tobytes()
+            data = t.numpy().tobytes()
             nbytes = len(data)
             linenum = (nbytes + 31) // 32
             for lineno in range(linenum):
@@ -406,7 +406,6 @@ def edgex_launch_iss(
     iss_bin = os.path.join(iss_dir, "nnp_iss")
     p = subprocess.Popen(
         iss_bin,
-        bufsize=1,
         cwd=output_dir,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
