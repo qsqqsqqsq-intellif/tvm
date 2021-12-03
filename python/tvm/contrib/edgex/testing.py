@@ -16,6 +16,7 @@
 # under the License.
 """Edgex testing utilities"""
 import inspect
+import json
 import numpy as np
 import tvm
 from tvm import relay
@@ -599,3 +600,54 @@ def check_edgex_tir_build(
         if expects is not None:
             for _, (expect, res) in enumerate(zip(expects, edgex_results)):
                 check_numpy_result(res, expect, rmse=rmse)
+
+
+def get_graph_runtime_output(lib, data, ctx=tvm.device("cpu", 0)):
+    m = graph_executor.GraphModule(lib["default"](ctx))
+    m.set_input("input", data)
+    m.run()
+    return m.get_output(0)
+
+
+def load_model_json_from_predev(mod_json_path):
+    """Upgrade and load json created by pre_dev branch
+    TODO(bxq): remove usages of it
+    """
+    with open(mod_json_path) as inputf:
+        mod_json_str = inputf.read()
+    mod_json_str = json.loads(mod_json_str)
+    graph = json.loads(mod_json_str)
+    graph_nodes = graph["nodes"]
+    length = len(graph["nodes"])
+    nidx = length
+
+    # Issue(1): new version of IRModule has attrs field
+    graph_nodes[graph["root"]]["attrs"]["attrs"] = "0"
+
+    for k in range(length):
+        node = graph_nodes[k]
+        if node["type_key"] == "relay.attrs.SumPool2DAttrs":
+            # Issue(2): new version add dilation and out_layout attr
+            graph_nodes.append(
+                {"type_key": "IntImm", "attrs": {"dtype": "int32", "span": "0", "value": "1"}}
+            )
+            graph_nodes.append({"type_key": "Array", "data": [nidx, nidx]})
+            node["attrs"]["dilation"] = str(nidx + 1)
+            nidx += 2
+            graph_nodes.append({"type_key": "runtime.String", "repr_str": "NCHW"})
+            node["attrs"]["out_layout"] = str(nidx)
+            nidx += 1
+
+        elif node["type_key"] == "relay.attrs.MaxPool2DAttrs":
+            graph_nodes.append(
+                {"type_key": "IntImm", "attrs": {"dtype": "int32", "span": "0", "value": "1"}}
+            )
+            graph_nodes.append({"type_key": "Array", "data": [nidx, nidx]})
+            node["attrs"]["dilation"] = str(nidx + 1)
+            nidx += 2
+            graph_nodes.append({"type_key": "runtime.String", "repr_str": "NCHW"})
+            node["attrs"]["out_layout"] = str(nidx)
+            nidx += 1
+
+    mod_json_str = json.dumps(graph)
+    return tvm.ir.load_json(mod_json_str)

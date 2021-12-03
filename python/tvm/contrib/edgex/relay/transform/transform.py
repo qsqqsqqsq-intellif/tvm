@@ -17,6 +17,7 @@
 # pylint: disable=invalid-name, unused-argument, missing-docstring, unused-import
 """edgex Relay pass transformations."""
 import numpy as np
+import pulp
 from tvm.ir.module import IRModule
 from tvm.relay import ExprMutator
 import tvm
@@ -33,6 +34,121 @@ def PostScheduleArgumentRewrite():
     ret: tvm.transform.Pass
     """
     return _ffi_api.PostScheduleArgumentRewrite()
+
+
+def FusionStitch(fuse_opt_level=-1, device_type=16):
+    """Fuse operators in an expr to a larger operator according to performance.
+
+    Parameters
+    ----------
+    fuse_opt_level : int
+        The level of fuse optimization. -1 indicates that the level will be
+        inferred from pass context.
+    device_type : int
+        The device type of hardware
+
+    Returns
+    -------
+    ret : tvm.transform.Pass
+        The registered pass for operator fusion.
+    """
+    return _ffi_api.FusionStitch(fuse_opt_level, device_type)
+
+
+@tvm.register_func("edgex.util.pulp_compute", override=True)
+def pulp_compute(pattern_gains, pattern_conflicts):
+    """Solve the given Lp problem using pulp
+
+    Parameters
+    ----------
+    Constraints
+    """
+    gains = [g.value for g in pattern_gains]
+    conflicts = [[i.value for i in row] for row in pattern_conflicts]
+
+    prob = pulp.LpProblem("myPro", pulp.LpMaximize)
+    X = pulp.LpVariable.dicts("x", range(len(gains)), lowBound=0, upBound=1, cat=pulp.LpInteger)
+
+    prob += sum(X[i] * gains[i] for i in range(len(gains)))
+
+    for i in range(len(gains)):
+        for j in range(len(gains)):
+            if j > i and conflicts[i][j] == 1:
+                prob += X[i] + X[j] <= 1
+
+    status = prob.solve(pulp.PULP_CBC_CMD(msg=0))
+    if not status:
+        raise RuntimeError("LP failed")
+
+    ret = list()
+    for _, x in enumerate(X.values()):
+        value = pulp.value(x)
+        if value is None:
+            ret.append(tvm.tir.IntImm("int32", 1))
+        else:
+            ret.append(tvm.tir.IntImm("int32", int(value)))
+
+    return ret
+
+
+class ExtractParamsInOrderPass(ExprMutator):
+    """Pass of extracting paramaters in order"""
+
+    def __init__(self):
+        super().__init__()
+        self.params = {}
+        self.func_vars = []
+        self.count = 0
+
+    def visit_call(self, call):
+        visit = super().visit_call(call)
+        return visit
+
+    def visit_tuple_getitem(self, op):
+        visit = super().visit_tuple_getitem(op)
+        return visit
+
+    def visit_tuple(self, tup):
+        visit = super().visit_tuple(tup)
+        return visit
+
+    def visit_var(self, var):
+        visit = super().visit_var(var)
+        self.func_vars.append(visit)
+        return visit
+
+    def visit_constant(self, const):
+        visit = super().visit_constant(const)
+        if len(visit.data.shape) > 0:
+            var_name = "arg_{}".format(self.count)
+            self.count += 1
+            var = relay.var(var_name, shape=visit.data.shape, dtype=visit.data.dtype)
+            self.params[var_name] = visit.data
+            self.func_vars.append(var)
+            return var
+        return visit
+
+    def visit_function(self, fn):
+        visited = super().visit_function(fn)
+        func_vars = list()
+        func_vars.extend(self.func_vars)
+        return relay.Function(func_vars, visited.body, visited.ret_type, visited.type_params)
+
+    def run(self, expr):
+        visited = self.visit(expr)
+        return visited, self.params
+
+
+@tvm._ffi.register_func("tvm.edgex.replace_constants", override=True)
+def replace_constants(expr):
+    """Replace constants in given expr
+
+    Parameters
+    ----------
+    expr
+    """
+    new_expr, _ = ExtractParamsInOrderPass().run(expr)
+    return new_expr
 
 
 class ConvertDepthwiseConv2DToConv2D(ExprMutator):
