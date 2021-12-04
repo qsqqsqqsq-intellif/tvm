@@ -384,6 +384,7 @@ def check_int_constraints_trans_consistency(constraints_trans, vranges=None):
 
 
 def _get_targets(target_str=None):
+    target_names = None
     if target_str is None:
         target_str = os.environ.get("TVM_TEST_TARGETS", "")
         # Use dict instead of set for de-duplication so that the

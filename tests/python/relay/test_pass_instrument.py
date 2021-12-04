@@ -165,16 +165,14 @@ def test_instrument_pass_counts():
         def __init__(self):
             self.run_before_count = 0
             self.run_after_count = 0
-
-        def __clear(self):
-            self.run_before_count = 0
-            self.run_after_count = 0
+            self.enter_ctx_count = 0
+            self.exit_ctx_count = 0
 
         def enter_pass_ctx(self):
-            self.__clear()
+            self.enter_ctx_count += 1
 
         def exit_pass_ctx(self):
-            self.__clear()
+            self.exit_ctx_count += 1
 
         def run_before_pass(self, mod, info):
             self.run_before_count = self.run_before_count + 1
@@ -189,9 +187,8 @@ def test_instrument_pass_counts():
         assert passes_counter.run_after_count != 0
         assert passes_counter.run_after_count == passes_counter.run_before_count
 
-    # Out of pass context scope, should be reset
-    assert passes_counter.run_before_count == 0
-    assert passes_counter.run_after_count == 0
+    assert passes_counter.enter_ctx_count != 0
+    assert passes_counter.enter_ctx_count == passes_counter.exit_ctx_count
 
 
 def test_list_pass_configs():
