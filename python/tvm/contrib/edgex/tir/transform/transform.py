@@ -122,3 +122,18 @@ def RewriteVcuOps():
         The result pass
     """
     return _ffi_api.RewriteVcuOps()
+
+
+def InlinePrimFuncCalls(extern_primfuncs=None):
+    """Inline calls to primfuncs.
+    Parameters
+    ----------
+    extern_primfuncs : dict
+        Mapping from extern name to PrimFunc
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.InlinePrimFuncCalls(extern_primfuncs)

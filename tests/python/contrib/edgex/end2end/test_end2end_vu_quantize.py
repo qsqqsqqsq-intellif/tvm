@@ -14,7 +14,10 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+import tvm
 from tvm import tir
+from tvm.ir.expr import GlobalVar, PrimExpr
+from tvm.ir.module import IRModule
 from tvm.script import tir as T
 from tvm.contrib.edgex.topi import naive_vu_schedule
 from tvm.contrib.edgex.testing import check_edgex_tir_build
@@ -357,9 +360,49 @@ def test_i32_quantize():
     # do_test_i32_quantize(channels=16, height=14, weight=14)
 
 
+def test_setmode_side_effect():
+    @T.prim_func
+    def veltadd_of_different_relu_mode(
+        a: T.handle, mullt_norm: T.handle, shift_norm: T.handle, c1: T.handle, c2: T.handle
+    ) -> None:
+        A = T.match_buffer(a, [1, 32, 1, 1], dtype="int8")
+        MulNorm = T.match_buffer(mullt_norm, [32, 1, 1], dtype="uint8")
+        ShiftNorm = T.match_buffer(shift_norm, [32, 1, 1], dtype="uint8")
+        C1 = T.match_buffer(c1, [1, 32, 1, 1], dtype="int8")
+        C2 = T.match_buffer(c2, [1, 32, 1, 1], dtype="int8")
+        T.evaluate(
+            T.call_extern(
+                "veltadd_use_relu", A.data, MulNorm.data, ShiftNorm.data, C1.data, dtype=""
+            )
+        )
+        T.evaluate(
+            T.call_extern(
+                "veltadd_no_relu", A.data, MulNorm.data, ShiftNorm.data, C2.data, dtype=""
+            )
+        )
+
+    shape = [1, 32, 1, 1]
+    extern_primfuncs = {
+        "veltadd_use_relu": veltadd_unary_relu.specialize(
+            {veltadd_unary_relu.params[0]: tir.decl_buffer(shape)}
+        ),
+        "veltadd_no_relu": veltadd_unary.specialize(
+            {veltadd_unary.params[0]: tir.decl_buffer(shape)}
+        ),
+    }
+    mod = IRModule.from_expr(veltadd_of_different_relu_mode)
+    mod = tvm.contrib.edgex.tir.transform.InlinePrimFuncCalls(extern_primfuncs)(mod)
+    func = naive_vu_schedule(mod["main"], allow_multi_block=True)
+    x = np.random.randint(-128, 127, shape).astype("int8")
+    m = np.random.randint(0, 5, [32, 1, 1]).astype("uint8")
+    s = np.random.randint(0, 9, [32, 1, 1]).astype("uint8")
+    check_edgex_tir_build("veltadd_relu_and_norelu", func, check_cpu=True, input_data=[x, m, s])
+
+
 if __name__ == "__main__":
     test_i32_quantize()
     test_veltadd_binary_with_relu()
     test_veltadd_binary_no_relu()
     test_veltadd_unary_with_relu()
     test_veltadd_unary_no_relu()
+    test_setmode_side_effect()

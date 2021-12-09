@@ -134,6 +134,8 @@ def vodma_eodma_store_sync(a: T.handle, c: T.handle) -> None:
         T.evaluate(T.nnp_sync("vcu", "wo", "vodma", dtype=""))
         T.evaluate(T.nnp_sync("vodma", "ub", "eodma", dtype=""))
         T.evaluate(T.nnp_sync("eodma", "wo", "vodma0", dtype=""))
+        T.evaluate(T.nnp_sync("eodma", "ub", "vodma0", dtype=""))
+        T.evaluate(T.nnp_sync("vodma", "wo", "eodma", dtype=""))
         T.evaluate(
             T.nnp_eodma_store(
                 "float32",

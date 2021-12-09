@@ -256,6 +256,9 @@ class HandShakeIntrinInjector : public StmtExprMutator {
         seq.emplace_back(CreateSyncStmt({StringImm("vodma"), StringImm("ub"), StringImm("eodma")}));
         seq.emplace_back(
             CreateSyncStmt({StringImm("eodma"), StringImm("wo"), StringImm("vodma0")}));
+        seq.emplace_back(
+            CreateSyncStmt({StringImm("eodma"), StringImm("ub"), StringImm("vodma0")}));
+        seq.emplace_back(CreateSyncStmt({StringImm("vodma"), StringImm("wo"), StringImm("eodma")}));
       }
       if (detector_.HasOdma()) {
         seq.emplace_back(CreateSyncStmt({StringImm("odma"), StringImm("ub"), StringImm("eodma")}));

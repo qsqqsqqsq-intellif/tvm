@@ -533,9 +533,12 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
                        {}, bind_keys, op);
   }
 
-  void CreateSetModeForIntrinCall(const CallNode* op) {
+  template <typename RetT>
+  RetT WithSetModeScope(const CallNode* op, const std::function<RetT()>& callback) {
     const char* attrs[8] = {"", "", "asr_rmode", "", "", "", "", "veltadd_relu_mode"};
+    int recover_value[8] = {-1, -1, 3, -1, -1, -1, -1, 0};
     std::vector<llvm::Value*> mode_args(8, builder_->getInt32(-1));
+    std::vector<llvm::Value*> recover_mode_args(8, builder_->getInt32(-1));
     bool gen = false;
     for (size_t i = 0; i < 8; ++i) {
       std::string name = attrs[i];
@@ -543,6 +546,7 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
       int value = GetValueByKey(op, name);
       if (value >= 0) {
         mode_args[i] = builder_->getInt32(value);
+        recover_mode_args[i] = builder_->getInt32(recover_value[i]);
         gen = true;
       }
     }
@@ -551,18 +555,26 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
           llvm::Intrinsic::getDeclaration(module_.get(), llvm::Intrinsic::nnp_setmode, {});
       builder_->CreateCall(setmode_intrin, mode_args);
     }
+    RetT result = callback();
+    if (gen) {
+      auto setmode_intrin =
+          llvm::Intrinsic::getDeclaration(module_.get(), llvm::Intrinsic::nnp_setmode, {});
+      builder_->CreateCall(setmode_intrin, recover_mode_args);
+    }
+    return result;
   }
 
   llvm::Value* CreateVeltadd(const CallNode* op) {
-    CreateSetModeForIntrinCall(op);
-    ICHECK_GE(op->args.size(), 4);
-    llvm::Value* vs0 = VisitExpr(op->args[0]);
-    llvm::Value* vs1 = VisitExpr(op->args[1]);
-    llvm::Value* vs2 = VisitExpr(op->args[2]);
-    llvm::Value* vs3 = VisitExpr(op->args[3]);
-    auto veltadd_intrin = llvm::Intrinsic::getDeclaration(
-        module_.get(), llvm::Intrinsic::nnp_veltadd, {vs0->getType()});
-    return builder_->CreateCall(veltadd_intrin, {vs0, vs1, vs2, vs3});
+    return WithSetModeScope<llvm::Value*>(op, [this, op]() {
+      ICHECK_GE(op->args.size(), 4);
+      llvm::Value* vs0 = VisitExpr(op->args[0]);
+      llvm::Value* vs1 = VisitExpr(op->args[1]);
+      llvm::Value* vs2 = VisitExpr(op->args[2]);
+      llvm::Value* vs3 = VisitExpr(op->args[3]);
+      auto veltadd_intrin = llvm::Intrinsic::getDeclaration(
+          module_.get(), llvm::Intrinsic::nnp_veltadd, {vs0->getType()});
+      return builder_->CreateCall(veltadd_intrin, {vs0, vs1, vs2, vs3});
+    });
   }
 
   llvm::Value* CreateVacccMaddRightShift(const CallNode* op) {
@@ -572,7 +584,6 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
       auto ity = llvm::cast<llvm::IntegerType>(ty);
       return ity->getBitWidth() <= 32;
     };
-    CreateSetModeForIntrinCall(op);
     ICHECK_GE(op->args.size(), 4);
     llvm::Value* vs0 = VisitExpr(op->args[0]);
     llvm::Value* vs1 = VisitExpr(op->args[1]);
