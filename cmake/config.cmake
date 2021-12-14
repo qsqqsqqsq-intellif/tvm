@@ -364,3 +364,6 @@ set(USE_CUTLASS OFF)
 
 # Whether to use EdgeX
 set(USE_EDGEX OFF)
+
+# Enable to show a summary of TVM options
+set(SUMMARIZE OFF)
