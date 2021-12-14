@@ -16,9 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -e
-set -u
-set -o pipefail
+set -euxo pipefail
 
 cleanup()
 {
@@ -50,7 +48,7 @@ tests/lint/pylint.sh
 tests/lint/flake8.sh
 
 echo "Lintinf the JNI code..."
-# tests/lint/jnilint.sh
+tests/lint/jnilint.sh
 
 echo "Checking C++ documentation..."
 tests/lint/cppdocs.sh
