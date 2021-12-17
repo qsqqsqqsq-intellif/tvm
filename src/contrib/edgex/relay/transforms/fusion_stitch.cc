@@ -434,6 +434,15 @@ class AtomicGraph {
                          {"tuple", "tuple_get", ""},
                          {"nn.relu", "nn.prelu", "nn.leaky_relu"},
                          {"clip", ""}});
+    // ATOMIC_POOL + ATOMIC_ELTWISE
+    add_atomic_op_specs(
+        &atomic_op_specs, ATOMIC_POOL,
+        {{"nn.max_pool2d", "nn.global_max_pool2d", "nn.global_avg_pool2d", "nn.sum_pool2d"},
+         {"cast"},
+         {"multiply"},
+         {"round_right_shift"},
+         {"clip"},
+         {"cast"}});
     add_atomic_op_specs(
         &atomic_op_specs, ATOMIC_POOL,
         {{"nn.max_pool2d", "nn.global_max_pool2d", "nn.global_avg_pool2d", "nn.sum_pool2d"}});
