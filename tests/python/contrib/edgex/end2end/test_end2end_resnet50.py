@@ -98,7 +98,7 @@ def get_resnet50():
             params[k] = tvm.nd.array(norm)
         elif k.find("multiply") >= 0:
             norm = params[k].asnumpy()
-            norm = np.minimum(norm, 128)
+            norm = np.minimum(norm, 127)
             params[k] = tvm.nd.array(norm)
         elif k.find("bias_add") >= 0:
             norm = params[k].asnumpy()

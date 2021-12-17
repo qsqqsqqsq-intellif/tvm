@@ -204,21 +204,21 @@ def naive_loop_tiling_and_packing(
     pack_axis: tir.schedule.LoopRV,
     pack_vf,
     axes_info,
-    eidma_blocks,
-    vidma_blocks,
-    vodma_blocks,
-    eodma_blocks,
+    write_bufs,
+    read_bufs,
 ):
     """do naive loop tiling, loop reorder and compute at dmas to inner loop"""
     # esitimate required vm bytes (since dm spatial > vm spatial), this is a naive estimation
-    vm_read_bytes = 0
-    vm_write_bytes = 0
+    vm_read_bytes = tvm.tir.IntImm("int32", 0)
+    vm_write_bytes = tvm.tir.IntImm("int32", 0)
     max_vm_bytes = 16 * 1024
-    for buffer in vidma_blocks:
+    for buffer in read_bufs:
+        if buffer in write_bufs:
+            continue
         vm_read_bytes += reduce(
             lambda x, y: x * y, buffer.shape, tvm.DataType(buffer.dtype).bits // 8
         )
-    for buffer in vodma_blocks:
+    for buffer in write_bufs:
         vm_write_bytes += reduce(
             lambda x, y: x * y, buffer.shape, tvm.DataType(buffer.dtype).bits // 8
         )
@@ -226,6 +226,8 @@ def naive_loop_tiling_and_packing(
         raise NaiveVUScheduleError("do not support non-constant shaped buffers")
     required_bytes = max(vm_read_bytes.value, vm_write_bytes.value)
 
+    outer_axes = []
+    inner_axes = []
     # no need to do tiling case
     if required_bytes < max_vm_bytes:
         need_pack = axes[-1] != pack_axis
@@ -248,7 +250,7 @@ def naive_loop_tiling_and_packing(
             s.reorder(*reorder_axes)
         else:
             axes_info[pack_axis] = ("vectorize", axes_info[pack_axis][1])
-        return 0, pack_vf
+        return pack_vf, inner_axes, outer_axes
 
     # esitimate how large outer iteration extents we need, this is a naive estimation
     cur_outer_factor = 1
@@ -278,8 +280,6 @@ def naive_loop_tiling_and_packing(
     if cur_outer_factor < outer_factor_estimation:
         raise NaiveVUScheduleError("can not find valid tiling")
 
-    outer_axes = []
-    inner_axes = []
     c_i = None
     cur_outer_factor = 1
     for loop_rv in axes:
@@ -318,24 +318,7 @@ def naive_loop_tiling_and_packing(
     inner_axes.append(c_i)
     s.reorder(*(outer_axes + inner_axes))
 
-    # load/save cache in inner computation
-    for buffer in vidma_blocks:
-        if is_param_buffer(buffer):
-            continue
-        s.compute_at(vidma_blocks[buffer], outer_axes[-1])
-    for buffer in eidma_blocks:
-        if is_param_buffer(buffer):
-            continue
-        s.compute_at(eidma_blocks[buffer], outer_axes[-1])
-    for buffer in vodma_blocks:
-        if is_param_buffer(buffer):
-            continue
-        s.reverse_compute_at(vodma_blocks[buffer], outer_axes[-1])
-    for buffer in eodma_blocks:
-        if is_param_buffer(buffer):
-            continue
-        s.reverse_compute_at(eodma_blocks[buffer], outer_axes[-1])
-    return len(outer_axes), pack_vf
+    return pack_vf, inner_axes, outer_axes
 
 
 def cache_buffer_packing(
@@ -460,90 +443,148 @@ def naive_vu_schedule(func, is_cpu=False, allow_multi_block=False, enable_relay_
     if len(main_blocks) != 1 and not allow_multi_block:
         raise NaiveVUScheduleError("only support single block computation after inline")
 
+    block_info = {}
+    for block in main_blocks:
+        block_info[s.get_sref(block)] = "normal"
+
     for main_block in main_blocks:
-        block_stmt = s.get_sref(main_block).stmt
-        if len(block_stmt.writes) != 1:
-            raise NaiveVUScheduleError("only support single output")
+        main_block_sref = s.get_sref(main_block)
+        block_stmt = main_block_sref.stmt
+        write_bufs = {write_region.buffer: i for i, write_region in enumerate(block_stmt.writes)}
+        read_bufs = {read_region.buffer: i for i, read_region in enumerate(block_stmt.reads)}
 
-        # Phase2: determine packing dimensions and spatial dimensions
-        axes = s.get_loops(main_block)
-        axes_info, pack_axis, pack_vf, buffer_pack_dims = analyse_compute_axes(
-            s, main_block, block_stmt, axes
-        )
-        need_pack = axes[-1] != pack_axis
+        # block already compute_at to other block don't do tiling and vectorize
+        if block_info[main_block_sref] != "compute_ated":
+            if len(block_stmt.writes) != 1:
+                raise NaiveVUScheduleError("only support single output")
 
-        # Phase3: load/save to dm/vm
+            # Phase2: determine packing dimensions and spatial dimensions
+            axes = s.get_loops(main_block)
+            axes_info, pack_axis, pack_vf, buffer_pack_dims = analyse_compute_axes(
+                s, main_block, block_stmt, axes
+            )
+            need_pack = axes[-1] != pack_axis
+
+            # Phase3: tiling
+            pack_vf, inner_axes, outer_axes = naive_loop_tiling_and_packing(
+                s,
+                axes,
+                pack_axis,
+                pack_vf,
+                axes_info,
+                write_bufs,
+                read_bufs,
+            )
+            axes = None
+
+            # Phase4: vector computation scheduling
+            for loop_rv, (typ, extent) in axes_info.items():
+                if typ == "vectorize" and extent <= 64:
+                    s.vectorize(loop_rv)
+                elif typ == "vectorize" and extent > 64:
+                    v_outer, v_inner = s.split(loop_rv, factors=[None, 64])
+                    if extent % 64 != 0:
+                        s.loop_partition([v_inner, v_outer])
+                    s.vectorize(v_inner)
+                elif typ == "reduce":
+                    if extent < 5:
+                        s.unroll(loop_rv)  # unroll small reduce loop
+                elif typ == "spatial":
+                    # generally spatial loop contains conditions
+                    if not is_cpu:  # partitioned loops compile slow under cpu llvm
+                        s.loop_partition(loop_rv)
+
+        # Phase5: try compute_at the reamining block to curent block at inner_axis[-1]
+        # only support one consumer block
+        if len(s.get_consumers(main_block)) == 1:
+            if inner_axes:
+                compute_at_axes = inner_axes[-1]
+            else:
+                compute_at_axes = s.get_loops(main_block)[-1]
+
+            block = s.get_consumers(main_block)[0]
+            if not is_reduce_block(s, block):
+                try:
+                    s.reverse_compute_at(block, compute_at_axes)
+                    block_info[s.get_sref(block)] = "compute_ated"
+                except:
+                    continue
+
+        # Phase6: load/save to dm/vm
         eidma_blocks = {}
         vidma_blocks = {}
         eodma_blocks = {}
         vodma_blocks = {}
-        write_bufs = {write_region.buffer: i for i, write_region in enumerate(block_stmt.writes)}
-        block_stmt = s.get_sref(main_block).stmt
 
-        for i, read_region in enumerate(block_stmt.reads):
-            buf = read_region.buffer
-            if buf in write_bufs:
+        # use repalce_buffer to set the local buffer'scope to "vm"
+        consumer_blocks = s.get_consumers(main_block)
+        if (
+            len(consumer_blocks) == 1
+            and s.get_sref(consumer_blocks[0]) in block_info
+            and block_info[s.get_sref(consumer_blocks[0])] == "compute_ated"
+        ):
+            for i, write_region in enumerate(block_stmt.writes):
+                buf = write_region.buffer
+                consumer_block = consumer_blocks[0]
+                if buf in [
+                    read_region.buffer for read_region in s.get_sref(consumer_block).stmt.reads
+                ]:
+                    tmp_buf = tvm.tir.decl_buffer(buf.shape, buf.dtype, buf.name, scope="vm")
+                    s.replace_buffer(main_block, buf, tmp_buf)
+
+        for i in range(len(block_stmt.reads)):
+            buf = s.get_buffer_of(s.get_read_buffer_axes(main_block, i)[0])
+            if buf in write_bufs or buf.scope() == "vm":
                 continue
             vidma = s.cache_read(main_block, i, "vm")
             vidma_blocks[buf] = vidma
             eidma = s.cache_read(vidma, 0, "dm")
             eidma_blocks[buf] = eidma
-        for i, write_region in enumerate(block_stmt.writes):
-            buf = write_region.buffer
+        for i in range(len(block_stmt.writes)):
+            buf = s.get_buffer_of(s.get_write_buffer_axes(main_block, i)[0])
+            if buf.scope() == "vm":
+                continue
             vodma = s.cache_write(main_block, i, "vm")
             eodma = s.cache_write(vodma, 0, "dm")
             vodma_blocks[buf] = vodma
             eodma_blocks[buf] = eodma
 
-        # Phase4: tiling
-        num_outer_loops, pack_vf = naive_loop_tiling_and_packing(
-            s,
-            axes,
-            pack_axis,
-            pack_vf,
-            axes_info,
-            eidma_blocks=eidma_blocks,
-            vidma_blocks=vidma_blocks,
-            vodma_blocks=vodma_blocks,
-            eodma_blocks=eodma_blocks,
-        )
-        axes = None
+        # Phase7 load/save cache in inner computation
+        if outer_axes:
+            for buffer in vidma_blocks:
+                if is_param_buffer(buffer):
+                    continue
+                s.compute_at(vidma_blocks[buffer], outer_axes[-1])
+            for buffer in eidma_blocks:
+                if is_param_buffer(buffer):
+                    continue
+                s.compute_at(eidma_blocks[buffer], outer_axes[-1])
+            for buffer in vodma_blocks:
+                if is_param_buffer(buffer):
+                    continue
+                s.reverse_compute_at(vodma_blocks[buffer], outer_axes[-1])
+            for buffer in eodma_blocks:
+                if is_param_buffer(buffer):
+                    continue
+                s.reverse_compute_at(eodma_blocks[buffer], outer_axes[-1])
 
-        # Phase5: rewrite cache buffer to packed format
-        if need_pack:
+        # Phase8: rewrite cache buffer to packed format
+        if block_info[main_block_sref] != "compute_ated" and need_pack:
             cache_buffer_packing(
                 s,
                 main_block,
                 pack_vf,
                 buffer_pack_dims,
-                is_tiling=num_outer_loops > 0,
+                is_tiling=len(outer_axes) > 0,
                 eidma_blocks=eidma_blocks,
                 vidma_blocks=vidma_blocks,
                 vodma_blocks=vodma_blocks,
             )
 
-        # Phase6: vector computation scheduling
-        for loop_rv, (typ, extent) in axes_info.items():
-            if typ == "vectorize":
-                if extent <= 64:
-                    s.vectorize(loop_rv)
-                else:  # llvm will reg overflow for large vf
-                    v_outer, v_inner = s.split(loop_rv, factors=[None, 64])
-                    if extent % 64 != 0:
-                        s.loop_partition([v_inner, v_outer])
-                    s.vectorize(v_inner)
-            elif typ == "reduce":
-                if extent < 5:
-                    s.unroll(loop_rv)  # unroll small reduce loop
-            elif typ == "spatial":
-                # generally spatial loop contains conditions
-                if not is_cpu:  # partitioned loops compile slow under cpu llvm
-                    s.loop_partition(loop_rv)
-
-        # Phase7: tensorize dma intrinsics
+        # Phase9: tensorize dma intrinsics
         tensorize_dma_intrinsics(
             s,
-            num_outer_loops,
+            len(outer_axes),
             is_cpu=is_cpu,
             eidma_blocks=eidma_blocks,
             vidma_blocks=vidma_blocks,
