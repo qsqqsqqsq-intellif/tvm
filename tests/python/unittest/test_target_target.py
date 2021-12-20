@@ -46,18 +46,23 @@ def rocm_func(data):
 def test_target_dispatch():
     with tvm.target.cuda():
         assert mygeneric(1) == 3
+        assert mygeneric.get_packed_func()(1) == 3
 
     with tvm.target.rocm():
         assert mygeneric(1) == 4
+        assert mygeneric.get_packed_func()(1) == 4
 
     with tvm.target.Target("cuda"):
         assert mygeneric(1) == 3
+        assert mygeneric.get_packed_func()(1) == 3
 
     with tvm.target.arm_cpu():
         assert mygeneric(1) == 11
+        assert mygeneric.get_packed_func()(1) == 11
 
     with tvm.target.Target("metal"):
         assert mygeneric(1) == 3
+        assert mygeneric.get_packed_func()(1) == 3
 
     assert tvm.target.Target.current() is None
 
