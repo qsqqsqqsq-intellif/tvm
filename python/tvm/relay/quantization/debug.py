@@ -20,8 +20,7 @@
 import numpy
 import tvm
 from tvm import relay
-
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 
 def norm_0(m1_, m2_):
@@ -140,34 +139,37 @@ def data_hist_analysis(data, number):
     return hist
 
 
-# def analysis_two_data(data1_, data2_, name1="fixed", name2="float"):
-#    data1 = data1_.flatten()
-#    data1_list = list(data1)
-#    data1_hist = data_hist_analysis(data1_list, 2048)
+def analysis_two_data(data1_, data2_, name1="fixed", name2="float"):
+    """analysis_two_data"""
 
-#    data2 = data2_.flatten()
-#    data2_list = list(data2)
-#    data2_hist = data_hist_analysis(data2_list, 2048)
+    data1 = data1_.flatten()
+    data1_list = list(data1)
+    data1_hist = data_hist_analysis(data1_list, 2048)
 
-#    ax1 = plt.subplot(221)
-#    plt.plot(data1_hist, "*")
-#    ax2 = plt.subplot(223)
-#    plt.plot(data2_hist, "*")
+    data2 = data2_.flatten()
+    data2_list = list(data2)
+    data2_hist = data_hist_analysis(data2_list, 2048)
 
-#    ax3 = plt.subplot(222)
-#    plt.plot(data1_list)
-#    plt.xticks(rotation=90)
-#    ax4 = plt.subplot(224)
-#    plt.plot(data2_list)
-#    plt.xticks(rotation=90)
+    ax1 = plt.subplot(221)
+    plt.plot(data1_hist, "*")
+    ax2 = plt.subplot(223)
+    plt.plot(data2_hist, "*")
 
-#    ax1.set_title("total = " + str(len(data1_list)))
-#    ax2.set_title("total = " + str(len(data2_list)))
-#    len_name1 = len(name1)
-#    len_name2 = len(name2)
-#    ax3.set_title("float*" + name1[len_name1 - 10 :])
-#    ax4.set_title("fixed*" + name2[len_name2 - 10 :])
-#    plt.show()
+    ax3 = plt.subplot(222)
+    plt.plot(data1_list)
+    plt.xticks(rotation=90)
+    ax4 = plt.subplot(224)
+    plt.plot(data2_list)
+    plt.xticks(rotation=90)
+
+    ax1.set_title("total = " + str(len(data1_list)))
+    ax2.set_title("total = " + str(len(data2_list)))
+    len_name1 = len(name1)
+    len_name2 = len(name2)
+    ax3.set_title("float*" + name1[len_name1 - 10 :])
+    ax4.set_title("fixed*" + name2[len_name2 - 10 :])
+    plt.show()
+    plt.save()
 
 
 def compare_statistics(cls, method):

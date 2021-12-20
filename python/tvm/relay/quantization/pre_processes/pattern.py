@@ -18,6 +18,7 @@
 # pylint: disable=invalid-name
 """pattern match"""
 
+import numpy
 from tvm import relay
 from tvm.relay.dataflow_pattern import is_op, wildcard, is_constant
 from tvm.relay.expr_functor import ExprMutator
@@ -269,14 +270,30 @@ class GELU(ExprMutator):
             if cond1 and cond2 and cond3:
                 a0 = relay.var("arg0_")
 
-                multiply1 = relay.multiply(a0, multiply_node2.args[1])
-                erf = relay.erf(multiply1)
-                multiply2 = relay.multiply(erf, multiply_node1.args[1])
-                add = relay.add(add_node.args[0], multiply2)
-                multiply3 = relay.multiply(a0, add)
+                # multiply1 = relay.multiply(a0, multiply_node2.args[1])
+                # erf = relay.erf(multiply1)
+                # multiply2 = relay.multiply(erf, multiply_node1.args[1])
+                # add = relay.add(add_node.args[0], multiply2)
+                # multiply3 = relay.multiply(a0, add)
 
                 # 近似计算1
                 # multiply3=a0 * relay.sigmoid(relay.const(1.702, numpy.float32) * a0)
+                # 近似计算2
+                multiply3 = (
+                    relay.const(0.5, numpy.float32)
+                    * a0
+                    * (
+                        relay.const(1, numpy.float32)
+                        + relay.tanh(
+                            relay.const(numpy.sqrt(2 / numpy.pi), numpy.float32)
+                            * (
+                                a0
+                                + relay.const(0.044715, numpy.float32)
+                                * relay.power(a0, relay.const(3, numpy.float32))
+                            )
+                        )
+                    )
+                )
 
                 new_fn = relay.Function([a0], multiply3)
                 new_fn = new_fn.with_attr("Composite", "GELU")

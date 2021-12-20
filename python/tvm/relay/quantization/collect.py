@@ -214,36 +214,39 @@ def collect_stats(quantize):
     """collect_stats"""
     _get_threshold_static(quantize)
     nodes = list(quantize.collect_node)
-    params = quantize.pre_processed_mod["main"].params
-    runtime, input_keys, num_outputs = _get_node_runtime(
-        nodes, params, quantize.ctx, quantize.target
-    )
+    if nodes != []:
+        params = quantize.pre_processed_mod["main"].params
+        runtime, input_keys, num_outputs = _get_node_runtime(
+            nodes, params, quantize.ctx, quantize.target
+        )
 
-    LOGGER.debug("[collect] collect_stats nodes len is:")
-    LOGGER.debug(len(nodes))
-    LOGGER.debug("[collect] collect_stats num_outputs is:")
-    LOGGER.debug(num_outputs)
+        LOGGER.debug("[collect] collect_stats nodes len is:")
+        LOGGER.debug(len(nodes))
+        LOGGER.debug("[collect] collect_stats num_outputs is:")
+        LOGGER.debug(num_outputs)
 
-    dataset = quantize.dataset()
-    run = _run_graph(dataset, nodes, runtime, input_keys, num_outputs)
-    dataset_idx = -1
-    while True:
-        try:
-            dataset_idx = dataset_idx + 1
-            if dataset_idx % 10 == 0:
-                LOGGER.info("[collect] statistics_min_max now finish img index %d", dataset_idx)
-            _get_statistics_min_max(quantize, run)
-        except StopIteration:
-            break
+        dataset = quantize.dataset()
+        run = _run_graph(dataset, nodes, runtime, input_keys, num_outputs)
+        dataset_idx = -1
+        while True:
+            try:
+                dataset_idx = dataset_idx + 1
+                if dataset_idx % 10 == 0:
+                    LOGGER.info("[collect] statistics_min_max now finish img index %d", dataset_idx)
+                _get_statistics_min_max(quantize, run)
+            except StopIteration:
+                break
 
-    dataset = quantize.dataset()
-    run = _run_graph(dataset, nodes, runtime, input_keys, num_outputs)
-    dataset_idx = -1
-    while True:
-        try:
-            dataset_idx = dataset_idx + 1
-            if dataset_idx % 10 == 0:
-                LOGGER.info("[collect] get_threshold_dynamic now finish img index %d", dataset_idx)
-            _get_threshold_dynamic(quantize, run)
-        except StopIteration:
-            break
+        dataset = quantize.dataset()
+        run = _run_graph(dataset, nodes, runtime, input_keys, num_outputs)
+        dataset_idx = -1
+        while True:
+            try:
+                dataset_idx = dataset_idx + 1
+                if dataset_idx % 10 == 0:
+                    LOGGER.info(
+                        "[collect] get_threshold_dynamic now finish img index %d", dataset_idx
+                    )
+                _get_threshold_dynamic(quantize, run)
+            except StopIteration:
+                break

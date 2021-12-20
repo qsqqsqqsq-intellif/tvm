@@ -153,8 +153,25 @@ class GELU:
         # add = relay.add(tmp3, multiply2)
         # new_node = relay.multiply(new_realized_args[0], add)
 
-        new_node = new_realized_args[0] * relay.sigmoid(
-            relay.const(1.702, numpy.float16) * new_realized_args[0]
+        # 近似计算
+        x = new_realized_args[0]
+        # 方法1
+        # new_node = x * relay.sigmoid(relay.const(1.702, numpy.float16) * x)
+        # 方法2
+        new_node = (
+            relay.const(0.5, numpy.float16)
+            * x
+            * (
+                relay.const(1, numpy.float16)
+                + relay.tanh(
+                    relay.const(numpy.sqrt(2 / numpy.pi), numpy.float16)
+                    * (
+                        x
+                        + relay.const(0.044715, numpy.float16)
+                        * relay.power(x, relay.const(3, numpy.float16))
+                    )
+                )
+            )
         )
 
         LOGGER.debug("[realize] %s finish", self.name.upper())
