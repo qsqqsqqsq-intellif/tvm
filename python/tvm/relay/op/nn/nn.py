@@ -1199,7 +1199,14 @@ def avg_pool3d(
 
 
 def sum_pool2d(
-    data, pool_size=(1, 1), strides=(1, 1), padding=(0, 0), layout="NCHW", ceil_mode=False
+    data,
+    pool_size=(1, 1),
+    strides=(1, 1),
+    dilation=(1, 1),
+    padding=(0, 0),
+    layout="NCHW",
+    out_layout="",
+    ceil_mode=False,
 ):
     r"""2D sum pooling operator.
 
@@ -1230,11 +1237,17 @@ def sum_pool2d(
     strides : tuple of int, optional
         The strides of pooling.
 
+    dilation : int or tuple of int, optional
+        The dilation of pooling.
+
     padding : tuple of int, optional
         The padding for pooling.
 
     layout : str, optional
         Layout of the input.
+
+    out_layout : Optional[str]
+        Layout of the output
 
     ceil_mode : bool, optional
         To enable or disable ceil while pooling.
@@ -1250,7 +1263,9 @@ def sum_pool2d(
     if isinstance(strides, int):
         strides = (strides, strides)
     padding = get_pad_tuple2d(padding)
-    return _make.sum_pool2d(data, pool_size, strides, padding, layout, ceil_mode)
+    return _make.sum_pool2d(
+        data, pool_size, strides, dilation, padding, layout, out_layout, ceil_mode
+    )
 
 
 def max_pool2d_grad(

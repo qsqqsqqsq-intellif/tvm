@@ -1,0 +1,163 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+# pylint: disable=unused-argument,inconsistent-return-statements
+"""op"""
+
+import logging
+import numpy
+from tvm import relay
+from ..threshold import Threshold
+from ..method_dtype import Method, DataType, _get_dtype_info
+from ..analyze import _conv_counter, _set_conv_counter, _quantized_judge
+from ..calibrate import _calibrate_core
+from ..realize import _realize_core, operate
+
+LOGGER = logging.getLogger("quantize")
+
+__all__ = ("BatchMatmul",)
+
+VALIDCONFIG = {
+    "threshold": (
+        Threshold.MinMax,
+        Threshold.Percentile,
+        Threshold.MovingAverageMinMax,
+        Threshold.L2Norm,
+        Threshold.RelativeEntropy,
+    ),
+    "method": (Method.Symmetry, Method.Asymmetry),
+    "dtype": (DataType.Int8, DataType.Int16),
+}
+
+DEFAULTCONFIG = {
+    "threshold": Threshold.RelativeEntropy,
+    "method": Method.Symmetry,
+    "dtype": DataType.Int8,
+}
+
+
+class BatchMatmul:
+    """batch_matmul"""
+
+    name = "nn.batch_matmul"
+    controlable = True
+
+    def __init__(self, node, vertex_config, config):
+        cnt = _conv_counter()
+        LOGGER.debug("[anaylze] batch_matmul_%d start", cnt)
+
+        self.quantized = True
+        if "skip_conv_layers" in config and cnt in config["skip_conv_layers"]:
+            self.quantized = False
+
+        _set_conv_counter(cnt + 1)
+
+        ci0 = config["input0"]
+        ci1 = config["input1"]
+
+        """input0_config"""
+        # batch_matmul only support  per-tensor
+        input0_axis = -1
+        input0_config = _quantized_judge(
+            vertex_config, node.args[0], input0_axis, self.quantized, ci0
+        )
+
+        """input1-config"""
+        # weight support per-channel
+        assert len(node.args[1].checked_type.shape) == 3, "batch_matmul args[1] should be n,b,c"
+        input1_axis = 1
+        input1_config = _quantized_judge(
+            vertex_config, node.args[1], input1_axis, self.quantized, ci1
+        )
+
+        self.input_config = {
+            node.args[0]: input0_config,
+            node.args[1]: input1_config,
+        }
+
+        for arg in node.args:
+            tmp1 = {}
+            if not vertex_config[arg].quantized and self.quantized:
+                tmp1.update({"operate": "quantize"})
+            elif vertex_config[arg].quantized and self.quantized:
+                if self.input_config[arg]["threshold"] is not None:
+                    tmp1.update({"operate": "requantize"})
+            self.input_config[arg].update(tmp1)
+
+        output0_axis = 2
+        output0_config = {
+            "dtype": DataType.Int32 if self.quantized else DataType.Float16,
+            "axis": output0_axis,
+            "quantized_axis": "none",
+            "ref_count": 0,
+        }
+        if self.quantized:
+            output0_config.update(_get_dtype_info(output0_config["dtype"]))
+        self.output_config = output0_config
+        LOGGER.debug("[anaylze] batch_matmul_%d finish", cnt)
+
+    @classmethod
+    def get_config(cls, call, config):
+        return {"valid_config": VALIDCONFIG, "default_config": DEFAULTCONFIG}
+
+    def quantize_params(self, node, vertex_config):
+        """quantize_params"""
+        batchmatmul_scale = []
+        LOGGER.debug("[calibrate]batch_matmul start and quantized is %d", self.quantized)
+
+        # todo add fp16 no need to
+        for arg in node.args:
+            input_config = self.input_config[arg]
+            y = _calibrate_core(arg, input_config, vertex_config, self.quantized)
+            LOGGER.debug("[calibrate]--batchmatmul arg quantized_scale is:")
+            if "scale" in y:
+                LOGGER.debug(y["scale"])
+                input_config.update(y)
+                batchmatmul_scale.append(y["scale"])
+
+        if self.quantized:
+            scale = batchmatmul_scale[0] * batchmatmul_scale[1]
+            zero_point = numpy.zeros_like(scale, dtype=numpy.int32)
+            new_y = {"scale": scale, "zero_point": zero_point}
+
+            self.output_config.update(new_y)
+
+    def realize(self, old_node, new_node, vertex_config, n2o):
+        """realize"""
+        LOGGER.debug("[realize]batch_matmul start...")
+        realized_args = []
+        for old_arg, new_arg in zip(old_node.args, new_node.args):
+            new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
+            realized_args.append(new_arg)
+
+        if self.quantized:
+            new_node = relay.nn.batch_matmul(realized_args[0], realized_args[1])
+
+            return new_node
+
+        realized_args_n = []
+        for old_arg, new_arg in zip(old_node.args, realized_args):
+            tmp_expr = relay.frontend.common.infer_type(new_arg)
+            if isinstance(new_arg, relay.Constant) and tmp_expr.checked_type.dtype != "float16":
+                new_arg = relay.const(new_arg.data.asnumpy(), "float16")
+            elif tmp_expr.checked_type.dtype.startswith("int"):
+                new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
+            elif tmp_expr.checked_type.dtype != "float16":
+                new_arg = relay.cast(new_arg, "float16")
+            realized_args_n.append(new_arg)
+        new_node = relay.nn.batch_matmul(realized_args_n[0], realized_args_n[1])
+
+        return new_node

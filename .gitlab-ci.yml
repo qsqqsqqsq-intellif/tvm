@@ -103,7 +103,7 @@ tvm_edgex:
         alias pytest='pytest -m "not edgex_slow"'
       fi
       type pytest
-      pytest -vv tests/python/contrib/edgex/
+      pytest -vv --ignore-glob=tests/python/contrib/edgex/quantization/* tests/python/contrib/edgex/
 
 # fast unittest for basic tvm abilities
 tvm_basic_unittest:
@@ -193,20 +193,21 @@ tvm_gpu_nightly_test:
       bash ./tests/scripts/task_python_integration_gpuonly.sh
       bash ./tests/scripts/task_python_topi.sh
 
-#tvm_quant:
-#  stage: test
-#  needs: [build]
-#  before_script:
-#    - *tvm_env
-#    - export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
-#  script:
-#    - |
-#      echo "********** TEST TVM QUANTIZATION **********"
-#      export QUANT_DIR=${DEP_ROOT}/quant
-#      if [ "$CI_PIPELINE_SOURCE" == "push" ]
-#      then
-#        shopt -s expand_aliases
-#        alias pytest='pytest -m "not edgex_slow"'
-#      fi
-#      type pytest
-#      pytest -vv tests/python/relay/quantization/test_*
+tvm_edgex_quant:
+  stage: test
+  needs: [build]
+  before_script:
+    - *tvm_env
+    - export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
+  script:
+    - |
+      echo "********** TEST TVM QUANTIZATION **********"
+      export QUANT_DIR=${DEP_ROOT}/quant
+      if [ "$CI_PIPELINE_SOURCE" == "push" ]
+      then
+        shopt -s expand_aliases
+        alias pytest='pytest -m "not edgex_slow"'
+      fi
+      type pytest
+      pytest -vv tests/python/contrib/edgex/quantization/test_*
+

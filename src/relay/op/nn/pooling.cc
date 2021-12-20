@@ -259,12 +259,15 @@ Average pooling operation for one dimensional data.
     .set_attr<FTVMCompute>("FTVMCompute", Pool2DCompute<AvgPool2DAttrs, topi::nn::kAvgPool>);
 
 // SumPool2D
-Expr MakeSumPool2D(Expr data, Array<IndexExpr> pool_size, Array<IndexExpr> strides,
-                   Array<IndexExpr> padding, String layout, bool ceil_mode) {
+inline Expr MakeSumPool2D(Expr data, Array<IndexExpr> pool_size, Array<IndexExpr> strides,
+                          Array<IndexExpr> dilation, Array<IndexExpr> padding, String layout,
+                          String out_layout, bool ceil_mode) {
   auto attrs = make_object<SumPool2DAttrs>();
   attrs->pool_size = std::move(pool_size);
   attrs->strides = std::move(strides);
+  attrs->dilation = std::move(dilation);
   attrs->padding = std::move(padding);
+  attrs->out_layout = std::move(out_layout);
   attrs->layout = std::move(layout);
   attrs->ceil_mode = ceil_mode;
   static const Op& op = Op::Get("nn.sum_pool2d");
