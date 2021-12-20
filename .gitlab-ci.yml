@@ -28,21 +28,20 @@ variables:
   EDGEX_GRPC_LIB: $DEP_ROOT/grpc/lib
 
 default:
-  image: 192.168.13.215/tvm_ci:v0.1
+  image: 192.168.13.215/tvm_ci_cpu:v1.0_d13e2b6d
   interruptible: true
   tags:
-    - tvmci
+    - edgex_tvm_ci
 
 
 # Jobs
 lint:
-  stage: build # use build to parallel even .pre is the best
-  image: 192.168.13.215/tvm_ci_lint:v0.1_f0aedc4
+  stage: build
+  image: 192.168.13.215/tvm_ci_lint:v1.0_c4c31de9
   tags:
-    - tvmci-lint
+    - edgex_tvm_ci_lint
   before_script:
     - echo "********** START LINT **********"
-    - pip install flake8==3.9.2 mypy==0.902
   script:
     - ./tests/scripts/task_lint.sh
 
@@ -62,7 +61,7 @@ build:
       cmake .. && make -j32
       popd
   artifacts:
-    when: always
+    when: on_success
     paths:
     - build
     expire_in: 1 day
@@ -76,8 +75,8 @@ build:
     export EDGEX_ROOT_DIR=${DCL_ROOT_DIR}/client
     export EDGEX_SERVER_DIR=${DCL_ROOT_DIR}/server
 
-# edgex test
 # $CI_PIPELINE_SOURCE could be either "schedule" or "push"
+# edgex test
 tvm_edgex:
   stage: test
   needs: [build]
@@ -89,7 +88,6 @@ tvm_edgex:
       export LD_LIBRARY_PATH=${DCL_ROOT_DIR}/server/lib/
       ./dclsim_rpc_server --dcl_cfg=dcl.cfg &
       popd
-      pip install synr==0.5
       sleep 5
   script:
     - |
@@ -111,88 +109,12 @@ tvm_basic_unittest:
   needs: [build]
   before_script:
     - *tvm_env
-    - |
-      pip install synr==0.5
   script:
     - |
       export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
       pytest -vv tests/python/unittest/
 
-# upstream testcases related to gpu
-tvm_cpu_nightly_test:
-   stage: build
-   rules:
-     - if: $CI_PIPELINE_SOURCE == "schedule"
-   before_script:
-     - *tvm_env
-     - export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
-     - pip install cython synr==0.5 cloudpickle==2.0.0
-   script:
-    - |
-      echo "********** START COMPILING **********"
-      rm -rf build && mkdir build
-      pushd build
-      cp ../cmake/config.cmake .
-      echo set\(CMAKE_CXX_FLAGS "-Werror ${CMAKE_CXX_FLAGS}"\) >> config.cmake
-      echo set\(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE}\) >> config.cmake
-      echo set\(USE_MICRO ON\) >> config.cmake
-      echo set\(USE_LLVM ${DEP_ROOT}/llvm/bin/llvm-config\) >> config.cmake
-      # echo set\(USE_EDGEX ${DCL_ROOT_DIR}/client\) >> config.cmake
-      # echo set\(EDGEX_GRPC_LIB ${EDGEX_GRPC_LIB}\) >> config.cmake
-      # echo set\(USE_CUDNN ON\) >> config.cmake
-      cmake .. && make -j32
-      popd
-      echo "********** TEST TVM GPU UNIT TEST **********"
-      rm -r tests/python/contrib/edgex
-      bash ./tests/scripts/task_python_unittest.sh
-      # bash ./tests/scripts/task_python_integration.sh
-      # bash ./tests/scripts/task_python_frontend_cpu.sh
-
-# upstream testcases related to gpu
-tvm_gpu_nightly_test:
-  stage: build
-  image: 192.168.13.215/tvm_ci:v0.1
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule"
-  tags:
-    - tvm
-    - gpu
-  variables:
-    CUDA_TOOLKIT_DIR: /usr/local/cuda
-    CUDA_HOST_DRIVER_LIB: /host_cuda_driver_libs
-    CUDA_DRIVER_LIB: /cuda_driver_libs
-  before_script:
-    - *tvm_env
-    - mkdir ${CUDA_DRIVER_LIB}
-    - cp ${CUDA_HOST_DRIVER_LIB}/libcuda* ${CUDA_DRIVER_LIB}/
-    - cp ${CUDA_HOST_DRIVER_LIB}/libnvidia* ${CUDA_DRIVER_LIB}/
-    # export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib:${EDGEX_SERVER_DIR}/lib:${EDGEX_GRPC_LIB}
-    - export LD_LIBRARY_PATH=${CUDA_TOOLKIT_DIR}/lib64:${CUDA_DRIVER_LIB}
-    - export PATH=${CUDA_TOOLKIT_DIR}/bin:${PATH}
-    - nvidia-smi
-    - pip install cython synr==0.5
-  script:
-    - |
-      echo "********** START COMPILING **********"
-      rm -rf build && mkdir build
-      pushd build
-      cp ../cmake/config.cmake .
-      echo set\(CMAKE_CXX_FLAGS "-Werror ${CMAKE_CXX_FLAGS}"\) >> config.cmake
-      echo set\(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE}\) >> config.cmake
-      echo set\(USE_MICRO ON\) >> config.cmake
-      echo set\(USE_LLVM ${DEP_ROOT}/llvm/bin/llvm-config\) >> config.cmake
-      # echo set\(USE_EDGEX ${DCL_ROOT_DIR}/client\) >> config.cmake
-      # echo set\(EDGEX_GRPC_LIB ${EDGEX_GRPC_LIB}\) >> config.cmake
-      # echo set\(USE_CUDNN ON\) >> config.cmake
-      echo set\(USE_CUDA /usr/local/cuda\) >> config.cmake
-      cmake .. && make -j32
-      popd
-      echo "********** TEST TVM GPU UNIT TEST **********"
-      rm -r tests/python/contrib/edgex
-      bash ./tests/scripts/task_python_unittest_gpuonly.sh
-      bash ./tests/scripts/task_python_integration_gpuonly.sh
-      bash ./tests/scripts/task_python_topi.sh
-
+# edgex quant test
 tvm_edgex_quant:
   stage: test
   needs: [build]
@@ -209,5 +131,69 @@ tvm_edgex_quant:
         alias pytest='pytest -m "not edgex_slow"'
       fi
       type pytest
-      pytest -vv tests/python/contrib/edgex/quantization/test_*
+      pytest -vv tests/python/contrib/edgex/quantization/
 
+# Nightly Test
+# upstream testcases related to gpu
+tvm_cpu_nightly_test:
+   stage: build
+   rules:
+     - if: $CI_PIPELINE_SOURCE == "schedule"
+   before_script:
+     - *tvm_env
+   script:
+    - |
+      echo "********** START COMPILING **********"
+      rm -rf build && mkdir build
+      pushd build
+      cp ../cmake/config.cmake .
+      echo set\(CMAKE_CXX_FLAGS "-Werror ${CMAKE_CXX_FLAGS}"\) >> config.cmake
+      echo set\(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE}\) >> config.cmake
+      echo set\(USE_MICRO ON\) >> config.cmake
+      echo set\(USE_LLVM ${DEP_ROOT}/llvm/bin/llvm-config\) >> config.cmake
+      cmake .. && make -j32
+      popd
+      echo "********** TEST TVM CPU UNIT TEST **********"
+      rm -r tests/python/contrib/edgex
+      bash ./tests/scripts/task_python_unittest.sh
+      # bash ./tests/scripts/task_python_integration.sh
+      # bash ./tests/scripts/task_python_frontend_cpu.sh
+
+# upstream testcases related to gpu
+tvm_gpu_nightly_test:
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  tags:
+    - tvm
+    - gpu
+  variables:
+    CUDA_TOOLKIT_DIR: /usr/local/cuda
+    CUDA_HOST_DRIVER_LIB: /host_cuda_driver_libs
+    CUDA_DRIVER_LIB: /cuda_driver_libs
+  before_script:
+    - *tvm_env
+    - mkdir ${CUDA_DRIVER_LIB}
+    - cp ${CUDA_HOST_DRIVER_LIB}/libcuda* ${CUDA_DRIVER_LIB}/
+    - cp ${CUDA_HOST_DRIVER_LIB}/libnvidia* ${CUDA_DRIVER_LIB}/
+    - export LD_LIBRARY_PATH=${CUDA_TOOLKIT_DIR}/lib64:${CUDA_DRIVER_LIB}
+    - export PATH=${CUDA_TOOLKIT_DIR}/bin:${PATH}
+    - nvidia-smi
+  script:
+    - |
+      echo "********** START COMPILING **********"
+      rm -rf build && mkdir build
+      pushd build
+      cp ../cmake/config.cmake .
+      echo set\(CMAKE_CXX_FLAGS "-Werror ${CMAKE_CXX_FLAGS}"\) >> config.cmake
+      echo set\(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE}\) >> config.cmake
+      echo set\(USE_MICRO ON\) >> config.cmake
+      echo set\(USE_LLVM ${DEP_ROOT}/llvm/bin/llvm-config\) >> config.cmake
+      echo set\(USE_CUDA /usr/local/cuda\) >> config.cmake
+      cmake .. && make -j32
+      popd
+      echo "********** TEST TVM GPU UNIT TEST **********"
+      rm -r tests/python/contrib/edgex
+      bash ./tests/scripts/task_python_unittest_gpuonly.sh
+      bash ./tests/scripts/task_python_integration_gpuonly.sh
+      bash ./tests/scripts/task_python_topi.sh
