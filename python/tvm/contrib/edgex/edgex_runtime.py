@@ -24,9 +24,9 @@ import threading
 import logging
 import shutil
 import struct
+import numpy as np
 import tvm
 from tvm import te
-import numpy as np
 
 
 def matmul(x, y):

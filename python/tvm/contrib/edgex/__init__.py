@@ -19,5 +19,11 @@
 from .edgex_runtime import *
 from .edgex import *
 from . import tir
+from . import arith
 from . import topi
 from . import relay
+from . import base
+from .config import get_cfg
+from .base.edgexlog import EdgexLog as el
+
+el.i("[TVM VERSION is {}]".format(get_cfg().TVM_VERSION))

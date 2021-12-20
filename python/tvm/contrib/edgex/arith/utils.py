@@ -14,6 +14,9 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Namespace for edgex Specialized arithmetic utilities"""
-from .detect_dma_pattern import *
-from .utils import *
+"""Edgex arithmetic utilities"""
+
+
+def ceiling_align(x, align):
+    """ceiling align the x by align"""
+    return (x + align - 1) // align * align

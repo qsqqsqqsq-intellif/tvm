@@ -392,6 +392,7 @@ static bool InferShapeSimple(const PrimExpr& src_index, const PrimExpr& dst_inde
   int loop_idx = 3;                           // j3, j2, j1, j0
   std::map<size_t, int64_t> src_strides_map;  // src strides sorted
   std::unordered_map<const VarNode*, size_t> src_var_pos;
+  std::array<size_t, 4U> loop_src_num;
   for (size_t i = src_coeffs.size(); i > 0; --i) {
     src_var_pos[src_coeffs[i - 1].first] = i - 1;
   }
@@ -414,6 +415,17 @@ static bool InferShapeSimple(const PrimExpr& src_index, const PrimExpr& dst_inde
       result->loop_dst_stride[loop_idx] = dst_stride;
     }
     src_strides_map[src_index] = src_stride;
+    // get src loop num to calculate the stride_in0
+    const VarNode* src_var = src_coeffs[i - 1].first;
+    if (src_var) {
+      IntImm src_extent = Downcast<IntImm>(dom_map[GetRef<Var>(src_var)]->extent);
+      ICHECK(src_extent.defined())
+          << "Domain extent for " << GetRef<Var>(src_var) << " should be constant";
+      loop_src_num[loop_idx] = src_extent->value;
+    } else {
+      ICHECK(loop_idx == 3);
+      loop_src_num[loop_idx] = 1;
+    }
     if (loop_idx == 4 - max_loop_sels && i > 1) {
       // loop sel used out
       return false;
@@ -433,8 +445,11 @@ static bool InferShapeSimple(const PrimExpr& src_index, const PrimExpr& dst_inde
   while (loop_idx >= 0) {
     loop_src_index_base += 1;
     result->loop_num[loop_idx] = 1;
-    result->loop_dst_stride[loop_idx] = loop_idx < 2 ? result->loop_dst_stride[loop_idx + 1] : 1;
-    result->loop_src_stride[loop_idx] = loop_idx < 2 ? result->loop_src_stride[loop_idx + 1] : 1;
+    loop_src_num[loop_idx] = 1;
+    result->loop_dst_stride[loop_idx] =
+        loop_idx < 2 ? result->loop_dst_stride[loop_idx + 1] * result->loop_num[loop_idx + 1] : 1;
+    result->loop_src_stride[loop_idx] =
+        loop_idx < 2 ? result->loop_src_stride[loop_idx + 1] * loop_src_num[loop_idx + 1] : 1;
     loop_idx -= 1;
   }
   for (loop_idx = 0; loop_idx < 4; ++loop_idx) {

@@ -18,11 +18,15 @@
 """Common edgex related utilities"""
 
 from functools import reduce
+from copy import deepcopy
 import tvm
 from tvm import tir
 from tvm import relay
 from tvm.contrib.edgex.tir.schedule import EdgexSchedule
 from tvm.contrib.edgex.relay.transform import PostScheduleArgumentRewriteManager
+from tvm.contrib.edgex.config import EdgexConfig
+from tvm.contrib.edgex.arith.utils import ceiling_align
+from tvm.contrib.edgex.base.edgexlog import EdgexLog as el
 from tvm.contrib.edgex.relay.op import cast_reinterpret
 
 
@@ -35,6 +39,41 @@ EDGEX_DTYPE_INFO = {
     "int32": (4, 4),
     "int16": (4, 2),
 }
+
+
+def get_line_num(dtype: str):
+    """Get the lines according the dtype"""
+    if dtype in ["int8", "uint8"]:
+        return 16
+    if dtype in ["float16", "int16"]:
+        return 8
+    el.e("Not support dtype: %s" % dtype)
+    return -1
+
+
+def get_conv_odma_output_bytes(psum_out_en, output_dtype, int_type):
+    """Odma output dtype is related to the psum_out_en, output_dtype and int_type."""
+    if psum_out_en == 1:
+        # output fp32 or int32
+        return 4
+    if output_dtype == "float32" and psum_out_en == 0:
+        # output fp16
+        return 2
+    if output_dtype == "int32" and psum_out_en == 0 and int_type == 1:
+        # output int16
+        return 2
+    if output_dtype == "int32" and psum_out_en == 0 and int_type == 0:
+        # output int8
+        return 1
+    el.e(
+        "Not support dtype: %s, psum_out_en: %d, int_type: %d"
+        % (
+            output_dtype,
+            psum_out_en,
+            int_type,
+        )
+    )
+    return -1
 
 
 def get_conv_epsilon_delta(
@@ -541,3 +580,23 @@ def relay_rewrite_per_channel_bias_and_norm(
             forward_transform=relay_forward_params,
             backward_transform=relay_backward_params,
         )
+
+
+def swift_tile_cfg(cfg: EdgexConfig, shape, elem_bytes, layout="NCHW"):
+    """Get the tile configuration helper function."""
+    if cfg is None:
+        el.e("Invalid edgex configuration.")
+    if layout != "NCHW":
+        el.e("Only support 'NCHW' layout tile")
+    new_shape = deepcopy(shape)
+    new_shape[1] = ceiling_align(new_shape[1], 16)
+    elems = reduce(lambda x, y: x * y, new_shape)
+    byte_sizes = elems * elem_bytes
+    if byte_sizes > cfg.DM_SIZE and shape[1] > 1:
+        setattr(cfg, "tile_co", True)
+        co_num = 2
+        while shape[1] % co_num != 0 or byte_sizes // co_num > cfg.DM_SIZE:
+            co_num += 1
+        setattr(cfg, "tile_co_num", co_num)
+    else:
+        setattr(cfg, "tile_co", False)

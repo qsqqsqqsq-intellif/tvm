@@ -33,12 +33,12 @@ def edma_access_pattern(data: T.handle, result: T.handle) -> None:
                     if 1 <= 0*16 + h_i and 1 <= 0*16 + w_i:
                         for c_i in T.serial(0, 8):
                             dm[c_o_i*2312 + h_i*136 + w_i*8 + c_i] = T.load(
-                                "int32", X.data, 
+                                "int32", X.data,
                                 c_o_o*1605632 + c_o_i*401408 + c_i*50176 + h_o*3584 + h_i*224 + w_o*16 + w_i - 225)
             with T.attr("", "pragma_nnp_dma_scope", "eodma"):
                 for c_i, h_i, w_i in T.grid(32, 8, 8):
                     Y.data[c_o_o*401408 + c_i*12544 + h_o*896 + h_i*112 + w_o*8 + w_i] = T.load(
-                        "int32", dm, 
+                        "int32", dm,
                         T.floordiv(c_i, 8)*512 + h_i*64 + w_i*8 + T.floormod(c_i, 8))
 
 @T.prim_func
@@ -91,7 +91,7 @@ def eidma_1D_broadcast_pattern_rewritten(data: T.handle) -> None:
         "ei_dtype=4", "ei_mode=2", "ei_j0_loop_num=1", "ei_j1_loop_num=1", "ei_j2_loop_num=16", "ei_j3_loop_num=1",
         "ei_j0_loop_sel=3", "ei_j1_loop_sel=2", "ei_j2_loop_sel=1", "ei_j3_loop_sel=0",
         "ei_j0_stridein=0", "ei_j1_stridein=0", "ei_j2_stridein=0",
-        "ei_j0_strideout=4", "ei_j1_strideout=4", "ei_j2_strideout=4", dtype=""))
+        "ei_j0_strideout=64", "ei_j1_strideout=64", "ei_j2_strideout=4", dtype=""))
 # fmt: on
 
 
