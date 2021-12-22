@@ -19,15 +19,33 @@
 
 import logging
 from tvm import relay
+from ..threshold import Threshold
+from ..method_dtype import Method, DataType
 from ..analyze import _conv_counter, oneargdeal
 from ..calibrate import _calibrate_core
 from ..realize import _realize_core
 
 LOGGER = logging.getLogger("quantize")
+
 __all__ = ("Squeeze",)
 
-VALIDCONFIG = {}
-DEFAULTCONFIG = {}
+VALIDCONFIG = {
+    "threshold": (
+        Threshold.MinMax,
+        Threshold.Percentile,
+        Threshold.MovingAverageMinMax,
+        Threshold.L2Norm,
+        Threshold.RelativeEntropy,
+    ),
+    "method": (Method.Symmetry, Method.Asymmetry),
+    "dtype": (DataType.Int8, DataType.Int16),
+}
+
+DEFAULTCONFIG = {
+    "threshold": Threshold.RelativeEntropy,
+    "method": Method.Symmetry,
+    "dtype": DataType.Int8,
+}
 
 
 class Squeeze:

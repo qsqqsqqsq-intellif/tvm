@@ -17,6 +17,7 @@
 # pylint: disable=unused-argument,inconsistent-return-statements
 """debug"""
 
+import os
 import numpy
 import tvm
 from tvm import relay
@@ -125,54 +126,42 @@ def pair_node(old_node, new_node, oc_, ic_, n2o, quantized):
                 pass
 
 
-def data_hist_analysis(data, number):
-    """data hist anaylsis"""
-    data_max = numpy.max(numpy.abs(data))
-    width = data_max / (number - 1)
-    hist = numpy.zeros(number)
-    if data_max == 0:
-        return hist
-    count = len(data)
-    for i in range(count):
-        index = (int)(numpy.abs(data[i]) / width + 0.5)
-        hist[index] += 1
-    return hist
+def plot_statistics(data1_, data2_, distance, name, path):
+    """plot_statistics"""
+    data1 = data1_.reshape(-1)
+    data2 = data2_.reshape(-1)
+    abs1 = numpy.abs(data1)
+    abs2 = numpy.abs(data2)
+    hist1 = numpy.histogram(abs1, 2048, (0, abs1.max()))[0]
+    hist2 = numpy.histogram(abs2, 2048, (0, abs2.max()))[0]
 
-
-def analysis_two_data(data1_, data2_, name1="fixed", name2="float"):
-    """analysis_two_data"""
-
-    data1 = data1_.flatten()
-    data1_list = list(data1)
-    data1_hist = data_hist_analysis(data1_list, 2048)
-
-    data2 = data2_.flatten()
-    data2_list = list(data2)
-    data2_hist = data_hist_analysis(data2_list, 2048)
-
+    plt.figure(figsize=(10, 10))
     ax1 = plt.subplot(221)
-    plt.plot(data1_hist, "*")
+    plt.plot(hist1, "*")
     ax2 = plt.subplot(223)
-    plt.plot(data2_hist, "*")
+    plt.plot(hist2, "*")
 
     ax3 = plt.subplot(222)
-    plt.plot(data1_list)
-    plt.xticks(rotation=90)
+    plt.plot(data1)
+    plt.xticks(rotation=45)
     ax4 = plt.subplot(224)
-    plt.plot(data2_list)
-    plt.xticks(rotation=90)
+    plt.plot(data2)
+    plt.xticks(rotation=45)
 
-    ax1.set_title("total = " + str(len(data1_list)))
-    ax2.set_title("total = " + str(len(data2_list)))
-    len_name1 = len(name1)
-    len_name2 = len(name2)
-    ax3.set_title("float*" + name1[len_name1 - 10 :])
-    ax4.set_title("fixed*" + name2[len_name2 - 10 :])
-    plt.show()
-    plt.save()
+    ax1.set_title("total = " + str(len(data1)))
+    ax2.set_title("total = " + str(len(data2)))
+    ax3.set_title("origin")
+    ax4.set_title("quantized")
+    plt.subplots_adjust(wspace=0.5, hspace=0.5)
+    plt.suptitle("similarity : %s" % distance)
+    if path is not None:
+        plt.savefig(os.path.join(path, name) + ".png")
+    else:
+        plt.show()
+    plt.close()
 
 
-def compare_statistics(cls, method):
+def compare_statistics(cls, method, path):
     """compare_statistics"""
     old_node = []
     new_node = []
@@ -230,12 +219,11 @@ def compare_statistics(cls, method):
                 tmp = cls.new2old[new_node[i]]["node"]
                 name = cls.node_id[tmp]
                 dtype = str(old_node[i].checked_type)
-                # analysis_two_data(o_r, n_r, name[0:10], name[0:10])
+                plot_statistics(o_r, n_r, distance, name, path)
                 one_result.append([name, distance])
                 print("{x:<30}{y:<50}{z:<40}".format(x=name, y=dtype, z=distance))
             all_result.append(one_result)
             print("一张图片统计对比结束\n")
-            # break
         except StopIteration:
             break
     return all_result

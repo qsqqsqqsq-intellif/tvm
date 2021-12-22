@@ -33,7 +33,7 @@ ctx = tvm.cpu()
 target = "llvm"
 
 batch_size = 1
-calibrate_num = 1
+calibrate_num = 500
 num_workers = 8
 model_name = "vit_base_patch32_224"
 performance = {
@@ -41,7 +41,7 @@ performance = {
     "gelu用sigmoid近似": 79.6120,
     "gelu用tanh近似": 80.7340,
     "sigmoid的f16": 74.9,
-    "tanh的f16": None,
+    "tanh的f16": 75.6,
     "int8": None,
 }
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
@@ -140,7 +140,7 @@ else:
     scripted_model = torch.jit.trace(model.eval(), x)
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
-quantize_config = {"skip_conv_layers": [i for i in range(9999)]}
+
 quantize_search = relay.quantization.QuantizeSearch(
     model_name=model_name,
     mod=mod,
@@ -154,7 +154,6 @@ quantize_search = relay.quantization.QuantizeSearch(
     mean=[0.5 * 255, 0.5 * 255, 0.5 * 255],
     scale=[0.5 * 255, 0.5 * 255, 0.5 * 255],
     compare_statistics=False,
-    quantize_config=quantize_config,
 )
 
 config = quantize_search.get_default_config()

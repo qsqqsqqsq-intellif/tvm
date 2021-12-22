@@ -17,6 +17,7 @@
 # pylint: disable=unused-argument,inconsistent-return-statements
 """Automatic quantization toolkit."""
 
+import os
 import logging
 from .analyze import analyze_graph
 from .collect import collect_stats
@@ -41,7 +42,6 @@ class Quantize:
         self.node_id = cls.node_id
         self.id_node = cls.id_node
         self.config = config
-
         self.net_in_dtype = cls.net_in_dtype
         self.opt_level = cls.opt_level
 
@@ -54,8 +54,16 @@ class Quantize:
         collect_stats(self)
         calibrate_params(self)
         realize_graph(self)
+
+        if cls.root_path is not None:
+            save_path = os.path.join(cls.root_path, cls.model_name)
+            statistics_path = os.path.join(save_path, "statistics")
+            if not os.path.exists(statistics_path):
+                os.makedirs(statistics_path)
+        else:
+            statistics_path = None
         if cls.compare_statistics:
-            self.similarity = compare_statistics(self, "cosine")
+            self.similarity = compare_statistics(self, "cosine", statistics_path)
         else:
             self.similarity = None
         # post only move fp16 to UInt8

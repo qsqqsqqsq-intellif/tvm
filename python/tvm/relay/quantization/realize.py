@@ -486,12 +486,11 @@ class Realize(ExprMutator):
 
             new_body = relay.Tuple(tup_new_fields, fn.body.span)
             # todo
-            # pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
-
+            pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
         else:
             # todo tuple
             new_body = new_fn.body
-            # pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
+            pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
 
         new_body = relay.frontend.common.infer_type(new_body)
         new_params = relay.analysis.free_vars(new_body)
