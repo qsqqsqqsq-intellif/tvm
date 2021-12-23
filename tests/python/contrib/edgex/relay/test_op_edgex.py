@@ -52,6 +52,13 @@ def test_cast_reinterpret_op():
         ref_res = data.view(ttype)
         np.testing.assert_equal(op_res.numpy(), ref_res)
 
+        b = relay.var("b", yy.checked_type)
+        y = cast_reinterpret(b, otype)
+        data = op_res.numpy()
+        op_res = intrp.evaluate(y, {b: relay.const(data)})
+        ref_res = data.view(otype)
+        np.testing.assert_equal(op_res.numpy(), ref_res)
+
     types = ["int32", "int16", "int8"]
     for i in range(len(types)):
         for j in range(i + 1, len(types)):

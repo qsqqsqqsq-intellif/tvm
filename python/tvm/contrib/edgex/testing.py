@@ -287,6 +287,10 @@ def check_numpy_result(
     atol : float, optional
         Absolute tolerance.
     """
+    ndim = len(result.shape)
+    assert ndim == len(expect.shape) and all(
+        [result.shape[i] == expect.shape[i] for i in range(ndim)]
+    ), f"Tensor mismatch: result is {result.shape}, expect {expect.shape}"
     actual_rmse = np.sqrt(np.mean((result - expect).astype("float32") ** 2))
 
     def do_check():
@@ -497,12 +501,14 @@ def check_edgex_tir_build(
     name,
     prim_func,
     numpy_func=None,
+    edgex_fschedule=None,
     check_edgex=True,
     check_cpu=True,
     need_lower=True,
     data_range=None,
     input_data=None,
     rmse=None,
+    output_idx=-1,
 ):
     """build and check edgex tir module
     Parameters
@@ -512,6 +518,10 @@ def check_edgex_tir_build(
 
     primfunc : tir.PrimFunc
         The tir function to build and test.
+
+    edgex_fschedule : func
+        Schedule before lowering, can be used if it changes argument layouts on device.
+        Must be of signature (attrs, primfunc, target) -> primfunc
 
     numpy_func : function
         The compatible computation logic in numpy to get the expect output.
@@ -534,8 +544,14 @@ def check_edgex_tir_build(
     rmse : float
         If specified, check root-mean-square deviation between results and expects
         instead of close assertion.
+
+    output_idx : int or List[int]
+        If specified, compare only the tensor at these indices.
     """
+    # prepare test data
     arrs = []
+    if not isinstance(output_idx, (set, list)):
+        output_idx = {output_idx}
     for idx, param in enumerate(prim_func.params):
         if input_data is not None and idx < len(input_data) and input_data[idx] is not None:
             arrs.append(input_data[idx])
@@ -543,6 +559,9 @@ def check_edgex_tir_build(
         buffer = prim_func.buffer_map[param]
         shape = [int(x) for x in buffer.shape]
         dtype = buffer.dtype
+        if idx in output_idx:
+            arrs.append(np.zeros(shape).astype(dtype))
+            continue
         if data_range is None:
             data_range = (-64, 63)
         elif data_range == "full":
@@ -560,6 +579,22 @@ def check_edgex_tir_build(
         else:
             arrs.append(np.random.uniform(data_range[0], data_range[1], size=shape).astype(dtype))
 
+    # schedule on device differently if optional edgex_fschedule specified
+    cpu_prim_func = prim_func
+    cpu_arrs = arrs
+    relay_arg_rewrite_mod = None
+    if edgex_fschedule is not None:
+        prim_func = edgex_fschedule({}, prim_func, tvm.target.edgex())
+        if prim_func.attrs is not None:
+            for k, v in prim_func.attrs.items():
+                if k == "post_schedule_argument_rewrite":
+                    relay_arg_rewrite_mod = tvm.ir.load_json(v)
+                    executor = relay.create_executor(kind="vm")
+                    rewritten_args = executor.evaluate(relay_arg_rewrite_mod["forward"])(*arrs)
+                    arrs = [_.numpy() for _ in rewritten_args]
+                    break
+
+    # compute a expect result by numpy logic if optional numpy_func specified
     expects = None
     if numpy_func is not None:
         n_args = len(inspect.getfullargspec(numpy_func).args)
@@ -576,19 +611,23 @@ def check_edgex_tir_build(
         )
         expects = arrs[:n_args] + expects
 
+    # cpu execution
     if check_cpu:
-        build_input = prim_func if need_lower else {"llvm": IRModule({name: prim_func})}
+        build_input = cpu_prim_func if need_lower else {"llvm": IRModule({name: cpu_prim_func})}
         ctx = tvm.cpu()
         cpu_mod = tvm.build(build_input, [], target="llvm", name=name)
-        cpu_tensors = [tvm.nd.array(x, ctx) for x in arrs]
+        cpu_tensors = [tvm.nd.array(x, ctx) for x in cpu_arrs]
         cpu_mod(*cpu_tensors)
-        cpu_results = [x.asnumpy() for x in cpu_tensors]
+        cpu_results = [x.numpy() for x in cpu_tensors]
         if expects is None:
             expects = cpu_results
         else:
-            for _, (expect, res) in enumerate(zip(expects, cpu_results)):
+            for i, (expect, res) in enumerate(zip(expects, cpu_results)):
+                if output_idx is not None and not i in output_idx:
+                    continue
                 check_numpy_result(res, expect, rmse=rmse)
 
+    # device execution
     if check_edgex:
         build_input = prim_func if need_lower else {"edgex": IRModule({name: prim_func})}
         ctx = tvm.edgex()
@@ -596,9 +635,14 @@ def check_edgex_tir_build(
             edgex_mod = tvm.build(build_input, [], target="edgex", name=name)
         edgex_tensors = [tvm.nd.array(x, ctx) for x in arrs]
         edgex_mod(*edgex_tensors)
-        edgex_results = [x.asnumpy() for x in edgex_tensors]
+        if relay_arg_rewrite_mod is not None:
+            executor = relay.create_executor(kind="vm")
+            edgex_tensors = executor.evaluate(relay_arg_rewrite_mod["backward"])(*edgex_tensors)
+        edgex_results = [x.numpy() for x in edgex_tensors]
         if expects is not None:
-            for _, (expect, res) in enumerate(zip(expects, edgex_results)):
+            for i, (expect, res) in enumerate(zip(expects, edgex_results)):
+                if output_idx is not None and not i in output_idx:
+                    continue
                 check_numpy_result(res, expect, rmse=rmse)
 
 

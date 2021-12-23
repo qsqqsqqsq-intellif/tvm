@@ -28,6 +28,7 @@ from tvm.contrib.edgex.config import EdgexConfig
 from tvm.contrib.edgex.arith.utils import ceiling_align
 from tvm.contrib.edgex.base.edgexlog import EdgexLog as el
 from tvm.contrib.edgex.relay.op import cast_reinterpret
+from tvm.tir.schedule.schedule import Schedule
 
 
 # Typename -> (typeid, bytes) for edgex datatypes
@@ -582,9 +583,9 @@ def relay_rewrite_per_channel_bias_and_norm(
         )
 
 
-def swift_tile_cfg(cfg: EdgexConfig, shape, elem_bytes, layout="NCHW"):
+def swift_tile_cfg(cfg, global_hw_cfg: EdgexConfig, shape, elem_bytes, layout="NCHW"):
     """Get the tile configuration helper function."""
-    if cfg is None:
+    if global_hw_cfg is None:
         el.e("Invalid edgex configuration.")
     if layout != "NCHW":
         el.e("Only support 'NCHW' layout tile")
@@ -592,11 +593,26 @@ def swift_tile_cfg(cfg: EdgexConfig, shape, elem_bytes, layout="NCHW"):
     new_shape[1] = ceiling_align(new_shape[1], 16)
     elems = reduce(lambda x, y: x * y, new_shape)
     byte_sizes = elems * elem_bytes
-    if byte_sizes > cfg.DM_SIZE and shape[1] > 1:
-        setattr(cfg, "tile_co", True)
+    if byte_sizes > global_hw_cfg.DM_SIZE and shape[1] > 1:
         co_num = 2
-        while shape[1] % co_num != 0 or byte_sizes // co_num > cfg.DM_SIZE:
+        while shape[1] % co_num != 0 or byte_sizes // co_num > global_hw_cfg.DM_SIZE:
             co_num += 1
-        setattr(cfg, "tile_co_num", co_num)
-    else:
-        setattr(cfg, "tile_co", False)
+        cfg.tile_co = True
+        cfg.tile_co_num = co_num
+
+
+def get_producer_block(sched: Schedule, block, read_idx):
+    """Get the unique producer of current block's {read_idx}th read buffer"""
+    cands = []
+    block_stmt = sched.get_sref(block).stmt
+    buffer = block_stmt.reads[read_idx].buffer
+    for producer in sched.get_producers(block):
+        block_stmt = sched.get_sref(producer).stmt
+        for write in block_stmt.writes:
+            if write.buffer == buffer:
+                cands.append(producer)
+    if len(cands) == 0:
+        raise ValueError(f"Can not find producer block of {buffer.name}")
+    if len(cands) > 1:
+        raise ValueError(f"Block {block.name_hint}'s {read_idx}th buffer has multiple producers")
+    return cands[0]

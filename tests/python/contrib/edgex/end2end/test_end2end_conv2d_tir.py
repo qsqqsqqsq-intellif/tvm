@@ -16,269 +16,418 @@
 # under the License.
 import tvm
 from tvm import tir
-from tvm.contrib.edgex.edgex import build_config_nnp
+from tvm.contrib.edgex.testing import check_edgex_tir_build
 import tvm.testing
 from tvm.script import tir as T
 from tvm.contrib.edgex.tir.schedule import EdgexSchedule
 import numpy as np
-from tvm.contrib.edgex.topi.conv2d import schedule_edgex_conv_block
+from tvm.contrib.edgex.topi.conv2d import Conv2dScheduleConfig, schedule_edgex_conv_block
+from tvm.contrib.edgex.relay.transform import PostScheduleArgumentRewriteManager
 
 
-# fmt: off
 @T.prim_func
-def fused_conv_with_bias_norm_relu(x: T.handle, weight: T.handle, y: T.handle,
-                                   bias_param: T.handle, mul_param: T.handle, shift_param: T.handle) -> None:
+def single_conv(
+    x: T.handle,
+    weight: T.handle,
+    y: T.handle,
+    stride_h: T.int32,
+    stride_w: T.int32,
+    pad_top: T.int32,
+    pad_left: T.int32,
+    pad_bottom: T.int32,
+    pad_right: T.int32,
+) -> None:
     c_i = T.var("int32")
     c_o = T.var("int32")
     h = T.var("int32")
     w = T.var("int32")
     k_h = T.var("int32")
     k_w = T.var("int32")
-    Y = T.match_buffer(y, [1, c_o, h // 2, w // 2], dtype="int8")
+    Y = T.match_buffer(
+        y,
+        [
+            1,
+            c_o,
+            (h + pad_top + pad_bottom - k_h) // stride_h + 1,
+            (w + pad_left + pad_right - k_w) // stride_w + 1,
+        ],
+        dtype="int32",
+    )
     W = T.match_buffer(weight, [c_o, c_i, k_h, k_w], dtype="int8")
-    X = T.match_buffer(x, [1, c_i, h, w], dtype="uint8")
-    BiasParam = T.match_buffer(bias_param, [c_o], dtype="int32")
-    MulParam = T.match_buffer(mul_param, [c_o, 1, 1], dtype="int64")
-    ShiftParam = T.match_buffer(shift_param, [c_o, 1, 1], dtype="int64")
-    Xpad = T.alloc_buffer([1, c_i, h + 6, w + 6], dtype="uint8")
-    T_conv = T.alloc_buffer([1, c_o, h // 2, w // 2], dtype="int32")
-    T_expand_dims = T.alloc_buffer([c_o, 1, 1], dtype="int32")
-    T_add = T.alloc_buffer([1, c_o, h // 2, w // 2], dtype="int32")
-    compute_1 = T.alloc_buffer([1, c_o, h // 2, w // 2], dtype="int64")
-    T_multiply = T.alloc_buffer([1, c_o, h // 2, w // 2], dtype="int64")
-    T_round_right_shift = T.alloc_buffer([1, c_o, h // 2, w // 2], dtype="int64")
-    compute_2 = T.alloc_buffer([1, c_o, h // 2, w // 2], dtype="int64")
-    compute_3 = T.alloc_buffer([1, c_o, h // 2, w // 2], dtype="int8")
-    for i0, i1, i2, i3 in T.grid(1, c_i, h + 6, w + 6):
+    X = T.match_buffer(x, [1, c_i, h, w], dtype="int8")
+    Xpad = T.alloc_buffer(
+        [1, c_i, h + pad_top + pad_bottom, w + pad_left + pad_right], dtype="int8"
+    )
+    for i0, i1, i2, i3 in T.grid(1, c_i, h + pad_top + pad_bottom, w + pad_left + pad_right):
         with T.block("pad_temp"):
             ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
             Xpad[ax0, ax1, ax2, ax3] = T.if_then_else(
-                T.likely(3 <= ax2, dtype="bool") and \
-                T.likely(ax2 < 227, dtype="bool") and \
-                T.likely(3 <= ax3, dtype="bool") and \
-                T.likely(ax3 < 227, dtype="bool"),
-                X[ax0, ax1, ax2 - 3, ax3 - 3], T.uint8(0), dtype="uint8")
-    for i0, i1, i2, i3, i4, i5, i6 in T.grid(1, c_o, h // 2, w // 2, c_i, k_h, k_w):
-        with T.block("compute"):
+                T.likely(pad_top <= ax2, dtype="bool")
+                and T.likely(ax2 < h + pad_bottom, dtype="bool")
+                and T.likely(pad_left <= ax3, dtype="bool")
+                and T.likely(ax3 < w + pad_right, dtype="bool"),
+                X[ax0, ax1, ax2 - pad_top, ax3 - pad_left],
+                T.int8(0),
+                dtype="int8",
+            )
+    for i0, i1, i2, i3, i4, i5, i6 in T.grid(
+        1,
+        c_o,
+        (h + pad_top + pad_bottom - k_h) // stride_h + 1,
+        (w + pad_left + pad_right - k_w) // stride_w + 1,
+        c_i,
+        k_h,
+        k_w,
+    ):
+        with T.block("conv"):
             nn, cc, yy, xx, rc, ry, rx = T.axis.remap("SSSSRRR", [i0, i1, i2, i3, i4, i5, i6])
-            T_conv[nn, cc, yy, xx] = T_conv[nn, cc, yy, xx] + \
-                T.cast(Xpad[nn, rc, yy*2 + ry, xx*2 + rx], "int32") * T.cast(W[cc, rc, ry, rx], "int32")
-    for i0, i1, i2 in T.grid(c_o, 1, 1):
+            with T.init():
+                Y[nn, cc, yy, xx] = 0
+            Y[nn, cc, yy, xx] = Y[nn, cc, yy, xx] + T.cast(
+                Xpad[nn, rc, yy * stride_h + ry, xx * stride_w + rx], "int32"
+            ) * T.cast(W[cc, rc, ry, rx], "int32")
+
+
+@T.prim_func
+def post_conv_bias_add(x: T.handle, y: T.handle, bias_param: T.handle) -> None:
+    c = T.var("int32")
+    h = T.var("int32")
+    w = T.var("int32")
+    Y = T.match_buffer(y, [1, c, h, w], dtype="int32")
+    X = T.match_buffer(x, [1, c, h, w], dtype="int32")
+    T_expand_dims = T.alloc_buffer([c, 1, 1], dtype="int32")
+    BiasParam = T.match_buffer(bias_param, [c], dtype="int32")
+    for i0, i1, i2 in T.grid(c, 1, 1):
         with T.block("T_expand_dims"):
             ax0, ax1, ax2 = T.axis.remap("SSS", [i0, i1, i2])
             T_expand_dims[ax0, ax1, ax2] = BiasParam[ax0]
-    for i0, i1, i2, i3 in T.grid(1, c_o, h // 2, w // 2):
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
         with T.block("T_add"):
             ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
-            T_add[ax0, ax1, ax2, ax3] = (T_conv[ax0, ax1, ax2, ax3] + T_expand_dims[ax1, 0, 0])
-    for i0, i1, i2, i3 in T.grid(1, c_o, h // 2, w // 2):
+            Y[ax0, ax1, ax2, ax3] = X[ax0, ax1, ax2, ax3] + T_expand_dims[ax1, 0, 0]
+
+
+@T.prim_func
+def post_conv_quantize(
+    x: T.handle, y: T.handle, mul_param: T.handle, shift_param: T.handle
+) -> None:
+    c = T.var("int32")
+    h = T.var("int32")
+    w = T.var("int32")
+    Y = T.match_buffer(y, [1, c, h, w], dtype="int8")
+    X = T.match_buffer(x, [1, c, h, w], dtype="int32")
+    MulParam = T.match_buffer(mul_param, [c, 1, 1], dtype="int64")
+    ShiftParam = T.match_buffer(shift_param, [c, 1, 1], dtype="int64")
+    compute_1 = T.alloc_buffer([1, c, h, w], dtype="int64")
+    T_multiply = T.alloc_buffer([1, c, h, w], dtype="int64")
+    T_round_right_shift = T.alloc_buffer([1, c, h, w], dtype="int64")
+    compute_2 = T.alloc_buffer([1, c, h, w], dtype="int64")
+    compute_3 = T.alloc_buffer([1, c, h, w], dtype="int8")
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
         with T.block("compute_1"):
             ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
-            compute_1[ax0, ax1, ax2, ax3] = T.cast(T_add[ax0, ax1, ax2, ax3], "int64")
-    for i0, i1, i2, i3 in T.grid(1, c_o, h // 2, w // 2):
+            compute_1[ax0, ax1, ax2, ax3] = T.cast(X[ax0, ax1, ax2, ax3], "int64")
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
         with T.block("T_multiply"):
             ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
             T_multiply[ax0, ax1, ax2, ax3] = compute_1[ax0, ax1, ax2, ax3] * MulParam[ax1, 0, 0]
-    for i0, i1, i2, i3 in T.grid(1, c_o, h // 2, w // 2):
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
         with T.block("T_round_right_shift"):
             ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
             T_round_right_shift[ax0, ax1, ax2, ax3] = T.nnp_round_right_shift(
-                T_multiply[ax0, ax1, ax2, ax3], ShiftParam[ax1, 0, 0], dtype="int64")
-    for i0, i1, i2, i3 in T.grid(1, c_o, h // 2, w // 2):
+                T_multiply[ax0, ax1, ax2, ax3], ShiftParam[ax1, 0, 0], dtype="int64"
+            )
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
         with T.block("compute_2"):
             ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
-            compute_2[ax0, ax1, ax2, ax3] = T.max(T.min(
-                T_round_right_shift[ax0, ax1, ax2, ax3], T.int64(127)), T.int64(-128))
-    for i0, i1, i2, i3 in T.grid(1, c_o, h // 2, w // 2):
+            compute_2[ax0, ax1, ax2, ax3] = T.max(
+                T.min(T_round_right_shift[ax0, ax1, ax2, ax3], T.int64(127)), T.int64(-128)
+            )
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
         with T.block("compute_3"):
             ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
             compute_3[ax0, ax1, ax2, ax3] = T.cast(compute_2[ax0, ax1, ax2, ax3], "int8")
-    for i0, i1, i2, i3 in T.grid(1, c_o, h // 2, w // 2):
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
         with T.block("T_relu"):
             ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
             Y[ax0, ax1, ax2, ax3] = T.max(compute_3[ax0, ax1, ax2, ax3], T.int8(0))
 
 
-@T.prim_func
-def single_conv(x: T.handle, weight: T.handle, y: T.handle) -> None:
-    c_i = T.var("int32")
-    c_o = T.var("int32")
-    h = T.var("int32")
-    w = T.var("int32")
-    k_h = T.var("int32")
-    k_w = T.var("int32")
-    Y = T.match_buffer(y, [1, c_o, h // 2, w // 2], dtype="int32")
-    W = T.match_buffer(weight, [c_o, c_i, k_h, k_w], dtype="int8")
-    X = T.match_buffer(x, [1, c_i, h, w], dtype="uint8")
-    Xpad = T.alloc_buffer([1, c_i, h + 6, w + 6], dtype="uint8")
-    for i0, i1, i2, i3 in T.grid(1, c_i, h + 6, w + 6):
-        with T.block("pad_temp"):
-            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
-            Xpad[ax0, ax1, ax2, ax3] = T.if_then_else(
-                T.likely(3 <= ax2, dtype="bool") and \
-                T.likely(ax2 < 227, dtype="bool") and \
-                T.likely(3 <= ax3, dtype="bool") and \
-                T.likely(ax3 < 227, dtype="bool"),
-                X[ax0, ax1, ax2 - 3, ax3 - 3], T.uint8(0), dtype="uint8")
-    for i0, i1, i2, i3, i4, i5, i6 in T.grid(1, c_o, h // 2, w // 2, c_i, k_h, k_w):
-        with T.block("compute"):
-            nn, cc, yy, xx, rc, ry, rx = T.axis.remap("SSSSRRR", [i0, i1, i2, i3, i4, i5, i6])
-            Y[nn, cc, yy, xx] = Y[nn, cc, yy, xx] + \
-                T.cast(Xpad[nn, rc, yy*2 + ry, xx*2 + rx], "int32") * T.cast(W[cc, rc, ry, rx], "int32")
-# fmt: on
+def get_conv2d_primfunc(
+    input_shape,
+    weight_shape,
+    strides=[
+        1,
+        1,
+    ],
+    padding=[0, 0, 0, 0],
+    dilation=[1, 1],
+):
+    """helper to specialize conv template"""
+    assert dilation[0] == 1 and dilation[1] == 1
+    x, w, _, stride_h, stride_w, pad_top, pad_left, pad_bottom, pad_right = single_conv.params
+    return single_conv.specialize(
+        {
+            x: tir.decl_buffer(input_shape, "int8"),
+            w: tir.decl_buffer(weight_shape, "int8"),
+            stride_h: strides[0],
+            stride_w: strides[1],
+            pad_top: padding[0],
+            pad_left: padding[1],
+            pad_bottom: padding[2],
+            pad_right: padding[3],
+        }
+    )
 
 
 def test_tir_func_single_conv2d():
-    c_i = 3
-    c_o = 16
-    h = 224
-    w = 224
-    input_shape = [1, c_i, h, w]
-    weight_shape = [c_o, c_i, 7, 7]
-    output_shape = [1, c_o, h // 2, w // 2]
+    c_i, c_o, h, w = 3, 16, 224, 224
     strides = [2, 2]
     kernel_size = [7, 7]
     padding = [3, 3, 3, 3]
     dilation = [1, 1]
-
-    p_input, p_weight = single_conv.params[0:2]
-    primfunc = single_conv.specialize(
-        {
-            p_input: tir.decl_buffer(input_shape, "int8"),
-            p_weight: tir.decl_buffer(weight_shape, "int8"),
-        }
+    primfunc = get_conv2d_primfunc(
+        input_shape=[1, c_i, h, w], weight_shape=[c_o, c_i, 7, 7], strides=strides, padding=padding
     )
-    s = EdgexSchedule(primfunc)
-    conv = s.get_block("compute")
-    schedule_edgex_conv_block(
-        s,
-        conv,
-        kernel_size=kernel_size,
-        strides=strides,
-        padding=padding,
-        dilation=dilation,
-        groups=1,
+
+    def fschedule(attrs, func, target):
+        s = EdgexSchedule(func)
+        relay_rewrite_mgr = PostScheduleArgumentRewriteManager(s)
+        conv = s.get_block("conv")
+        schedule_edgex_conv_block(
+            s,
+            conv,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            groups=1,
+            relay_rewrite_mgr=relay_rewrite_mgr,
+        )
+        return relay_rewrite_mgr.create_annotated_func()
+
+    check_edgex_tir_build(
+        "tir_single_conv2d", primfunc, edgex_fschedule=fschedule, output_idx=2, data_range=1
     )
-    func = s.mod["main"]
-
-    new_weight_shape = [int(x) for x in func.buffer_map[func.params[1]].shape]
-    x_np = np.random.randint(0, 128, input_shape).astype("uint8")
-    w_np_raw = np.ones(weight_shape).astype("int8")
-    w_np_rewrite = np.ones(new_weight_shape).astype("int8")
-    y_np = np.zeros(output_shape).astype("int32")
-
-    with tvm.ir.transform.PassContext():
-        ctx = tvm.cpu()
-        cpu_mod = tvm.build(primfunc, [], target="llvm")
-        x_nd = tvm.nd.array(x_np, ctx)
-        w_nd_raw = tvm.nd.array(w_np_raw, ctx)
-        y_nd = tvm.nd.array(y_np, ctx)
-        cpu_mod(x_nd, w_nd_raw, y_nd)
-        cpu_res = y_nd.asnumpy()
-
-    with build_config_nnp():
-        ctx = tvm.edgex()
-        edgex_mod = tvm.build(s.mod["main"], [], target="edgex", name="tir_single_conv2d")
-        x_nd = tvm.nd.array(x_np, ctx)
-        w_nd_rewrite = tvm.nd.array(w_np_rewrite, ctx)
-        y_nd = tvm.nd.array(y_np, ctx)
-        edgex_mod(x_nd, w_nd_rewrite, y_nd)
-        edgex_res = y_nd.asnumpy()
-        tvm.testing.assert_allclose(edgex_res, cpu_res, rtol=1e-5)
 
 
 def test_tir_func_quantized_conv2d():
-    c_i = 3
-    c_o = 64
-    h = 224
-    w = 224
-    k_h = 7
-    k_w = 7
-    input_shape = [1, c_i, h, w]
-    weight_shape = [c_o, c_i, k_h, k_w]
-    output_shape = [1, c_o, h // 2, w // 2]
-    strides = [2, 2]
-    padding = [3, 3, 3, 3]
-    dilation = [1, 1]
-    kernel_size = [k_h, k_w]
+    @T.prim_func
+    def quantized_conv(
+        x: T.handle,
+        weight: T.handle,
+        y: T.handle,
+        bias_param: T.handle,
+        mul_param: T.handle,
+        shift_param: T.handle,
+    ) -> None:
+        c_i = T.var("int32")
+        c_o = T.var("int32")
+        h_i = T.var("int32")
+        w_i = T.var("int32")
+        h_o = T.var("int32")
+        w_o = T.var("int32")
+        k_h = T.var("int32")
+        k_w = T.var("int32")
+        Y = T.match_buffer(y, [1, c_o, h_o, w_o], dtype="int8")
+        W = T.match_buffer(weight, [c_o, c_i, k_h, k_w], dtype="int8")
+        X = T.match_buffer(x, [1, c_i, h_i, w_i], dtype="int8")
+        BiasParam = T.match_buffer(bias_param, [Y.shape[1]], dtype="int32")
+        MulParam = T.match_buffer(mul_param, [Y.shape[1], 1, 1], dtype="int64")
+        ShiftParam = T.match_buffer(shift_param, [Y.shape[1], 1, 1], dtype="int64")
+        T_conv = T.alloc_buffer(Y.shape, dtype="int32")
+        T_add = T.alloc_buffer(Y.shape, dtype="int32")
+        T.evaluate(T.call_extern("conv1", X.data, W.data, T_conv.data, dtype=""))
+        T.evaluate(T.call_extern("biasadd", T_conv.data, T_add.data, BiasParam.data, dtype=""))
+        T.evaluate(
+            T.call_extern("quantize", T_add.data, Y.data, MulParam.data, ShiftParam.data, dtype="")
+        )
 
-    p_input, p_weight = fused_conv_with_bias_norm_relu.params[0:2]
-    primfunc = fused_conv_with_bias_norm_relu.specialize(
+    c_i, c_o, h, w = 3, 16, 224, 224
+    input_shape = [1, c_i, h, w]
+    output_shape = [1, c_o, h // 2, w // 2]
+    weight_shape = [c_o, c_i, 3, 3]
+    strides = [2, 2]
+    kernel_size = [3, 3]
+    padding = [1, 1, 1, 1]
+    dilation = [1, 1]
+    conv1 = get_conv2d_primfunc(input_shape, weight_shape, strides=strides, padding=padding)
+    func = quantized_conv.specialize(
         {
-            p_input: tir.decl_buffer(input_shape, "int8"),
-            p_weight: tir.decl_buffer(weight_shape, "int8"),
+            quantized_conv.params[0]: tir.decl_buffer(input_shape, "int8"),
+            quantized_conv.params[1]: tir.decl_buffer(weight_shape, "int8"),
+            quantized_conv.params[2]: tir.decl_buffer(output_shape, "int8"),
         }
     )
-    s = EdgexSchedule(primfunc)
-    conv = s.get_block("compute")
-    schedule_edgex_conv_block(
-        s,
-        conv,
-        kernel_size=kernel_size,
-        strides=strides,
-        padding=padding,
-        dilation=dilation,
-        groups=1,
-    )
-    func = s.mod["main"]
+    mod = tvm.contrib.edgex.tir.transform.InlinePrimFuncCalls(
+        {"conv1": conv1, "biasadd": post_conv_bias_add, "quantize": post_conv_quantize}
+    )(tvm.ir.IRModule.from_expr(func))
 
-    new_weight_shape = [int(x) for x in func.buffer_map[func.params[1]].shape]
-    x_np = np.random.randint(0, 128, input_shape).astype("uint8")
-    w_np_raw = np.ones(weight_shape).astype("int8") * 0
-    w_np_rewrite = np.ones(new_weight_shape).astype("int8")
-    y_np = np.zeros(output_shape).astype("int8")
-    bias_np = np.random.randint(-128, 127, [c_o]).astype("int32")
-    mulnorm_np = np.random.randint(0, 10, [c_o, 1, 1]).astype("int64")
-    shiftnorm_np = np.random.randint(1, 30, [c_o, 1, 1]).astype("int64")
-
-    bias_np = np.ones([c_o]).astype("int32") * (2 ** 16 - 1)
-    mulnorm_np = np.ones([c_o, 1, 1]).astype("int64") * 128
-    shiftnorm_np = np.ones([c_o, 1, 1]).astype("int64") * 32
-
-    # transform bias/norm parameters
-    lines = (c_o + 15) // 16
-    bias_np_rewrite = np.reshape(bias_np.view("int8"), [lines, 64])
-    merged_np = np.concatenate([mulnorm_np, shiftnorm_np], axis=2)
-    merged_np = np.reshape(merged_np.astype("int8"), [lines, 32])
-    merged_np = np.concatenate([bias_np_rewrite, merged_np], axis=1)
-
-    with tvm.ir.transform.PassContext():
-        ctx = tvm.cpu()
-        p_input, p_weight = single_conv.params[0:2]
-        primfunc_without_quantize = single_conv.specialize(
-            {
-                p_input: tir.decl_buffer(input_shape, "int8"),
-                p_weight: tir.decl_buffer(weight_shape, "int8"),
-            }
+    def fschedule(attrs, primfunc, target):
+        s = EdgexSchedule(primfunc)
+        relay_rewrite_mgr = PostScheduleArgumentRewriteManager(s)
+        conv = s.get_block("conv")
+        schedule_edgex_conv_block(
+            s,
+            conv,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            groups=1,
+            relay_rewrite_mgr=relay_rewrite_mgr,
         )
-        cpu_mod = tvm.build(primfunc_without_quantize, [], target="llvm")
-        x_nd = tvm.nd.array(x_np, ctx)
-        w_nd_raw = tvm.nd.array(w_np_raw, ctx)
-        y_nd = tvm.nd.array(np.zeros(output_shape).astype("int32"), ctx)
-        cpu_mod(x_nd, w_nd_raw, y_nd)
-        cpu_res = y_nd.asnumpy()
-        # quantize with numpy
-        cpu_res = cpu_res.astype("int64")
-        cpu_res = (cpu_res + np.expand_dims(np.expand_dims(bias_np, -1), -1)) * mulnorm_np
-        cpu_res = (cpu_res + (1 << (shiftnorm_np - 1))) >> shiftnorm_np
-        cpu_res = np.maximum(cpu_res, np.ones_like(cpu_res) * -128)
-        cpu_res = np.minimum(cpu_res, np.ones_like(cpu_res) * 127)
-        cpu_res = cpu_res.astype("int8")
-        cpu_res = cpu_res * (cpu_res > 0)
+        scheduled = relay_rewrite_mgr.create_annotated_func()
+        return scheduled
 
-    with build_config_nnp():
-        ctx = tvm.edgex()
-        edgex_mod = tvm.build(s.mod["main"], [], target="edgex", name="tir_quantized_conv2d")
-        x_nd = tvm.nd.array(x_np, ctx)
-        w_nd_rewrite = tvm.nd.array(w_np_rewrite, ctx)
-        y_nd = tvm.nd.array(y_np, ctx)
-        params_nd = tvm.nd.array(merged_np, ctx)
-        edgex_mod(x_nd, w_nd_rewrite, y_nd, params_nd)
-        edgex_res = y_nd.asnumpy()
-        # the result may only match on specified data ranges
-        tvm.testing.assert_allclose(edgex_res, cpu_res, rtol=1e-5)
+    mulnorm_np = np.random.randint(0, 20, [c_o, 1, 1]).astype("int64")
+    shiftnorm_np = np.random.randint(0, 5, [c_o, 1, 1]).astype("int64")
+    check_edgex_tir_build(
+        "tir_quantized_conv2d",
+        mod["main"],
+        edgex_fschedule=fschedule,
+        output_idx=2,
+        input_data=[None, None, None, None, mulnorm_np, shiftnorm_np],
+    )
+
+
+def test_consecutive_small_conv_sharing_dm():
+    # TODO(fengrong,xinqi): currently we can only test two exactly same conv
+    # (1) fix passes which are coded towards single op
+    # (2) correct dma order
+    @T.prim_func
+    def consecutive_small_conv(
+        x: T.handle,
+        weight1: T.handle,
+        weight2: T.handle,
+        y: T.handle,
+        bias_param1: T.handle,
+        mul_param1: T.handle,
+        shift_param1: T.handle,
+        bias_param2: T.handle,
+        mul_param2: T.handle,
+        shift_param2: T.handle,
+    ) -> None:
+        c = T.var("int32")
+        h = T.var("int32")
+        w = T.var("int32")
+        Y = T.match_buffer(y, [1, c, h, w], dtype="int8")
+        W1 = T.match_buffer(weight1, [c, c, 3, 3], dtype="int8")
+        W2 = T.match_buffer(weight2, [c, c, 3, 3], dtype="int8")
+        X1 = T.match_buffer(x, [1, c, h, w], dtype="int8")
+        BiasParam1 = T.match_buffer(bias_param1, [Y.shape[1]], dtype="int32")
+        Mul1 = T.match_buffer(mul_param1, [Y.shape[1], 1, 1], dtype="int64")
+        Shift1 = T.match_buffer(shift_param1, [Y.shape[1], 1, 1], dtype="int64")
+        BiasParam2 = T.match_buffer(bias_param2, [Y.shape[1]], dtype="int32")
+        Mul2 = T.match_buffer(mul_param2, [Y.shape[1], 1, 1], dtype="int64")
+        Shift2 = T.match_buffer(shift_param2, [Y.shape[1], 1, 1], dtype="int64")
+        T_conv1 = T.alloc_buffer(Y.shape, dtype="int32")
+        T_conv2 = T.alloc_buffer(Y.shape, dtype="int32")
+        T_add1 = T.alloc_buffer(Y.shape, dtype="int32")
+        T_add2 = T.alloc_buffer(Y.shape, dtype="int32")
+        X2 = T.alloc_buffer([1, c, h, w], dtype="int8")
+        T.evaluate(T.call_extern("conv1", X1.data, W1.data, T_conv1.data, dtype=""))
+        T.evaluate(T.call_extern("biasadd", T_conv1.data, T_add1.data, BiasParam1.data, dtype=""))
+        T.evaluate(
+            T.call_extern("quantize", T_add1.data, X2.data, Mul1.data, Shift1.data, dtype="")
+        )
+        T.evaluate(T.call_extern("conv2", X2.data, W2.data, T_conv2.data, dtype=""))
+        T.evaluate(T.call_extern("biasadd", T_conv2.data, T_add2.data, BiasParam2.data, dtype=""))
+        T.evaluate(T.call_extern("quantize", T_add2.data, Y.data, Mul2.data, Shift2.data, dtype=""))
+
+    c = 16
+    h = 8
+    w = 8
+    data_shape = [1, c, h, w]
+    weight_shape = [c, c, 3, 3]
+    strides = [1, 1]
+    kernel_size = [3, 3]
+    padding = [1, 1, 1, 1]
+    dilation = [1, 1]
+    conv = get_conv2d_primfunc(data_shape, weight_shape, strides=strides, padding=padding)
+    func = consecutive_small_conv.specialize(
+        {
+            consecutive_small_conv.params[0]: tir.decl_buffer(data_shape, "int8"),
+            consecutive_small_conv.params[1]: tir.decl_buffer(weight_shape, "int8"),
+        }
+    )
+    mod = tvm.contrib.edgex.tir.transform.InlinePrimFuncCalls(
+        {
+            "conv1": conv,
+            "biasadd": post_conv_bias_add,
+            "quantize": post_conv_quantize,
+            "conv2": conv,
+        }
+    )(tvm.ir.IRModule.from_expr(func))
+
+    def fschedule(attrs, primfunc, target):
+        s = EdgexSchedule(primfunc)
+
+        # we use PostScheduleArgumentRewriteManager to allow check utility
+        # update the input tensor layout for device test
+        relay_rewrite_mgr = PostScheduleArgumentRewriteManager(s)
+
+        # schedule the first conv, do not store ddr
+        conv = s.get_block("conv")
+        cfg = Conv2dScheduleConfig()
+        cfg.is_ddr_input = True
+        cfg.is_ddr_output = False
+        schedule_edgex_conv_block(
+            s,
+            conv,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            groups=1,
+            relay_rewrite_mgr=relay_rewrite_mgr,
+            cfg=cfg,
+        )
+
+        # schedule the second conv, do not load ddr
+        conv = s.get_block("conv_1")
+        cfg = Conv2dScheduleConfig()
+        cfg.is_ddr_input = False
+        cfg.is_ddr_output = True
+        schedule_edgex_conv_block(
+            s,
+            conv,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            groups=1,
+            relay_rewrite_mgr=relay_rewrite_mgr,
+            cfg=cfg,
+        )
+        scheduled = relay_rewrite_mgr.create_annotated_func()
+        return scheduled
+
+    # share same parameters for two convs now
+    bias_np = np.random.randint(-64, 64, [c]).astype("int32")
+    mulnorm_np = np.random.randint(0, 16, [c, 1, 1]).astype("int64")
+    shiftnorm_np = np.random.randint(1, 10, [c, 1, 1]).astype("int64")
+    check_edgex_tir_build(
+        "consecutive_small_conv",
+        mod["main"],
+        edgex_fschedule=fschedule,  # pass device only schedule, because it changes tensor layout
+        output_idx=[3],  # specify which tensor is output, thus it can be zero initialized
+        input_data=[
+            None,
+            None,
+            None,
+            None,
+            bias_np,
+            mulnorm_np,
+            shiftnorm_np,
+            bias_np,
+            mulnorm_np,
+            shiftnorm_np,
+        ],
+    )
 
 
 if __name__ == "__main__":
     test_tir_func_single_conv2d()
     test_tir_func_quantized_conv2d()
+    test_consecutive_small_conv_sharing_dm()

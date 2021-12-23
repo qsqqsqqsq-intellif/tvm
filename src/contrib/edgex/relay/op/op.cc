@@ -97,8 +97,7 @@ RELAY_REGISTER_OP("cast_reinterpret")
     .set_support_level(3)
     .add_type_rel("CastReinterpret", CastReinterpretRel)
     .set_attr<FTVMCompute>("FTVMCompute", CastReinterpretCompute)
-    .set_attr<TOpPattern>("TOpPattern", kElemWise)
-    .set_attr<FInferCorrectLayout>("FInferCorrectLayout", ElemwiseArbitraryLayout);
+    .set_attr<TOpPattern>("TOpPattern", kOpaque);
 
 }  // namespace relay
 }  // namespace tvm

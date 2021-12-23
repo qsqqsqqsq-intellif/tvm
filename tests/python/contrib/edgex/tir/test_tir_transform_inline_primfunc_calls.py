@@ -46,7 +46,7 @@ def call_multiple_primfunc_with_extern_inlined(a: T.handle, b: T.handle, c: T.ha
     B = T.match_buffer(b, [128], dtype="float32")
     C = T.match_buffer(c, [128], dtype="float32")
     A2 = T.alloc_buffer([128], dtype="float32")
-    A2_1 = T.alloc_buffer([128], dtype="float32", data=A2.data)
+    A2_1 = T.alloc_buffer([128], dtype="float32")
     for i in T.serial(0, 128):
         A2[i] = A[i]
     for i in T.serial(0, 128):

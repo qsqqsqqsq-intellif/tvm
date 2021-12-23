@@ -25,6 +25,7 @@
 
 #include <tvm/runtime/packed_func.h>
 #include <tvm/runtime/registry.h>
+#include <tvm/tir/buffer.h>
 #include <tvm/topi/broadcast.h>
 #include <tvm/topi/utils.h>
 
@@ -53,32 +54,37 @@ TOPI_REGISTER_BCAST_OP("topi.round_right_shift_intrin", round_right_shift_intrin
 
 tvm::te::Tensor cast_reinterpret(const tvm::te::Tensor& x, DataType type, const std::string& name,
                                  const std::string& tag) {
-  const int expand = x->dtype.bits() / type.bits();
-  ICHECK_GT(expand, 1) << "only support downcast, like int32 to int8.";
-  ICHECK_EQ(x->dtype.bits() % type.bits(), 0)
-      << type.bits() << "is not divisible into" << x->dtype.bits();
-
   Array<PrimExpr> new_shape;
+  PrimExpr total_bytes = x->shape.back() * x->dtype.bytes();
   for (size_t i = 0; i < x->shape.size() - 1; i++) {
     new_shape.push_back(x->shape[i]);
+    total_bytes *= x->shape[i];
   }
-  // Caculate the last dimension.
-  new_shape.push_back(x->shape.back() * expand);
-  const PrimExpr bits = tvm::tir::make_const(x->dtype, type.bits());
-  const PrimExpr operand =
-      max_value(DataType::UInt(x->dtype.bits())) >> (x->dtype.bits() - type.bits());
+  bool is_downcast = x->dtype.bits() > type.bits();
+  if (is_downcast) {
+    ICHECK_EQ(x->dtype.bits() % type.bits(), 0)
+        << type.bits() << "is not divisible into" << x->dtype.bits();
+    const int factor = x->dtype.bits() / type.bits();
+    new_shape.push_back(x->shape.back() * factor);
+  } else {
+    ICHECK_EQ(type.bits() % x->dtype.bits(), 0)
+        << x->dtype.bits() << "is not divisible into" << type.bits();
+    const int factor = type.bits() / x->dtype.bits();
+    new_shape.push_back(floordiv(x->shape.back(), factor));
+  }
 
-  return tvm::te::compute(
-      new_shape,
-      [&](const Array<tir::Var>& indices) {
-        Array<tvm::PrimExpr> idx;
-        for (size_t i = 0; i < x->shape.size() - 1; i++) {
-          idx.push_back(indices[i]);
-        }
-        idx.push_back(indexdiv(indices.back(), expand));
-        return tvm::cast(type, (x(idx) >> (bits * indexmod(indices.back(), expand))) & operand);
-      },
-      name, tag);
+  tvm::te::Buffer input_buffer = tvm::tir::decl_buffer(x->shape, x->dtype);
+  tvm::te::Buffer output_buffer = tvm::tir::decl_buffer(new_shape, type);
+  tvm::tir::Call call(DataType::Handle(), tvm::tir::builtin::call_extern(),
+                      {tvm::tir::StringImm("cast_reinterpret_extern_data_copy"), total_bytes,
+                       input_buffer.access_ptr(1), output_buffer.access_ptr(2)});
+  tvm::te::ExternOp cast_reinterpret_extern("cast_reinterpret_extern", tag, {}, {x}, {input_buffer},
+                                            {output_buffer}, tvm::tir::Evaluate(call));
+  return cast_reinterpret_extern.output(0);
+}
+
+extern "C" void cast_reinterpret_extern_data_copy(int64_t bytes, void* src, void* dst) {
+  memcpy(dst, src, bytes);
 }
 
 TVM_REGISTER_GLOBAL("topi.cast_reinterpret").set_body([](TVMArgs args, TVMRetValue* rv) {

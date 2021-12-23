@@ -23,7 +23,7 @@ from tvm.relay import op as _op
 from tvm.relay.op import op as reg
 from tvm import te
 from tvm import topi
-from tvm.target import override_native_generic_func, get_native_generic_func
+from tvm.target import override_native_generic_func, get_native_generic_func, generic_func
 
 
 def register_edgex_fschedule(op_name):
@@ -49,6 +49,12 @@ def fschedule_general_vu(attrs, prim_func, tgt):
         prim_func, is_cpu=tgt.kind == "llvm", allow_multi_block=True, enable_relay_rewrite=True
     )
     return scheduled_func
+
+
+@generic_func
+def dummy_schedule(attrs, outs, tgt):
+    """Default schedule for edgex."""
+    return te.create_schedule([x.op for x in outs])
 
 
 @generic.schedule_injective.register("edgex")
@@ -123,4 +129,4 @@ def round_right_shift_strategy_edgex(attrs, inputs, out_type, target):
 
 
 reg.register_strategy("round_right_shift", round_right_shift_strategy, level=15)
-reg.register_injective_schedule("cast_reinterpret")
+reg.register_schedule("cast_reinterpret", dummy_schedule)

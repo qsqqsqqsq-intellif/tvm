@@ -20,12 +20,14 @@
 /*!
  * \file decorate_device_scope.cc
  */
+#include <tvm/arith/analyzer.h>
 #include <tvm/runtime/registry.h>
 #include <tvm/tir/analysis.h>
 #include <tvm/tir/expr.h>
 #include <tvm/tir/stmt_functor.h>
 #include <tvm/tir/transform.h>
 
+#include "../../../../tir/ir/functor_common.h"
 #include "../edgex_ir_utils.h"
 #include "./edgex_transform.h"
 
@@ -79,6 +81,91 @@ class PrimFuncBufferSubstituter : public StmtExprMutator {
     return StmtExprMutator::VisitStmt_(store);
   }
 
+  Buffer MutateBuffer(const Buffer& buffer) {
+    Array<PrimExpr> shape =
+        MutateArray(buffer->shape, [this](const PrimExpr& e) { return VisitExpr(e); });
+    Array<PrimExpr> strides =
+        MutateArray(buffer->strides, [this](const PrimExpr& e) { return VisitExpr(e); });
+    PrimExpr elem_offset = VisitExpr(buffer->elem_offset);
+    std::string new_name = GetUniqueBufferName(buffer->name);
+
+    if (buffer->elem_offset.same_as(elem_offset) && buffer->shape.same_as(shape) &&
+        buffer->strides.same_as(strides) && new_name == buffer->name) {
+      return buffer;
+    } else {
+      auto n = make_object<BufferNode>(*buffer.get());
+      n->elem_offset = std::move(elem_offset);
+      n->shape = std::move(shape);
+      n->strides = std::move(strides);
+      n->name = std::move(new_name);
+      auto new_var = make_object<VarNode>(*buffer->data.get());
+      new_var->name_hint = new_name;
+      n->data = std::move(Var(new_var));
+      AddVarRemap(buffer->data, Var(new_var));
+      return Buffer(n);
+    }
+  }
+
+  Buffer MutateAllocBuffer(const Buffer& alloc_buf) {
+    Buffer buffer = MutateBuffer(alloc_buf);
+    if (buffer.same_as(alloc_buf)) {
+      return alloc_buf;
+    } else {
+      AddBufferRemap(alloc_buf, buffer);
+      return buffer;
+    }
+  }
+
+  Range MutateRange(const Range& range) {
+    PrimExpr min = this->VisitExpr(range->min);
+    PrimExpr extent = this->VisitExpr(range->extent);
+    if (min.same_as(range->min) && extent.same_as(range->extent)) {
+      return range;
+    } else {
+      return Range::FromMinExtent(std::move(min), std::move(extent));
+    }
+  }
+
+  BufferRegion MutateBufferRegion(const BufferRegion& buffer_region) {
+    Buffer buffer = buffer_region->buffer;
+    auto it = buffer_remap_.find(buffer.get());
+    if (it != buffer_remap_.end()) {
+      buffer = it->second;
+    }
+    Array<Range> region = MutateArray(
+        buffer_region->region,
+        std::bind(&PrimFuncBufferSubstituter::MutateRange, this, std::placeholders::_1));
+    if (buffer.same_as(buffer_region->buffer) && region.same_as(buffer_region->region)) {
+      return buffer_region;
+    } else {
+      return BufferRegion(buffer, std::move(region));
+    }
+  }
+
+  IterVar MutateIterVar(const IterVar& iter_var) {
+    Range dom = MutateRange(iter_var->dom);
+    Var var = Downcast<Var>(VisitExpr(iter_var->var));
+    if (dom.same_as(iter_var->dom) && var.same_as(iter_var->var)) {
+      return iter_var;
+    } else {
+      return IterVar(dom, var, iter_var->iter_type, iter_var->thread_tag, iter_var->span);
+    }
+  }
+
+  MatchBufferRegion MutateMatchBufferRegion(const MatchBufferRegion& match) {
+    BufferRegion source = MutateBufferRegion(match->source);
+    Buffer buffer = match->buffer;
+    auto it = buffer_remap_.find(match->buffer.get());
+    if (it != buffer_remap_.end()) {
+      buffer = it->second;
+    }
+    if (buffer.same_as(match->buffer) && source.same_as(match->source)) {
+      return match;
+    } else {
+      return MatchBufferRegion(buffer, source);
+    }
+  }
+
   Stmt VisitStmt_(const BlockRealizeNode* block_realize) final {
     // visit block realize fields
     Array<PrimExpr> iter_values;
@@ -89,55 +176,31 @@ class PrimFuncBufferSubstituter : public StmtExprMutator {
 
     const BlockNode* block = block_realize->block.get();
     auto n = CopyOnWrite(block);
+    // update iter bindings
+    n->iter_vars = MutateArray(n->iter_vars, std::bind(&PrimFuncBufferSubstituter::MutateIterVar,
+                                                       this, std::placeholders::_1));
     // update block match buffers
-    for (size_t i = 0; i < block->match_buffers.size(); ++i) {
-      const auto& match = block->match_buffers[i];
-      Buffer target = match->buffer;
-      Buffer source = match->source->buffer;
-      const Region& region = match->source->region;
-      auto it = buffer_remap_.find(source.get());
-      if (it != buffer_remap_.end()) {
-        source = it->second;
-      }
-      std::string name = GetUniqueBufferName(target->name);
-      if (name != target->name) {
-        auto new_target = make_object<BufferNode>(*target.get());
-        new_target->name = name;
-        AddBufferRemap(target, Buffer(new_target));
-        target = Buffer(new_target);
-      }
-      n->match_buffers.Set(i, MatchBufferRegion(target, BufferRegion(source, region)));
-    }
+    n->match_buffers =
+        MutateArray(n->match_buffers, std::bind(&PrimFuncBufferSubstituter::MutateMatchBufferRegion,
+                                                this, std::placeholders::_1));
     // update block allocations, avoid same name with global func's buffers
-    for (size_t i = 0; i < block->alloc_buffers.size(); ++i) {
-      Buffer buffer = block->alloc_buffers[i];
-      std::string name = GetUniqueBufferName(buffer->name);
-      if (name != buffer->name) {
-        auto new_buffer = make_object<BufferNode>(*buffer.get());
-        new_buffer->name = name;
-        AddBufferRemap(buffer, Buffer(new_buffer));
-        n->alloc_buffers.Set(i, Buffer(new_buffer));
-      }
-    }
+    n->alloc_buffers = MutateArray(
+        n->alloc_buffers,
+        std::bind(&PrimFuncBufferSubstituter::MutateAllocBuffer, this, std::placeholders::_1));
+    // update reads and writes
+    n->reads = MutateArray(n->reads, std::bind(&PrimFuncBufferSubstituter::MutateBufferRegion, this,
+                                               std::placeholders::_1));
+    n->writes = MutateArray(n->writes, std::bind(&PrimFuncBufferSubstituter::MutateBufferRegion,
+                                                 this, std::placeholders::_1));
+
     if (root_block_.get() == block) {
       // drop root block of inlined primfunc
       root_block_ = Block(n);
       return StmtExprMutator::VisitStmt(n->body);
     }
-    // update reads and writes
-    for (size_t i = 0; i < block->reads.size(); ++i) {
-      const auto& read_region = block->reads[i];
-      auto it = buffer_remap_.find(read_region->buffer.get());
-      if (it != buffer_remap_.end()) {
-        n->reads.Set(i, BufferRegion(it->second, read_region->region));
-      }
-    }
-    for (size_t i = 0; i < block->writes.size(); ++i) {
-      const auto& write_region = block->writes[i];
-      auto it = buffer_remap_.find(write_region->buffer.get());
-      if (it != buffer_remap_.end()) {
-        n->writes.Set(i, BufferRegion(it->second, write_region->region));
-      }
+
+    if (n->init.defined()) {
+      n->init = StmtExprMutator::VisitStmt(n->init.value());
     }
     n->body = StmtExprMutator::VisitStmt(n->body);
     return std::move(BlockRealize(iter_values, predicate, std::move(Block(n))));
@@ -212,6 +275,10 @@ class PrimFuncInliner : public StmtExprMutator {
     origin_body_ = new_main_func_->body;
     if (const BlockRealizeNode* root_realize = new_main_func->body.as<BlockRealizeNode>()) {
       global_new_root_block_ = root_realize->block;
+      for (const Buffer& buffer : global_new_root_block_->alloc_buffers) {
+        global_buffer_map_.Set(buffer->data, buffer);
+        buffer_name_cnt_[buffer->name] = 1;
+      }
       origin_body_ = global_new_root_block_->body;
     }
   }
@@ -250,8 +317,8 @@ class PrimFuncInliner : public StmtExprMutator {
   Stmt InlinePrimFunc(const PrimFuncNode* primfunc, const Array<PrimExpr>& args) {
     ICHECK_EQ(primfunc->params.size(), args.size());
     PrimFuncBufferSubstituter substituter(&buffer_name_cnt_);
+    arith::Analyzer analyzer;
 
-    // associate buffer map and params of inlined primfunc with actual call args
     for (size_t i = 0; i < args.size(); ++i) {
       auto param = primfunc->params[i];
       substituter.AddVarRemap(param, args[i]);
@@ -259,19 +326,32 @@ class PrimFuncInliner : public StmtExprMutator {
       if (it == primfunc->buffer_map.end()) {
         continue;
       }
-      Buffer matched_buffer = (*it).second;
+      Buffer local_buffer = (*it).second;
       const VarNode* argvar = args[i].as<VarNode>();
       ICHECK(argvar) << "This inliner only accept PrimFunc call with buffer var argument";
       ICHECK(global_buffer_map_.count(GetRef<Var>(argvar)))
           << "Can not find buffer bind to " << argvar->name_hint;
       Buffer global_buffer = global_buffer_map_[GetRef<Var>(argvar)];
 
+      // ensure buffer replacement is compatible, bind free vars if possible
+      size_t ndim = local_buffer->shape.size();
+      ICHECK_EQ(global_buffer->shape.size(), ndim)
+          << "Buffer mismatch, expect ndim of " << i << "th argument buffer of primfunc call to be "
+          << ndim << ", but get " << global_buffer->shape.size();
+      for (size_t j = 0; j < ndim; ++j) {
+        if (const VarNode* var = local_buffer->shape[j].as<VarNode>()) {
+          substituter.AddVarRemap(GetRef<Var>(var), global_buffer->shape[j]);
+        }
+      }
+
+      // check all other buffer fields be same
       auto n = make_object<BufferNode>(*global_buffer.get());
-      n->data = matched_buffer->data;
-      ICHECK(StructuralEqual()(matched_buffer, Buffer(n)))
+      n->data = local_buffer->data;
+      n->shape = local_buffer->shape;
+      ICHECK(StructuralEqual()(local_buffer, Buffer(n)))
           << "Buffer mismatch, expect " << i << "th argument buffer of primfunc call to be "
-          << matched_buffer << ", but get " << global_buffer << " in global scope";
-      substituter.AddBufferRemap(matched_buffer, global_buffer);
+          << local_buffer << ", but get " << global_buffer << " in global scope";
+      substituter.AddBufferRemap(local_buffer, global_buffer);
     }
 
     // determine whether the inlined primfunc has a root block, we can try drop it if so.
@@ -301,6 +381,7 @@ class PrimFuncInliner : public StmtExprMutator {
         inlined = AttrStmt(p.second, p.first, PrimExpr(), inlined);
       }
     }
+
     return inlined;
   }
 
