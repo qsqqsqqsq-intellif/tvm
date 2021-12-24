@@ -71,10 +71,10 @@ class PostScheduleArgumentRewriter : public transform::DeviceAwareExprMutator {
 
     // execute tir schedule ahead and extract primfunc annotation
     // note that we should use rewritten function as key
-    SEScope se_scope = GetSEScope(GetRef<Call>(call));
-    ICHECK(!se_scope->IsFullyUnconstrained())
+    VirtualDevice virtual_device = GetVirtualDevice(GetRef<Call>(call));
+    ICHECK(!virtual_device->IsFullyUnconstrained())
         << "Can not determine target, should run PlanDevices() first";
-    Target target = se_scope->target;
+    Target target = virtual_device->target;
     ICHECK(target.defined());
 
     auto pair = cache_.Lower(origin_function, target);

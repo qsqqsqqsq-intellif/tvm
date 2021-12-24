@@ -15,5 +15,5 @@
 	url = https://github.com/tlc-pack/libbacktrace.git
 [submodule "3rdparty/cutlass"]
 	path = 3rdparty/cutlass
-	url = http://192.168.70.8/baoxinqi/cutlass.git
-	# url = https://github.com/NVIDIA/cutlass
+	# url = http://192.168.70.8/baoxinqi/cutlass.git
+	url = https://github.com/NVIDIA/cutlass

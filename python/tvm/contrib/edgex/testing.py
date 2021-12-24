@@ -379,7 +379,7 @@ def check_edgex_relay_build(
         if params and name in params:
             data = params[name]
             if isinstance(data, tvm.nd.NDArray):
-                data = data.asnumpy()
+                data = data.numpy()
             arrs[name] = data
             continue
         dtype = arg.type_annotation.dtype
@@ -431,9 +431,9 @@ def check_edgex_relay_build(
         def visit_call(self, call):
             if isinstance(call.attrs, relay.op.op_attrs.OnDeviceAttrs):
                 self.has_annotations = True
-                if call.attrs.se_scope.device_type_int == tvm.cpu().device_type:
+                if call.attrs.virtual_device.device_type_int == tvm.cpu().device_type:
                     self.has_cpu = True
-                elif call.attrs.se_scope.device_type_int == tvm.edgex().device_type:
+                elif call.attrs.virtual_device.device_type_int == tvm.edgex().device_type:
                     self.has_edgex = True
             super().visit_call(call)
 
@@ -458,9 +458,9 @@ def check_edgex_relay_build(
                 cpu_mod = IRModule.from_expr(function)
             cpu_result = get_relay_output(cpu_mod, "llvm", tvm.cpu())
         if expect is None:
-            expect = cpu_result.asnumpy()
+            expect = cpu_result.numpy()
         else:
-            check_numpy_result(cpu_result.asnumpy(), expect, rmse=rmse)
+            check_numpy_result(cpu_result.numpy(), expect, rmse=rmse)
 
     if check_edgex:
         cpu = tvm.device("cpu")
@@ -493,7 +493,7 @@ def check_edgex_relay_build(
                 else:
                     edgex_result = get_relay_output(edgex_mod, edgex_target, edgex_dev)
         if expect is not None:
-            return check_numpy_result(edgex_result.asnumpy(), expect, rmse=rmse, nothrow=nothrow)
+            return check_numpy_result(edgex_result.numpy(), expect, rmse=rmse, nothrow=nothrow)
     return None
 
 

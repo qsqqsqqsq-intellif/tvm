@@ -170,12 +170,16 @@ class AtomicGraph {
           if (callnode->op.as<OpNode>()) {
             if (callnode->op.same_as(Op::Get("device_copy"))) {
               auto attr = callnode->attrs.as<DeviceCopyAttrs>();
-              if (attr->src_se_scope->device_type() == tvm::Target("nnp200")->kind->device_type &&
-                  attr->dst_se_scope->device_type() == tvm::Target("dedsp")->kind->device_type) {
+              if (attr->src_virtual_device->device_type() ==
+                      tvm::Target("nnp200")->kind->device_type &&
+                  attr->dst_virtual_device->device_type() ==
+                      tvm::Target("dedsp")->kind->device_type) {
                 dt = OP_DEVICE_EDGEX;
               }
-              if (attr->src_se_scope->device_type() == tvm::Target("dedsp")->kind->device_type &&
-                  attr->dst_se_scope->device_type() == tvm::Target("nnp200")->kind->device_type) {
+              if (attr->src_virtual_device->device_type() ==
+                      tvm::Target("dedsp")->kind->device_type &&
+                  attr->dst_virtual_device->device_type() ==
+                      tvm::Target("nnp200")->kind->device_type) {
                 dt = OP_DEVICE_DEDSP;
               }
             }
@@ -212,12 +216,14 @@ class AtomicGraph {
         if (callnode->op.as<OpNode>()) {
           if (callnode->op.same_as(Op::Get("device_copy"))) {
             auto attr = callnode->attrs.as<DeviceCopyAttrs>();
-            if (attr->src_se_scope->device_type() == tvm::Target("nnp200")->kind->device_type &&
-                attr->dst_se_scope->device_type() == tvm::Target("dedsp")->kind->device_type) {
+            if (attr->src_virtual_device->device_type() ==
+                    tvm::Target("nnp200")->kind->device_type &&
+                attr->dst_virtual_device->device_type() ==
+                    tvm::Target("dedsp")->kind->device_type) {
               next_device_type = OP_DEVICE_DEDSP;
-            } else if (attr->src_se_scope->device_type() ==
+            } else if (attr->src_virtual_device->device_type() ==
                            tvm::Target("dedsp")->kind->device_type &&
-                       attr->dst_se_scope->device_type() ==
+                       attr->dst_virtual_device->device_type() ==
                            tvm::Target("nnp200")->kind->device_type) {
               next_device_type = OP_DEVICE_EDGEX;
             } else {

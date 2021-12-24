@@ -750,7 +750,7 @@ class EdgexSubFunctionExtractor : private ExprMutator {
       }
       if (need_on_device) {
         auto attrs = make_object<OnDeviceAttrs>();
-        attrs->se_scope = SEScope::ForDeviceType(kDLEdgeX);
+        attrs->virtual_device = VirtualDevice::ForDeviceType(kDLEdgeX);
         static const Op& op = Op::Get("on_device");
         body = Call(op, {body}, Attrs(attrs), {});
       }
