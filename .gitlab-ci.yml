@@ -32,6 +32,11 @@ default:
   interruptible: true
   tags:
     - edgex_tvm_ci
+  cache:
+    key: one-key-to-rule-them-all
+    paths:
+      - 3rdparty/
+
 
 
 # Jobs
