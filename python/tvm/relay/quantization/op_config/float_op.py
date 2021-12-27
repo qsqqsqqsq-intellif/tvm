@@ -51,7 +51,7 @@ DEFAULTCONFIG = {
 class FloatOp:
     """FixedOp"""
 
-    name = "FloatOp"
+    name = "float_op"
     controlable = True
 
     def __init__(self, node, vertex_config, config):
@@ -59,9 +59,8 @@ class FloatOp:
             self.name = getattr(node.op.attrs, "Composite")
         else:
             self.name = node.op.name
-        self.op = node.op
 
-        LOGGER.debug("[analyze] %s start...", self.name.upper())
+        LOGGER.debug("[analyze] %s start...", self.name)
         self.quantized = False
 
         self.input_config = {}
@@ -83,7 +82,7 @@ class FloatOp:
             "ref_count": 0,
         }
         self.output_config = output0_config
-        LOGGER.debug("[anaylze] %s finish", self.name.upper())
+        LOGGER.debug("[anaylze] %s finish", self.name)
 
     @classmethod
     def get_config(cls, config, call):
@@ -91,7 +90,7 @@ class FloatOp:
 
     def quantize_params(self, node, vertex_config):
         """quantize_params"""
-        LOGGER.debug("[calibrate] %s start and quantized is %d", self.name.upper(), self.quantized)
+        LOGGER.debug("[calibrate] %s start and quantized is %d", self.name, self.quantized)
 
         for arg in node.args:
             input_config = self.input_config[arg]
@@ -100,7 +99,7 @@ class FloatOp:
 
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
-        LOGGER.debug("[realize]-- %s realize...", self.name.upper())
+        LOGGER.debug("[realize]-- %s realize...", self.name)
 
         realized_args = []
         for old_arg, new_arg in zip(old_node.args, new_node.args):
@@ -141,7 +140,9 @@ class FloatOp:
 
             new_realized_args.append(new_arg)
 
-        new_node = relay.Call(self.op, new_realized_args, old_node.attrs)
+        new_node = relay.Call(
+            old_node.op, new_realized_args, old_node.attrs, old_node.type_args, old_node.span
+        )
 
-        LOGGER.debug("[realize] %s finish", self.name.upper())
+        LOGGER.debug("[realize] %s finish", self.name)
         return new_node

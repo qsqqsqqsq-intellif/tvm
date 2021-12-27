@@ -27,27 +27,19 @@ from .op_config import OPCONFIGS
 
 LOGGER = logging.getLogger("quantize")
 
-# only support fp16
-FLOATOPLIST = [
-    "sigmoid",
-    "nn.softmax",
-    "erf",
-    "log",
-    "sqrt",
-    "exp",
-    "tanh",
-    "mean",
-    "divide",
-    "floor_divide",
-    "mod",
-    "floor_mod",
-    "power",
-    "variance",
-    "power",
+IDENTITY_OP_LIST = [
+    "expand_dims",
+    "reshape",
+    "squeeze",
+    "transpose",
+    "nn.batch_flatten",
+    "yolo_reorg",
+    "tile",
+    "reverse",
 ]
 
 # fixed-point, two inputs identity scale
-FIXEDOPTWOARGSLIST = [
+FIXED_OP_TWOARGS_LIST = [
     "add",
     "subtract",
     "maximum",
@@ -198,12 +190,14 @@ class ConfigSpace(ExprVisitor):
                     name = arg.op.name
 
                 tmp_dict = {}
-                if name in FIXEDOPTWOARGSLIST:
+                if name in FIXED_OP_TWOARGS_LIST:
                     tmp_dict = OPCONFIGS["FixedOpTwoArgs"].get_config(call, self.config)
+                elif name in IDENTITY_OP_LIST:
+                    tmp_dict = OPCONFIGS["identity_op"].get_config(call, self.config)
                 elif name in OPCONFIGS:
                     tmp_dict = OPCONFIGS[name].get_config(call, self.config)
                 else:
-                    tmp_dict = OPCONFIGS["FloatOp"].get_config(call, self.config)
+                    tmp_dict = OPCONFIGS["float_op"].get_config(call, self.config)
 
                 arg_dict["default_config"] = {arg_key: tmp_dict["default_config"]}
                 arg_dict["valid_config"] = {arg_key: tmp_dict["valid_config"]}
@@ -395,12 +389,14 @@ class ConfigSpace(ExprVisitor):
                     name = arg.op.name
 
                 tmp_dict = {}
-                if name in FIXEDOPTWOARGSLIST:
+                if name in FIXED_OP_TWOARGS_LIST:
                     tmp_dict = OPCONFIGS["FixedOpTwoArgs"].get_config(arg, self.config)
+                elif name in IDENTITY_OP_LIST:
+                    tmp_dict = OPCONFIGS["identity_op"].get_config(arg, self.config)
                 elif name in OPCONFIGS:
                     tmp_dict = OPCONFIGS[name].get_config(arg, self.config)
                 else:
-                    tmp_dict = OPCONFIGS["FloatOp"].get_config(arg, self.config)
+                    tmp_dict = OPCONFIGS["float_op"].get_config(arg, self.config)
 
                 arg_dict["default_config"] = {arg_key: tmp_dict["default_config"]}
                 arg_dict["valid_config"] = {arg_key: tmp_dict["valid_config"]}

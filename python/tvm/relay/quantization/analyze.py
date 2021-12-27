@@ -47,6 +47,8 @@ def _set_conv_counter(n):
 # todo add more ops
 # only support per-tensor
 DISABLE_PERCHANNEL_OP = [
+    "identity_op",
+    "expand_dims",
     "reshape",
     "squeeze",
     "transpose",
@@ -54,12 +56,13 @@ DISABLE_PERCHANNEL_OP = [
     "yolo_reorg",
     "tile",
     "split",
-    "reverst",
+    "reverse",
     "take",
 ]
 
 # the input and output same dtype
 IDENTITY_INPUT_DTYPE_OP = [
+    "expand_dims",
     "reshape",
     "squeeze",
     "transpose",
@@ -67,7 +70,7 @@ IDENTITY_INPUT_DTYPE_OP = [
     "yolo_reorg",
     "tile",
     "split",
-    "reverst",
+    "reverse",
     "take",
     "nn.pad",
     "image.resize",
@@ -75,8 +78,19 @@ IDENTITY_INPUT_DTYPE_OP = [
     "nn.prelu",
 ]
 
+IDENTITY_OP_LIST = [
+    "expand_dims",
+    "reshape",
+    "squeeze",
+    "transpose",
+    "nn.batch_flatten",
+    "yolo_reorg",
+    "tile",
+    "reverse",
+]
+
 # only support fp16
-FLOATOPLIST = [
+FLOAT_OP_LIST = [
     "sigmoid",
     "nn.softmax",
     "erf",
@@ -95,7 +109,7 @@ FLOATOPLIST = [
 ]
 
 # fixed-point, two inputs identity scale
-FIXEDOPTWOARGSLIST = [
+FIXED_OP_TWOARGS_LIST = [
     "add",
     "subtract",
     "maximum",
@@ -221,7 +235,7 @@ def oneargdeal(cls, node, vertex_config, ci0):
         input0_axis = -1
 
     # todo perch more consider (input_axis -> output_axis)
-    if cls.name in FLOATOPLIST:
+    if cls.name in FLOAT_OP_LIST:
         input0_axis = -1
 
     input0_config = _quantized_judge(vertex_config, node.args[0], input0_axis, cls.quantized, ci0)
@@ -437,12 +451,14 @@ class AnalyzeGraph(ExprVisitor):
         if "skip_conv_layers" in self.config:
             config["skip_conv_layers"] = self.config["skip_conv_layers"]
 
-        if name in FIXEDOPTWOARGSLIST:
+        if name in FIXED_OP_TWOARGS_LIST:
             self.vertex_config[call] = OPCONFIGS["FixedOpTwoArgs"](call, self.vertex_config, config)
+        elif name in IDENTITY_OP_LIST:
+            self.vertex_config[call] = OPCONFIGS["identity_op"](call, self.vertex_config, config)
         elif name in OPCONFIGS:
             self.vertex_config[call] = OPCONFIGS[name](call, self.vertex_config, config)
         else:
-            self.vertex_config[call] = OPCONFIGS["FloatOp"](call, self.vertex_config, config)
+            self.vertex_config[call] = OPCONFIGS["float_op"](call, self.vertex_config, config)
 
         tmp = []
         for arg in call.args:

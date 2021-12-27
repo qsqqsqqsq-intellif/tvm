@@ -26,7 +26,8 @@ from ..calibrate import _calibrate_core
 from ..realize import _realize_core
 
 LOGGER = logging.getLogger("quantize")
-__all__ = ("ExpandDims",)
+
+__all__ = ("IdentityOp",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -47,10 +48,10 @@ DEFAULTCONFIG = {
 }
 
 
-class ExpandDims:
-    """expand_dims"""
+class IdentityOp:
+    """IdentityOp"""
 
-    name = "expand_dims"
+    name = "identity_op"
     controlable = False
 
     def __init__(self, node, vertex_config, config):
@@ -64,7 +65,7 @@ class ExpandDims:
         ci0 = config["input0"]
 
         oneargdeal(self, node, vertex_config, ci0)
-        LOGGER.debug("[analyze] ExpandDims finish")
+        LOGGER.debug("[anaylze] %s finish", self.name)
 
     @classmethod
     def get_config(cls, config, call):
@@ -83,11 +84,14 @@ class ExpandDims:
 
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
-        LOGGER.debug("[realize]ExpandDims start...")
         old_arg = old_node.args[0]
         new_arg = new_node.args[0]
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
-        new_node = relay.expand_dims(new_arg, **dict(new_node.attrs))
+        new_node = relay.Call(
+            old_node.op, [new_arg], old_node.attrs, old_node.type_args, old_node.span
+        )
+
+        LOGGER.debug("[realize] %s finish", self.name)
         return new_node
