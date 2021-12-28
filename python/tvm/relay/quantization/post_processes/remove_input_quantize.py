@@ -39,15 +39,17 @@ class RemoveInputQuantize(ExprMutator):
         self.new_mod = relay.transform.InferType()(mod)
 
     def visit_var(self, var):
-        if var in self.ori_params and self.net_in_dtype == "uint8":
-            new_var = relay.var(var.name_hint, shape=var.type_annotation.shape, dtype="uint8")
+        if var in self.ori_params and self.net_in_dtype in ["uint8", "int16"]:
+            new_var = relay.var(
+                var.name_hint, shape=var.type_annotation.shape, dtype=self.net_in_dtype
+            )
             self.new_params.append(new_var)
             return new_var
         return var
 
     def visit_call(self, call):
         visited = super().visit_call(call)
-        if self.convert or self.net_in_dtype not in ["uint8"]:
+        if self.convert or self.net_in_dtype not in ["uint8", "int16"]:
             return visited
         if is_call(visited.args[0], "qnn.quantize"):
             self.convert = True
@@ -58,7 +60,7 @@ class RemoveInputQuantize(ExprMutator):
                 visited.type_args,
             )
 
-        if is_call(visited.args[0], "cast") and visited.args[0].attrs.dtype == "uint8":
+        if is_call(visited.args[0], "cast") and visited.args[0].attrs.dtype == self.net_in_dtype:
             the_expr = visited.args[0].args[0]
             if is_call(the_expr, "clip"):
                 the_expr = the_expr.args[0]

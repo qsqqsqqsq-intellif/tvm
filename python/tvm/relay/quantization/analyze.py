@@ -141,8 +141,11 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
         "operate": "none",
     }
 
-    if isinstance(node, relay.Var) and vertex_config[node].output_config["net_in_dtype"] == "uint8":
-        input_config.update({"dtype": DataType.UInt8})
+    if isinstance(node, relay.Var) and vertex_config[node].output_config["net_in_dtype"] in [
+        "uint8",
+        "int16",
+    ]:
+        input_config.update({"dtype": vertex_config[node].output_config["net_in_dtype"]})
 
     # make sure the identity dtype op can deal
     if (

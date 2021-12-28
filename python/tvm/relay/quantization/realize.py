@@ -319,7 +319,7 @@ def _requantize_shift(node):
                 pos_val.append(0)
                 neg_val.append(0)
             else:
-                new_a = math.floor(one_s * (2 ** bit + 0.5))
+                new_a = math.floor(one_s * (2 ** bit) + 0.5)
                 pos_val.append(2 ** (bit - 1))
                 neg_val.append(2 ** (bit - 1) - 1)
 

@@ -144,6 +144,7 @@ quantize_search = relay.quantization.QuantizeSearch(
     scale=[0.229 * 255, 0.224 * 255, 0.225 * 255],
     quantize_config=quantize_config,
     compare_statistics=False,
+    # net_in_dtype="int16",
 )
 
 config = quantize_search.get_default_config()

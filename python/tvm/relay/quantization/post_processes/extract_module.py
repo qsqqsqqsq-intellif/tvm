@@ -171,9 +171,51 @@ class ShowMeta(ExprMutator):
         self.visit(func)
 
 
+class CutGraph(ExprMutator):
+    """cut graph"""
+
+    def __init__(self):
+        super().__init__()
+        self.bias_num = 0
+        self.end = False
+        self.extra_node_num = 0
+
+    def visit_call(self, call):
+        visited = super().visit_call(call)
+
+        if not self.end and self.extra_node_num <= 9:
+            self.body = visited
+
+        if visited.op.name == "nn.bias_add":
+            self.bias_num = self.bias_num + 1
+            if self.bias_num == 10:
+                self.end = True
+
+        if self.end:
+            self.extra_node_num = self.extra_node_num + 1
+            if self.extra_node_num >= 9:
+                return self.body
+
+        self.body = visited
+
+        return visited
+
+    def visit_function(self, fn):
+        params = fn.params
+        super().visit_function(fn)
+
+        return relay.Function(params, self.body)
+
+    def run(self, func):
+        return self.visit(func)
+
+
 def extract_module(mod, path, name, batch):
     """extract_module"""
-    func, params = ExtractParamsPass().run(mod["main"])
+
+    pre_func = CutGraph().run(mod["main"])
+
+    func, params = ExtractParamsPass().run(pre_func)
     func = relay.frontend.common.infer_type(func)
 
     # ShowMeta().run(func)
@@ -194,7 +236,7 @@ def extract_module(mod, path, name, batch):
     # with open(path + name + "_params.params", "wb+") as f:
     #     f.write(tvm.runtime.save_param_dict(params))
 
-    func = GetOutput().run(mod["main"])
+    func = GetOutput().run(pre_func)
     new_mod = tvm.IRModule.from_expr(func)
 
     with tvm.transform.PassContext(opt_level=3):

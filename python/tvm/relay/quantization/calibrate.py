@@ -173,7 +173,7 @@ def _calibrate_core(arg, input_config, vertex_config, quantized=True):
     if (
         "scale" in y
         and isinstance(arg, relay.Var)
-        and vertex_config[arg].output_config["net_in_dtype"] == "uint8"
+        and vertex_config[arg].output_config["net_in_dtype"] in ["uint8", "int16"]
     ):
         y["scale"] = numpy.ones(y["scale"].size)
     return y
