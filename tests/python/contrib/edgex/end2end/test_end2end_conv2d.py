@@ -141,6 +141,20 @@ def test_single_conv2d_oc17_end2end():
     )
 
 
+def test_single_conv2d_ic17_end2end():
+    do_test_single_conv2d(
+        input_shape=[1, 17, 56, 56],
+        input_dtype="uint8",
+        weight_shape=[17, 17, 7, 7],
+        weight_dtype="int8",
+        strides=[2, 2],
+        padding=[3, 3, 3, 3],
+        dilation=[1, 1],
+        kernel_size=[7, 7],
+        out_dtype="int32",
+    )
+
+
 def test_quantized_conv2d_end2end():
     do_test_quantized_conv2d(
         input_shape=[1, 3, 224, 224],
@@ -190,5 +204,6 @@ if __name__ == "__main__":
     test_single_group_conv2d_end2end()
     test_quantized_conv2d_end2end()
     test_single_conv2d_oc17_end2end()
+    test_single_conv2d_ic17_end2end()
     test_quantized_conv2d_finetuning_delta_end2end()
     test_single_conv2d_tile_co_end2end()

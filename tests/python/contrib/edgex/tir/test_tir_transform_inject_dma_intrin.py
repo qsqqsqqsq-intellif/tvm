@@ -92,6 +92,75 @@ def eidma_1D_broadcast_pattern_rewritten(data: T.handle) -> None:
         "ei_j0_loop_sel=3", "ei_j1_loop_sel=2", "ei_j2_loop_sel=1", "ei_j3_loop_sel=0",
         "ei_j0_stridein=0", "ei_j1_stridein=0", "ei_j2_stridein=0",
         "ei_j0_strideout=64", "ei_j1_strideout=64", "ei_j2_strideout=4", dtype=""))
+
+
+@T.prim_func
+def eidma_multi_branch_under_scope(data: T.handle) -> None:
+    X = T.match_buffer(data, [256], dtype="int32", scope="global")
+    dm = T.allocate([256], dtype="int32", scope="dm")
+    with T.attr("", "pragma_nnp_dma_scope", "eidma"):
+        # i in [0, 4)
+        for i in range(4):
+            # j in [0, 4)
+            for j in range(4):
+                T.store(dm, i * 16 + j, T.load("int32", X.data, i * 16 + j))
+            # j in [4, 16)
+            for j in range(12):
+                T.store(dm, i * 16 + j + 4, T.load("int32", X.data, i * 16 + j + 4))
+        # i in [4, 16)
+        for i in T.serial(0, 12):
+            # j == 0
+            T.store(dm, i * 16 + 64, T.load("int32", X.data, i * 16 + 64))
+            # j in [1, 15)
+            for j in range(14):
+                T.store(dm, i * 16 + j + 65, T.load("int32", X.data, i * 16 + j + 65))
+            # j == 15
+            T.store(dm, i * 16 + 79, T.load("int32", X.data, i * 16 + 79))
+
+@T.prim_func
+def eidma_multi_branch_under_scope_rewritten(X: T.Buffer[(256,), "int32"]) -> None:
+    dm = T.allocate([256], "int32", "dm")
+    T.evaluate(T.nnp_eidma_load("int32",
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), dm, 0, 52, "w", dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), X.data, 0, 52, "r", dtype="handle"),
+        "ei_start_addr_in_en=1", "ei_start_addr_out_en=1", "ei_first_state_en=1", "ei_state_num=1", "ei_dtype=4", "ei_mode=2",
+        "ei_j0_loop_num=1", "ei_j1_loop_num=1", "ei_j2_loop_num=4", "ei_j3_loop_num=4",
+        "ei_j0_loop_sel=3", "ei_j1_loop_sel=2", "ei_j2_loop_sel=1", "ei_j3_loop_sel=0",
+        "ei_j0_stridein=256", "ei_j1_stridein=256", "ei_j2_stridein=64",
+        "ei_j0_strideout=256", "ei_j1_strideout=256", "ei_j2_strideout=64", dtype=""))
+    T.evaluate(T.nnp_eidma_load("int32",
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), dm, 4, 60, "w", dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), X.data, 4, 60, "r", dtype="handle"),
+        "ei_start_addr_in_en=1", "ei_start_addr_out_en=1", "ei_first_state_en=1", "ei_state_num=1", "ei_dtype=4", "ei_mode=2",
+        "ei_j0_loop_num=1", "ei_j1_loop_num=1", "ei_j2_loop_num=4", "ei_j3_loop_num=12",
+        "ei_j0_loop_sel=3", "ei_j1_loop_sel=2", "ei_j2_loop_sel=1", "ei_j3_loop_sel=0",
+        "ei_j0_stridein=256", "ei_j1_stridein=256", "ei_j2_stridein=64",
+        "ei_j0_strideout=256", "ei_j1_strideout=256", "ei_j2_strideout=64", dtype=""))
+    T.evaluate(T.nnp_eidma_load("int32",
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), dm, 64, 177, "w", dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), X.data, 64, 177, "r", dtype="handle"),
+        "ei_start_addr_in_en=1", "ei_start_addr_out_en=1", "ei_first_state_en=1", "ei_state_num=1", "ei_dtype=4", "ei_mode=2",
+        "ei_j0_loop_num=1", "ei_j1_loop_num=1", "ei_j2_loop_num=12", "ei_j3_loop_num=1",
+        "ei_j0_loop_sel=3", "ei_j1_loop_sel=2", "ei_j2_loop_sel=1", "ei_j3_loop_sel=0",
+        "ei_j0_stridein=768", "ei_j1_stridein=768", "ei_j2_stridein=64",
+        "ei_j0_strideout=768", "ei_j1_strideout=768", "ei_j2_strideout=64", dtype=""))
+    T.evaluate(T.nnp_eidma_load("int32",
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), dm, 65, 190, "w", dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), X.data, 65, 190, "r", dtype="handle"),
+        "ei_start_addr_in_en=1", "ei_start_addr_out_en=1", "ei_first_state_en=1", "ei_state_num=1", "ei_dtype=4", "ei_mode=2",
+        "ei_j0_loop_num=1", "ei_j1_loop_num=1", "ei_j2_loop_num=12", "ei_j3_loop_num=14",
+        "ei_j0_loop_sel=3", "ei_j1_loop_sel=2", "ei_j2_loop_sel=1", "ei_j3_loop_sel=0",
+        "ei_j0_stridein=768", "ei_j1_stridein=768", "ei_j2_stridein=64",
+        "ei_j0_strideout=768", "ei_j1_strideout=768", "ei_j2_strideout=64", dtype=""))
+    T.evaluate(T.nnp_eidma_load("int32",
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), dm, 79, 177, "w", dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), X.data, 79, 177, "r", dtype="handle"),
+        "ei_start_addr_in_en=1", "ei_start_addr_out_en=1", "ei_first_state_en=1", "ei_state_num=1", "ei_dtype=4", "ei_mode=2",
+        "ei_j0_loop_num=1", "ei_j1_loop_num=1", "ei_j2_loop_num=12", "ei_j3_loop_num=1",
+        "ei_j0_loop_sel=3", "ei_j1_loop_sel=2", "ei_j2_loop_sel=1", "ei_j3_loop_sel=0",
+        "ei_j0_stridein=768", "ei_j1_stridein=768", "ei_j2_stridein=64",
+        "ei_j0_strideout=768", "ei_j1_strideout=768", "ei_j2_strideout=64", dtype=""))
+
 # fmt: on
 
 
@@ -100,6 +169,7 @@ def do_inject_test(func, expect, verbose=False):
     config = {"tir.edgex.InjectDmaIntrin.verbose": verbose}
     with tvm.transform.PassContext(config=config):
         mod = InjectDmaIntrin()(mod)
+        mod = tvm.tir.transform.RemoveNoOp()(mod)  # flatten seq
     tvm.ir.assert_structural_equal(mod["main"], expect, True)
 
 
@@ -111,6 +181,11 @@ def test_eidma_1D_broadcast_pattern():
     do_inject_test(eidma_1D_broadcast_pattern, eidma_1D_broadcast_pattern_rewritten)
 
 
+def test_eidma_multi_branch_under_scope():
+    do_inject_test(eidma_multi_branch_under_scope, eidma_multi_branch_under_scope_rewritten)
+
+
 if __name__ == "__main__":
     test_rewrite_eidma()
     test_eidma_1D_broadcast_pattern()
+    test_eidma_multi_branch_under_scope()

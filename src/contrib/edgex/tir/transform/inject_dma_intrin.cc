@@ -56,27 +56,53 @@ struct DMAShapeAttributes {
   std::array<size_t, 3U> loop_dst_stride;
 };
 
+static void UpdateConditionalDomain(const PrimExpr& condition, const Array<Var> loop_vars,
+                                    Map<Var, Range>* dom_map, Map<Var, Range>* restore_map) {
+  Array<PrimExpr> equations;
+  std::function<void(const PrimExpr&)> f_split = [&equations, &f_split](const PrimExpr& e) {
+    if (const AndNode* binary = e.as<AndNode>()) {
+      f_split(binary->a);
+      f_split(binary->b);
+    } else if (const CallNode* call = e.as<CallNode>()) {
+      if (call->op.same_as(builtin::likely())) {
+        f_split(call->args[0]);
+      }
+    } else {
+      equations.push_back(e);
+    }
+  };
+  f_split(condition);
+  arith::IntConstraints constraint(loop_vars, *dom_map, equations);
+  auto result = arith::SolveInequalitiesToRange(constraint);
+  ICHECK(result->relations.empty()) << "Condition " << condition << " can not be fully solved";
+  for (size_t i = 0; i < result->variables.size(); ++i) {
+    const Var& var = result->variables[i];
+    auto it = dom_map->find(var);
+    if (it != dom_map->end()) {
+      restore_map->Set(var, (*it).second);
+    }
+    dom_map->Set(var, result->ranges[var]);
+  }
+}
+
 class DMAIntrinRewriter : public StmtExprMutator {
  public:
   friend class DMAIntrinScopeRewriter;
 
-  explicit DMAIntrinRewriter(bool verbose) : verbose_(verbose) {}
+  DMAIntrinRewriter(const Array<Var>& loop_vars, const Map<Var, Range>& dom_map,
+                    const std::unordered_map<std::string, std::string>& extra_dma_attrs,
+                    bool verbose)
+      : loop_vars_(loop_vars),
+        dom_map_(dom_map.begin(), dom_map.end()),
+        extra_dma_attrs_(extra_dma_attrs),
+        verbose_(verbose) {}
 
   /**
    *! \brief Rewrite entrance.
    */
   Stmt RewriteDMA(const Stmt& body, const std::string& intrin_hint_name);
 
-  void SetExtraAttr(const std::string& key, const std::string& value) {
-    extra_dma_attrs_.emplace(key, value);
-  }
-
  private:
-  /**
-   *! \brief Visit dma scope and return target load/store stmt.
-   */
-  Stmt CollectDmaScope(const Stmt& stmt);
-
   /**
    *! \brief Normalize loop variable domain for target stmt.
    */
@@ -126,13 +152,6 @@ class DMAIntrinRewriter : public StmtExprMutator {
                        const PrimExpr& src_offset, const Var& dst_buffer, const DataType& dst_dtype,
                        const PrimExpr& dst_base, const PrimExpr& dst_offset);
 
-  // reset states when go into dma rewrite scope
-  void ResetStates(const Map<Var, Range>& dom_map) {
-    dom_map_ = dom_map;
-    loop_vars_.clear();
-    dom_intsets_ = Map<Var, arith::IntSet>();
-  }
-
   // set extra attrs specified by nnp_dma_attrs annotation
   void SetExtraDmaAttrs(CallNode* call) {
     for (const auto& p : extra_dma_attrs_) {
@@ -140,12 +159,9 @@ class DMAIntrinRewriter : public StmtExprMutator {
     }
   }
 
-  // update dom map for conditional scope
-  void UpdateConditionalDomain(const PrimExpr& condition, Map<Var, Range>*);
-
+  const Array<Var>& loop_vars_;
   Map<Var, Range> dom_map_;
-  Array<Var> loop_vars_;
-  std::unordered_map<std::string, std::string> extra_dma_attrs_;
+  const std::unordered_map<std::string, std::string>& extra_dma_attrs_;
 
   // arithmetic utilities initialized after normalize iter domain for target stmt
   arith::Analyzer dom_analyzer_;
@@ -155,12 +171,10 @@ class DMAIntrinRewriter : public StmtExprMutator {
 
 class DMAIntrinScopeRewriter : public StmtExprMutator {
  public:
-  explicit DMAIntrinScopeRewriter(const Map<Var, Buffer>& buffer_map, bool verbose)
-      : rewriter_(verbose) {}
+  DMAIntrinScopeRewriter(const Map<Var, Buffer>& buffer_map, bool verbose) : verbose_(verbose) {}
 
  private:
   void ParseDMANameAndAttrs(const PrimExpr& value) {
-    rewriter_.extra_dma_attrs_.clear();
     if (const StringImmNode* n = value.as<StringImmNode>()) {
       intrin_hint_name_ = n->value;
     } else if (const CallNode* n = value.as<CallNode>()) {
@@ -174,11 +188,22 @@ class DMAIntrinScopeRewriter : public StmtExprMutator {
           std::string kv = string_imm->value;
           size_t pos = kv.find("=");
           if (pos != std::string::npos) {
-            rewriter_.SetExtraAttr(kv.substr(0, pos), kv.substr(pos + 1, kv.size() - pos - 1));
+            extra_dma_attrs_[kv.substr(0, pos)] = kv.substr(pos + 1, kv.size() - pos - 1);
           }
         }
       }
     }
+  }
+
+  Stmt VisitStmt(const Stmt& stmt) final {
+    if (in_scope_) {
+      // we only support a limit set of stmt within dma scope
+      ICHECK(stmt->IsInstance<SeqStmtNode>() || stmt->IsInstance<AttrStmtNode>() ||
+             stmt->IsInstance<ForNode>() || stmt->IsInstance<IfThenElseNode>() ||
+             stmt->IsInstance<StoreNode>())
+          << "Do not support stmt type " << stmt->GetTypeKey() << " under dma scope";
+    }
+    return StmtExprMutator::VisitStmt(stmt);
   }
 
   Stmt VisitStmt_(const AttrStmtNode* attr) final {
@@ -195,23 +220,51 @@ class DMAIntrinScopeRewriter : public StmtExprMutator {
     return StmtExprMutator::VisitStmt_(attr);
   }
 
-  Stmt VisitStmt_(const ForNode* loop) final {
+  Stmt VisitStmt_(const IfThenElseNode* cond) final {
     if (in_scope_) {
-      rewriter_.ResetStates(dom_map_);
-      return rewriter_.RewriteDMA(GetRef<Stmt>(loop), intrin_hint_name_);
+      Map<Var, Range> restore_map;
+      UpdateConditionalDomain(cond->condition, loop_vars_, &dom_map_, &restore_map);
+      ICHECK(!cond->else_case.defined()) << "Do not support else branch under dma scope";
+      auto res = VisitStmt(cond->then_case);
+      for (const auto& p : restore_map) {
+        dom_map_.Set(p.first, p.second);
+      }
+      return res;
     }
-    dom_map_.Set(loop->loop_var, Range::FromMinExtent(loop->min, loop->extent));
-    Stmt res = StmtExprMutator::VisitStmt_(loop);
-    dom_map_.erase(loop->loop_var);
-    return res;
+    return StmtExprMutator::VisitStmt_(cond);
   }
 
-  Stmt VisitStmt_(const AllocateNode* alloc) final { return StmtExprMutator::VisitStmt_(alloc); }
+  Stmt VisitStmt_(const ForNode* loop) final {
+    Range range = Range::FromMinExtent(loop->min, loop->extent);
+    if (in_scope_) {
+      loop_vars_.push_back(loop->loop_var);
+      dom_map_.Set(loop->loop_var, range);
+      Stmt res = StmtExprMutator::VisitStmt(loop->body);
+      loop_vars_.pop_back();
+      dom_map_.erase(loop->loop_var);
+      return res;
+    } else {
+      dom_map_.Set(loop->loop_var, range);
+      Stmt res = StmtExprMutator::VisitStmt_(loop);
+      dom_map_.erase(loop->loop_var);
+      return res;
+    }
+  }
+
+  Stmt VisitStmt_(const StoreNode* store) final {
+    if (in_scope_) {
+      DMAIntrinRewriter rewriter(loop_vars_, dom_map_, extra_dma_attrs_, verbose_);
+      return rewriter.RewriteDMA(GetRef<Stmt>(store), intrin_hint_name_);
+    }
+    return StmtExprMutator::VisitStmt_(store);
+  }
 
   Map<Var, Range> dom_map_;
-  DMAIntrinRewriter rewriter_;
+  Array<Var> loop_vars_;
+  std::unordered_map<std::string, std::string> extra_dma_attrs_;
   std::string intrin_hint_name_;
   bool in_scope_{false};
+  bool verbose_{false};
 };
 
 Stmt DMAIntrinRewriter::WithNormalizedDomain(const Stmt& stmt) {
@@ -235,49 +288,6 @@ Stmt DMAIntrinRewriter::WithNormalizedDomain(const Stmt& stmt) {
   }
   dom_analyzer_.Bind(dom_map_, true);
   return Substitute(stmt, repl_dict);
-}
-
-void DMAIntrinRewriter::UpdateConditionalDomain(const PrimExpr& condition,
-                                                Map<Var, Range>* dom_map) {
-  Array<PrimExpr> equations;
-  std::function<void(const PrimExpr&)> f_split = [&equations, &f_split](const PrimExpr& e) {
-    if (const AndNode* binary = e.as<AndNode>()) {
-      f_split(binary->a);
-      f_split(binary->b);
-    } else if (const CallNode* call = e.as<CallNode>()) {
-      if (call->op.same_as(builtin::likely())) {
-        f_split(call->args[0]);
-      }
-    } else {
-      equations.push_back(e);
-    }
-  };
-  f_split(condition);
-  arith::IntConstraints constraint(loop_vars_, *dom_map, equations);
-  auto result = arith::SolveInequalitiesToRange(constraint);
-  ICHECK(result->relations.empty()) << "Condition " << condition << " can not be fully solved";
-  for (size_t i = 0; i < result->variables.size(); ++i) {
-    const Var& var = result->variables[i];
-    dom_map->Set(var, result->ranges[var]);
-  }
-}
-
-/**
- *! \brief Utility to collect lower intrinsic info under dma scope.
- */
-Stmt DMAIntrinRewriter::CollectDmaScope(const Stmt& stmt) {
-  if (const ForNode* loop = stmt.as<ForNode>()) {
-    dom_map_.Set(loop->loop_var, Range::FromMinExtent(loop->min, loop->extent));
-    loop_vars_.push_back(loop->loop_var);
-    return CollectDmaScope(loop->body);
-  } else if (const IfThenElseNode* cond = stmt.as<IfThenElseNode>()) {
-    ICHECK(!cond->else_case.defined()) << "Do not support alternative cond branch";
-    UpdateConditionalDomain(cond->condition, &dom_map_);
-    return CollectDmaScope(cond->then_case);
-  } else {
-    // reach target stmt
-    return WithNormalizedDomain(stmt);
-  }
 }
 
 /**
@@ -748,7 +758,7 @@ Stmt DMAIntrinRewriter::RewriteDMA(const Stmt& body, const std::string& intrin_h
   if (verbose_) {
     LOG(INFO) << "Try rewrite dma scope: \n" << body;
   }
-  Stmt target_stmt = CollectDmaScope(body);
+  Stmt target_stmt = WithNormalizedDomain(body);
   const StoreNode* store = target_stmt.as<StoreNode>();
   ICHECK(store) << "Unsupported dma stmt " << target_stmt;
   const LoadNode* load = store->value.as<LoadNode>();
@@ -824,7 +834,8 @@ Stmt DMAIntrinRewriter::RewriteDMA(const Stmt& body, const std::string& intrin_h
                            dst_dtype, dst_base, dst_offset);
   } else {
     LOG(FATAL) << "No DMA intrinsic supported from " << src_scope.to_string() << " to "
-               << dst_scope.to_string();
+               << dst_scope.to_string() << "\n"
+               << body;
   }
   return target_stmt;
 }
@@ -1075,7 +1086,8 @@ Stmt DMAIntrinRewriter::CreateIdmaLoad(const Var& src_buffer, const DataType& sr
   PrimExpr src_access;
   if (cond.defined()) {  // padding exists
     Map<Var, Range> src_dom_map(dom_map_.begin(), dom_map_.end());
-    UpdateConditionalDomain(cond, &src_dom_map);
+    Map<Var, Range> restore_map;
+    UpdateConditionalDomain(cond, loop_vars_, &src_dom_map, &restore_map);
     arith::Analyzer src_dom_analyzer;
     Map<Var, arith::IntSet> src_dom_intsets;
     for (const auto& p : src_dom_map) {

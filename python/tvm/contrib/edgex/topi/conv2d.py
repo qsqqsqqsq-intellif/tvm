@@ -359,6 +359,9 @@ class ScheduleConv2d:
         c1, c0 = self._sch.split(ci_group, factors=[None, self._ci_para_lines])
         self._sch.reorder(n, group, c1, h, w, c0)
 
+        if self._input_shape[1] % self._ci_para_lines != 0:
+            self._sch.loop_partition([c1])
+
         if self._cfg.tile_co:
             self._sch.pragma(self._sch.get_loops(eidma)[2], "nnp_dma_scope", "eidma")
         else:
@@ -392,8 +395,7 @@ class ScheduleConv2d:
         else:
             n, c, h, w = self._sch.get_loops(idma)
         group, ci_group = self._sch.split(c, factors=[self._groups, None])
-        c1, c0 = self._sch.split(ci_group, factors=[None, self._ci_para_lines])
-        self._sch.reorder(n, group, c1, h, w, c0)
+
         # idma write dm buffer should align last dimension with 16/8
         self._sch.storage_align(
             idma,
