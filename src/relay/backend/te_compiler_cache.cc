@@ -193,9 +193,6 @@ class ScheduleBuilder : public backend::MemoizedExprTranslator<Array<te::Tensor>
             ICHECK(f_create_func) << "te.CreatePrimFunc is not registered";
             prim_func = (*f_create_func)(all_tensors);
             prim_func = fschedule(anchor_attrs_, prim_func, target_);
-            prim_func =
-                Downcast<tvm::tir::PrimFunc>(tvm::LowerPrimFunc(prim_func, prim_fn_var->name_hint)
-                                                 ->Lookup(prim_fn_var->name_hint));
           }
         }
       }

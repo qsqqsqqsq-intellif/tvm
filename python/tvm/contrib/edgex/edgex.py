@@ -15,8 +15,10 @@
 # specific language governing permissions and limitations
 # under the License.
 """TVM EdgeX"""
-# pylint: disable-msg=C0103
+# pylint: disable-msg=C0103,W0401,W0614
+import os
 import tvm
+from tvm.contrib.edgex.tir.transform import *
 
 
 def pass_debug_wrapper(passfunc):
@@ -42,15 +44,24 @@ def build_config_nnp(extra_config=None, extra_disabled_pass=None, opt_level=2):
     """
 
     pass_list = []
-    pass_list.append((2, tvm.contrib.edgex.tir.transform.InjectDmaIntrin()))
-    pass_list.append((2, tvm.contrib.edgex.tir.transform.InjectCalculatedIsa()))
-    pass_list.append((2, tvm.contrib.edgex.tir.transform.InjectHandShakeIntrin()))
-    pass_list.append((2, tvm.contrib.edgex.tir.transform.RewriteVcuOps()))
-    pass_list.append((2, tvm.contrib.edgex.tir.transform.FlatStorageConstraintHandler()))
-    pass_list.append((2, tvm.contrib.edgex.tir.transform.StorageRewriteNNP400()))
-    pass_list.append((2, tvm.contrib.edgex.tir.transform.SplitVcuControlFlow()))
-    pass_list.append((2, tvm.tir.transform.DecorateDeviceScope()))
-    pass_list.append((2, tvm.contrib.edgex.tir.transform.LiftGlobalAllocation()))
+    pass_list.append((2, InjectDmaIntrin()))
+    pass_list.append((2, InjectCalculatedIsa()))
+    pass_list.append((2, InjectHandShakeIntrin()))
+    pass_list.append((2, RewriteVcuOps()))
+    pass_list.append((2, FlatStorageConstraintHandler()))
+    pass_list.append((2, StorageRewriteNNP400()))
+    pass_list.append((2, SplitVcuControlFlow()))
+    pass_list.append((3, tvm.tir.transform.DecorateDeviceScope()))
+    pass_list.append((3, LiftGlobalAllocation()))
+
+    # lowered tir dumping support
+    dump_tir = os.environ.get("EDGEX_DEBUG_DUMP_TIR", None) is not None
+    use_existing_tir = os.environ.get("EDGEX_DEBUG_USE_EXISTING_TIR", None) is not None
+    working_dir = os.environ.get("EDGEX_DEBUG_WORKING_DIR", None)
+    if dump_tir or use_existing_tir:
+        if working_dir is None:
+            raise ValueError("Please specify EDGEX_DEBUG_WORKING_DIR for tir debug purpose")
+        pass_list.append((3, DumpOrReuseLoweredTIR(working_dir, use_existing_tir)))
 
     config = {
         "tir.add_lower_pass": pass_list,

@@ -16,6 +16,8 @@
 # under the License.
 """Wrapping existing edgex transformations."""
 # pylint: disable=invalid-name
+import os
+import tvm
 from . import _ffi_api
 
 
@@ -39,18 +41,6 @@ def InjectHandShakeIntrin():
         The result pass
     """
     return _ffi_api.InjectHandShakeIntrin()
-
-
-def StorageConstraintHandler():
-    """Handle the storage address or memory size
-    according to the constraint.
-
-    Returns
-    -------
-    fpass : tvm.transform.Pass
-        The result pass
-    """
-    return _ffi_api.StorageConstraintHandler()
 
 
 def FlatStorageConstraintHandler():
@@ -126,6 +116,7 @@ def RewriteVcuOps():
 
 def InlinePrimFuncCalls(extern_primfuncs=None):
     """Inline calls to primfuncs.
+
     Parameters
     ----------
     extern_primfuncs : dict
@@ -137,3 +128,38 @@ def InlinePrimFuncCalls(extern_primfuncs=None):
         The result pass
     """
     return _ffi_api.InlinePrimFuncCalls(extern_primfuncs)
+
+
+def DumpOrReuseLoweredTIR(working_dir, reuse_existing_tir=False):
+    """Dump current tir or reuse tir script from previous dump.
+    TODO(bxq): Since currently low level tir scripting is not fully
+    supported, we use this pass at final lower phase for debug purpose.
+
+    Parameters
+    ----------
+    reuse_existing_tir : bool
+        Try load tir script from previous dump.
+    """
+
+    def _func(mod: tvm.IRModule, _):
+        for gv in mod.functions:
+            func = mod.functions[gv]
+            kernel_name = gv.name_hint + "_kernel0"
+            tir_path = os.path.join(working_dir, kernel_name, "tir", kernel_name + ".tir.py")
+            if reuse_existing_tir:
+                if not os.path.isfile(tir_path):
+                    raise ValueError(f"Can not find existing tir script file {tir_path}")
+                with open(tir_path) as input_file:
+                    obj = tvm.script.from_source(input_file.read(), tir_prefix="T")
+                if not isinstance(obj, tvm.tir.PrimFunc):
+                    raise ValueError(f"The dumped object is not PrimFunc in {tir_path}")
+                mod.update_func(gv, obj)
+            else:
+                tir_dir = os.path.dirname(tir_path)
+                if not os.path.isdir(tir_dir):
+                    os.makedirs(tir_dir)
+                with open(tir_path, "w") as output_file:
+                    output_file.write(func.script())
+        return mod
+
+    return tvm.transform.module_pass(_func, opt_level=2)

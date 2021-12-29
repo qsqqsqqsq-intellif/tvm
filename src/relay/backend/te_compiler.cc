@@ -328,7 +328,13 @@ class TECompilerImpl : public TECompilerNode {
       if (hashkey.defined()) {
         value->cached_func = schedule_cache.GetSchedule(hashkey.value());
         if (value->cached_func.defined()) {
-          return value;
+          if (value->cached_func->prim_func.defined()) {
+            tir::PrimFunc prim_func = value->cached_func->prim_func.value();
+            String prim_func_name = value->cached_func->prim_fn_var->name_hint;
+            IRModule lowered = tvm::LowerPrimFunc(prim_func, prim_func_name);
+            prim_func = Downcast<tvm::tir::PrimFunc>(lowered->Lookup(prim_func_name));
+            value->cached_func.CopyOnWrite()->prim_func = prim_func;
+          }
         }
       }
     }

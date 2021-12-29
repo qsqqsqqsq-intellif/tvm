@@ -951,16 +951,17 @@ runtime::Module BuildNNP400LLVM(IRModule mod, Target target) {
 
   for (auto kv : mod->functions) {
     std::unique_ptr<CodeGenNNP400LLVM> cg(new CodeGenNNP400LLVM());
-    cg->Init("TVMLLVModule", tm.get(), ctx.get(), false, false, false);
+    cg->Init("TVMLLVMModule", tm.get(), ctx.get(), false, false, false);
     ICHECK(kv.second->IsInstance<PrimFuncNode>()) << "Can only lower IR Module with PrimFuncs";
     auto f = Downcast<PrimFunc>(kv.second);
+    const std::string kernel_name = kv.first->name_hint;
     cg->AddFunction(f);
 
     // dump ll before optimize
-    const std::string kernel_name = kv.first->name_hint;
     std::string llvm_dump_dir;
     if (dump_llvm_ir) {
       if (!working_dir.empty()) {
+        const std::string kernel_name = kv.first->name_hint;
         llvm_dump_dir = working_dir + "/" + kernel_name + "/llvm/";
         int status = tvm::runtime::mkdir_recursive(llvm_dump_dir.c_str());
         CHECK(status == 0 || errno == EEXIST) << "Create llvm ir dump directory failed";
@@ -969,17 +970,6 @@ runtime::Module BuildNNP400LLVM(IRModule mod, Target target) {
                                      llvm::sys::fs::FA_Write);
         cg->GetRawModule()->print(fstream, nullptr);
         fstream.close();
-
-        llvm::raw_fd_ostream fstream_tir(llvm_dump_dir + "/" + kernel_name + ".tir", ferr,
-                                         llvm::sys::fs::FA_Write);
-        auto* f_as_script = tvm::runtime::Registry::Get("script.AsTVMScript");
-        auto dumpable_f = make_object<PrimFuncNode>(*f.get());
-        dumpable_f->attrs = DictAttrs();
-        std::stringstream ss;
-        String script = (*f_as_script)(PrimFunc(dumpable_f), "T", true);
-        ss << script;
-        fstream_tir << ss.str();
-        fstream_tir.close();
       }
     }
 

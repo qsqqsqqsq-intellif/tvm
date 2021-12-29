@@ -89,7 +89,9 @@ class ScheduleCache : public ObjectRef {
     tec::TECompiler compiler;
     CCacheKey ckey(function, target);
     auto n = static_cast<ScheduleCacheNode*>(get_mutable());
-    auto cfunc = compiler->Lower(ckey, [n](const String name) { return n->GetUniqueName(name); });
+    With<Target> target_scope(target);
+    auto cfunc =
+        PrimFuncFor(function, target, [n](const String name) { return n->GetUniqueName(name); });
     int64_t hash = n->cache_.size();
     AddSchedule(hash, cfunc);
     return {hash, cfunc};
