@@ -508,7 +508,7 @@ def check_edgex_tir_build(
     data_range=None,
     input_data=None,
     rmse=None,
-    output_idx=-1,
+    output_idx=None,
 ):
     """build and check edgex tir module
     Parameters
@@ -550,7 +550,7 @@ def check_edgex_tir_build(
     """
     # prepare test data
     arrs = []
-    if not isinstance(output_idx, (set, list)):
+    if output_idx is not None and not isinstance(output_idx, (set, list)):
         output_idx = {output_idx}
     for idx, param in enumerate(prim_func.params):
         if input_data is not None and idx < len(input_data) and input_data[idx] is not None:
@@ -559,7 +559,7 @@ def check_edgex_tir_build(
         buffer = prim_func.buffer_map[param]
         shape = [int(x) for x in buffer.shape]
         dtype = buffer.dtype
-        if idx in output_idx:
+        if output_idx is not None and idx in output_idx:
             arrs.append(np.zeros(shape).astype(dtype))
             continue
         if data_range is None:
