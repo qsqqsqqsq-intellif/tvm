@@ -192,7 +192,6 @@ def do_test_vu_maxpool(shape, use_auto_vu_strategy):
         check_edgex_relay_build(relay_func, numpy_func=get_raw_te_output)
 
 
-@pytest.mark.edgex_slow
 def test_vu_maxpool_small():
     do_test_vu_maxpool([1, 64, 4, 4], use_auto_vu_strategy=True)
     do_test_vu_maxpool([1, 64, 4, 4], use_auto_vu_strategy=False)
