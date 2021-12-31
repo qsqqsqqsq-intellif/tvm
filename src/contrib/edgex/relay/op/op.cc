@@ -36,19 +36,6 @@
 namespace tvm {
 namespace relay {
 
-#define RELAY_BINARY_COMPUTE(FTOPI)                       \
-  [](const Attrs& attrs, const Array<te::Tensor>& inputs, \
-     const Type& out_type) -> Array<te::Tensor> {         \
-    ICHECK_EQ(inputs.size(), 2U);                         \
-    return {FTOPI(inputs[0], inputs[1])};                 \
-  }
-
-// relay.round_right_shift
-RELAY_REGISTER_BINARY_OP("round_right_shift")
-    .describe("Elementwise round and right shift with broadcasting")
-    .set_support_level(1)
-    .set_attr<FTVMCompute>("FTVMCompute", RELAY_BINARY_COMPUTE(topi::round_right_shift));
-
 // relay.cast_reinterpret
 bool CastReinterpretRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                         const TypeReporter& reporter) {

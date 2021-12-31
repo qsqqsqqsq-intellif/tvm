@@ -24,7 +24,7 @@ import tvm
 from tvm import relay
 from tvm.relay.expr_functor import ExprMutator
 from tvm.relay.dataflow_pattern import is_op, wildcard
-from tvm.contrib.edgex.relay.op import round_right_shift
+from .relay_ops import round_right_shift
 from .debug import pair_node
 from .method_dtype import _get_dtype_info, DataType
 

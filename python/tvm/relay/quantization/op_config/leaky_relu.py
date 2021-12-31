@@ -19,7 +19,7 @@
 
 import logging
 from tvm import relay
-from tvm.contrib.edgex.relay.op import round_right_shift
+from ..relay_ops import round_right_shift
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
 from ..analyze import _conv_counter, oneargdeal

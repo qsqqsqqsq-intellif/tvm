@@ -18,18 +18,17 @@
  */
 
 /*!
- * \brief Registration of edgex extension operators
  * \file op.cc
+ * \brief quantization extension of relay operators.
  */
-#include "./op.h"
-
-#include <tvm/runtime/packed_func.h>
-#include <tvm/runtime/registry.h>
-#include <tvm/tir/buffer.h>
+#include <tvm/relay/expr.h>
+#include <tvm/relay/op.h>
+#include <tvm/relay/op_attr_types.h>
 #include <tvm/topi/broadcast.h>
-#include <tvm/topi/utils.h>
 
-#include "../tir/op/builtin.h"
+#include "../../../relay/op/nn/pooling.h"
+#include "../../../relay/op/op_common.h"
+#include "../../../relay/transforms/infer_layout_utils.h"
 
 namespace tvm {
 namespace topi {
@@ -49,46 +48,31 @@ namespace topi {
     }                                                                                   \
   });
 
-TOPI_REGISTER_BCAST_OP("topi.round_right_shift_intrin", round_right_shift_intrin);
-
-tvm::te::Tensor cast_reinterpret(const tvm::te::Tensor& x, DataType type, const std::string& name,
-                                 const std::string& tag) {
-  Array<PrimExpr> new_shape;
-  PrimExpr total_bytes = x->shape.back() * x->dtype.bytes();
-  for (size_t i = 0; i < x->shape.size() - 1; i++) {
-    new_shape.push_back(x->shape[i]);
-    total_bytes *= x->shape[i];
-  }
-  bool is_downcast = x->dtype.bits() > type.bits();
-  if (is_downcast) {
-    ICHECK_EQ(x->dtype.bits() % type.bits(), 0)
-        << type.bits() << "is not divisible into" << x->dtype.bits();
-    const int factor = x->dtype.bits() / type.bits();
-    new_shape.push_back(x->shape.back() * factor);
-  } else {
-    ICHECK_EQ(type.bits() % x->dtype.bits(), 0)
-        << x->dtype.bits() << "is not divisible into" << type.bits();
-    const int factor = type.bits() / x->dtype.bits();
-    new_shape.push_back(floordiv(x->shape.back(), factor));
-  }
-
-  tvm::te::Buffer input_buffer = tvm::tir::decl_buffer(x->shape, x->dtype);
-  tvm::te::Buffer output_buffer = tvm::tir::decl_buffer(new_shape, type);
-  tvm::tir::Call call(DataType::Handle(), tvm::tir::builtin::call_extern(),
-                      {tvm::tir::StringImm("cast_reinterpret_extern_data_copy"), total_bytes,
-                       input_buffer.access_ptr(1), output_buffer.access_ptr(2)});
-  tvm::te::ExternOp cast_reinterpret_extern("cast_reinterpret_extern", tag, {}, {x}, {input_buffer},
-                                            {output_buffer}, tvm::tir::Evaluate(call));
-  return cast_reinterpret_extern.output(0);
-}
-
-extern "C" void cast_reinterpret_extern_data_copy(int64_t bytes, void* src, void* dst) {
-  memcpy(dst, src, bytes);
-}
-
-TVM_REGISTER_GLOBAL("topi.cast_reinterpret").set_body([](TVMArgs args, TVMRetValue* rv) {
-  *rv = cast_reinterpret(args[0], args[1]);
+TOPI_DEFINE_BCAST_OP(round_right_shift, {
+  auto pos = 1ll << (b - 1);
+  auto neg = (1ll << (b - 1)) - 1;
+  auto round_param = tvm::tir::Select(a >= 0, pos, neg);
+  return tvm::tir::Select(b > 0, (a + round_param) >> b, a);
 });
 
+TOPI_REGISTER_BCAST_OP("topi.round_right_shift", round_right_shift);
+
 }  // namespace topi
+
+namespace relay {
+
+#define RELAY_BINARY_COMPUTE(FTOPI)                       \
+  [](const Attrs& attrs, const Array<te::Tensor>& inputs, \
+     const Type& out_type) -> Array<te::Tensor> {         \
+    ICHECK_EQ(inputs.size(), 2U);                         \
+    return {FTOPI(inputs[0], inputs[1])};                 \
+  }
+
+// relay.round_right_shift
+RELAY_REGISTER_BINARY_OP("round_right_shift")
+    .describe("Elementwise round and right shift with broadcasting")
+    .set_support_level(1)
+    .set_attr<FTVMCompute>("FTVMCompute", RELAY_BINARY_COMPUTE(topi::round_right_shift));
+
+}  // namespace relay
 }  // namespace tvm

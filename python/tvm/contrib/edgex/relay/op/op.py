@@ -15,26 +15,9 @@
 # specific language governing permissions and limitations
 # under the License.
 """Relay tensor operations for edgex."""
-# pylint: disable=redefined-builtin, unused-argument
+# pylint: disable=redefined-builtin, unused-argument, unused-import
 from tvm.relay.op import _make
-
-
-def round_right_shift(lhs, rhs):
-    """Round right shift with numpy-style broadcasting.
-
-    Parameters
-    ----------
-    lhs : relay.Expr
-        The left hand side input data
-    rhs : relay.Expr
-        The right hand side input data
-
-    Returns
-    -------
-    result : relay.Expr
-        The computed result.
-    """
-    return _make.round_right_shift(lhs, rhs)
+from tvm.relay.quantization.relay_ops import round_right_shift
 
 
 def cast_reinterpret(data, dtype):

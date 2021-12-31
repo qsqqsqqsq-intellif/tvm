@@ -23,7 +23,9 @@ from tvm.relay import op as _op
 from tvm.relay.op import op as reg
 from tvm import te
 from tvm import topi
-from tvm.target import override_native_generic_func, get_native_generic_func, generic_func
+from tvm.target import get_native_generic_func, generic_func
+import tvm.relay.quantization
+from tvm.relay.quantization.relay_ops import round_right_shift_strategy
 
 
 def register_edgex_fschedule(op_name):
@@ -88,26 +90,6 @@ def dense_strategy_cpu(attrs, inputs, out_type, target):
     return strategy
 
 
-@override_native_generic_func("round_right_shift_strategy")
-def round_right_shift_strategy(attrs, inputs, out_type, target):
-    """round_right_shift general strategy"""
-    strategy = _op.OpStrategy()
-
-    def fcompute(attrs, inputs, out_dtype):
-        return [tvm.contrib.edgex.topi.round_right_shift(inputs[0], inputs[1])]
-
-    strategy.add_implementation(
-        fcompute,
-        generic.schedule_injective,
-        name="round_right_shift.%s" % target.kind.name,
-        plevel=15,
-    )
-    # strategy.add_tir_implementation(
-    #    fcompute, tir_schedule_injective, name="round_right_shift.%s" % target.kind.name, plevel=15
-    # )
-    return strategy
-
-
 @round_right_shift_strategy.register("edgex")
 def round_right_shift_strategy_edgex(attrs, inputs, out_type, target):
     """round_right_shift edgex strategy"""
@@ -128,5 +110,4 @@ def round_right_shift_strategy_edgex(attrs, inputs, out_type, target):
     return strategy
 
 
-reg.register_strategy("round_right_shift", round_right_shift_strategy, level=15)
 reg.register_schedule("cast_reinterpret", dummy_schedule)
