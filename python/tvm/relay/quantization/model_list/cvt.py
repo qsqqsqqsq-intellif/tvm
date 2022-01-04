@@ -28,18 +28,14 @@ torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-if tvm.runtime.enabled("gpu"):
-    ctx = tvm.cuda()
-    target = "cuda"
-else:
-    ctx = tvm.cpu()
-    target = "llvm"
+ctx = tvm.cpu()
+target = "llvm"
 
 batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "CvT-13-224x224-IN-1k"
-performance = {"float32": 81.5860, "默认float16": 0.1, "修改layer norm算子float16": 81.5720, "int8": None}
+performance = {"float32": 81.5860, "float16": 81.5720, "int8": 80.7760}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
 all_op = [

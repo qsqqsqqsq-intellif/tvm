@@ -34,7 +34,6 @@ else:
     ctx = tvm.cpu()
     target = "llvm"
 
-
 batch_size = 1
 calibrate_num = 500
 num_workers = 8

@@ -36,14 +36,7 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "vit_base_patch32_224"
-performance = {
-    "f32": 80.7160,
-    "gelu用sigmoid近似": 79.6120,
-    "gelu用tanh近似": 80.7340,
-    "sigmoid的f16": 74.9,
-    "tanh的f16": 75.6,
-    "int8": None,
-}
+performance = {"float32": 80.7160, "int8": 78.4180}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
 all_op = [

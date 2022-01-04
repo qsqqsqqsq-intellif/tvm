@@ -19,6 +19,7 @@
 
 import logging
 import functools
+import numpy
 from tvm import relay
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
@@ -150,8 +151,10 @@ class LayerNorm:
         # variance=relay.variance(new_arg,axis,True,False)
         tmp = relay.frontend.common.infer_type(relay.mean(new_arg, axis, True, True))
         n = tmp.checked_type.concrete_shape
-        n = relay.const(functools.reduce(lambda x, y: x * y, n), "float16")
-        variance = relay.sum(((new_arg - mean) / n) * (new_arg - mean), axis, True, False)
+        n = functools.reduce(lambda x, y: x * y, n)
+        n = numpy.sqrt(n)
+        n = relay.const(n, "float16")
+        variance = relay.sum(((new_arg - mean) / n) * ((new_arg - mean) / n), axis, True, False)
 
         epsilon = relay.const(new_node.attrs.epsilon, "float16")
         std = relay.sqrt(variance + epsilon)

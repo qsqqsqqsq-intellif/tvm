@@ -156,7 +156,7 @@ class FilterResult(ExprMutator):
 
 
 class ShowMeta(ExprMutator):
-    """Show Meta """
+    """Show Meta"""
 
     def visit_call(self, call):
         visited = super().visit_call(call)
