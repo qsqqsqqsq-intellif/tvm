@@ -24,7 +24,7 @@ from tvm.contrib.edgex.relay.transform import (
     ConvertDepthwiseConv2DToConv2D,
 )
 from tvm.contrib.edgex.testing import check_edgex_relay_build
-from tvm.contrib.edgex.relay.op import round_right_shift
+from tvm.relay.quantization.relay_ops import round_right_shift
 from tvm.relay.build_module import bind_params_by_name
 
 

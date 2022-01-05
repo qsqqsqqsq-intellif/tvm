@@ -22,3 +22,4 @@ from .optimize import origin_pass
 from .pattern import pattern_match
 from .divide_to_multiply import divide_to_multiply
 from .fuse_add import fuse_add
+from .convert_qnn_ops import ConvertQnnOps
