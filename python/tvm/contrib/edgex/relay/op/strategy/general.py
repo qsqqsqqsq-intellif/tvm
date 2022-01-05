@@ -47,9 +47,9 @@ def fschedule_general_vu(attrs, prim_func, tgt):
     """general fschedule function for non-conv ops"""
     print(prim_func)
     # print(prim_func.script())
-    scheduled_func = tvm.contrib.edgex.topi.naive_vu_schedule(
+    scheduled_func = tvm.contrib.edgex.topi.NaiveVuSchedule(
         prim_func, is_cpu=tgt.kind == "llvm", allow_multi_block=True, enable_relay_rewrite=True
-    )
+    ).schedule()
     return scheduled_func
 
 

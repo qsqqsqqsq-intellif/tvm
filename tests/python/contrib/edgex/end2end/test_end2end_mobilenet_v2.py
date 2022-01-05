@@ -50,9 +50,6 @@ class UnsupportedDetector(relay.ExprVisitor):
                 and call.args[0].type_annotation.dtype == "int32"
             ):
                 self.match = True
-        if isinstance(call.op, tvm.ir.Op):
-            if call.op.name == "nn.conv2d":
-                self.match = True
         if isinstance(call.attrs, relay.op.op_attrs.Conv2DAttrs):
             self.match = True
         super().visit_call(call)
@@ -80,14 +77,15 @@ class OffloadUnsupported(relay.ExprMutator):
 
 def get_mobilenet_v2():
     """helper to get mobilenet_v2 network"""
-    mod_file = os.getenv("EDGEX_MODELS_DIR", "/tmp") + "/pytorch/mobilenet_v2/quantized/mobilenet_v2.json"
+    mod_file = (
+        os.getenv("EDGEX_MODELS_DIR", "/tmp") + "/pytorch/mobilenet_v2/quantized/mobilenet_v2.json"
+    )
     params_file = (
-        os.getenv("EDGEX_MODELS_DIR", "/tmp") + "/pytorch/mobilenet_v2/quantized/mobilenet_v2.params"
+        os.getenv("EDGEX_MODELS_DIR", "/tmp")
+        + "/pytorch/mobilenet_v2/quantized/mobilenet_v2.params"
     )
     assert os.path.exists(mod_file) and os.path.exists(params_file)
     mod = load_model_json_from_predev(mod_file)
-    # with open(mod_file + ".new", "r") as fi:
-    #    mod = tvm.ir.load_json(json.load(fi))
     with open(params_file, "rb") as fi:
         params = relay.load_param_dict(fi.read())
 
@@ -127,8 +125,6 @@ def test_mobilenet_v2_per_op():
         for name in functions:
             func, sub_params = functions[name]
             if detector(func):
-                continue
-            if name != "fused_0_13":
                 continue
             print(func.astext(False))
             print("op name: {}".format(name))

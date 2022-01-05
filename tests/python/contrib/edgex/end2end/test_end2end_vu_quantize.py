@@ -20,6 +20,7 @@ from tvm.ir.expr import GlobalVar, PrimExpr
 from tvm.ir.module import IRModule
 from tvm.script import tir as T
 from tvm.contrib.edgex.topi import naive_vu_schedule
+from tvm.contrib.edgex.topi import NaiveVuSchedule
 from tvm.contrib.edgex.testing import check_edgex_tir_build
 import numpy as np
 
@@ -314,7 +315,7 @@ def do_test_veltadd(channels, height, weight, has_add, has_relu):
     else:
         func = veltadd_unary
     func = func.specialize({func.params[0]: tir.decl_buffer(shape)})
-    func = naive_vu_schedule(func)
+    func = NaiveVuSchedule(func).schedule()
     x = np.random.randint(-128, 127, shape).astype("int8")
     y = np.random.randint(-128, 127, shape).astype("int8")
     m = np.random.randint(0, 5, [channels, 1, 1]).astype("uint8")
@@ -328,7 +329,7 @@ def do_test_i32_quantize(channels, height, weight):
     name = "quantize_i32_input_%d_%d_%d" % (channels, height, weight)
     func = quantize_i32_input
     func = func.specialize({func.params[0]: tir.decl_buffer(shape)})
-    func = naive_vu_schedule(func)
+    func = NaiveVuSchedule(func).schedule()
     x = np.random.randint(-128, 127, shape).astype("int32")
     m = np.random.randint(0, 5, [channels, 1, 1]).astype("uint8")
     s = np.random.randint(0, 9, [channels, 1, 1]).astype("uint8")
@@ -392,7 +393,7 @@ def test_setmode_side_effect():
     }
     mod = IRModule.from_expr(veltadd_of_different_relu_mode)
     mod = tvm.contrib.edgex.tir.transform.InlinePrimFuncCalls(extern_primfuncs)(mod)
-    func = naive_vu_schedule(mod["main"], allow_multi_block=True)
+    func = NaiveVuSchedule(mod["main"], allow_multi_block=True).schedule()
     x = np.random.randint(-128, 127, shape).astype("int8")
     m = np.random.randint(0, 5, [32, 1, 1]).astype("uint8")
     s = np.random.randint(0, 9, [32, 1, 1]).astype("uint8")

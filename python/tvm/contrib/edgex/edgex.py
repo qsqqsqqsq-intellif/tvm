@@ -44,6 +44,8 @@ def build_config_nnp(extra_config=None, extra_disabled_pass=None, opt_level=2):
     """
 
     pass_list = []
+    pass_list.append((2, tvm.tir.transform.Simplify()))
+    pass_list.append((2, tvm.tir.transform.RemoveNoOp()))
     pass_list.append((2, InjectDmaIntrin()))
     pass_list.append((2, InjectHandShakeIntrin()))
     pass_list.append((2, RewriteVcuOps()))
