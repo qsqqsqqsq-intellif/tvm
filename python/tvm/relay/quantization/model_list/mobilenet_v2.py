@@ -22,6 +22,7 @@ import torch
 import torchvision
 import tvm
 from tvm import relay
+import tvm.relay.quantization
 
 torch.manual_seed(49)
 
@@ -38,7 +39,7 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "mobilenet_v2"
-performance = {"float": 71.878, "int8": 70.416}
+performance = {"float": 71.878, "int8": 70.7220}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
 all_op = [

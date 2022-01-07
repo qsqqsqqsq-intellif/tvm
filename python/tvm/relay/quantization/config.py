@@ -119,7 +119,7 @@ class ConfigSpace(ExprVisitor):
 
                 arg_dict["default_config"] = {
                     arg_key: {
-                        "threshold": Threshold.RelativeEntropy,
+                        "threshold": Threshold.L2Norm,
                         "method": Method.Symmetry,
                         "dtype": DataType.Int8,
                     }
@@ -219,7 +219,7 @@ class ConfigSpace(ExprVisitor):
                     },
                     "default_config": {
                         arg_key: {
-                            "threshold": Threshold.RelativeEntropy,
+                            "threshold": Threshold.L2Norm,
                             "method": Method.Symmetry,
                             "dtype": DataType.Int8,
                         }
@@ -319,7 +319,7 @@ class ConfigSpace(ExprVisitor):
 
                 arg_dict["default_config"] = {
                     arg_key: {
-                        "threshold": Threshold.RelativeEntropy,
+                        "threshold": Threshold.L2Norm,
                         "method": Method.Symmetry,
                         "dtype": DataType.Int8,
                     }
@@ -418,7 +418,7 @@ class ConfigSpace(ExprVisitor):
                     },
                     "default_config": {
                         arg_key: {
-                            "threshold": Threshold.RelativeEntropy,
+                            "threshold": Threshold.L2Norm,
                             "method": Method.Symmetry,
                             "dtype": DataType.Int8,
                         }

@@ -517,7 +517,7 @@ class AnalyzeGraph(ExprVisitor):
             # should consider int8 input
             # todo more configuration!!
             if self.vertex_config[fn.body].output_config["dtype"] == DataType.Int32:
-                self.vertex_config[fn.body].output_config["threshold"] = Threshold.RelativeEntropy(
+                self.vertex_config[fn.body].output_config["threshold"] = Threshold.L2Norm(
                     fn.body, -1, {}
                 )
                 self.collect_node.update([fn.body])

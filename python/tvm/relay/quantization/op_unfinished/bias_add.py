@@ -26,9 +26,10 @@ _valid_config = {
     "input0": {
         "threshold": (
             Threshold.MinMax,
-            Threshold.MovingAverageMinMax,
             Threshold.Percentile,
-            Threshold.Histogram,
+            Threshold.MovingAverageMinMax,
+            Threshold.L2Norm,
+            Threshold.RelativeEntropy,
         ),
         "granularity": (Granularity.Tensor, Granularity.Channel),
         "method": (Method.Symmetry, Method.Asymmetry),
@@ -47,7 +48,7 @@ _valid_config = {
 
 _default_config = {
     "input0": {
-        "threshold": Threshold.Histogram,
+        "threshold": Threshold.L2Norm,
         "granularity": Granularity.Channel,
         "method": Method.Symmetry,
         "dtype": DataType.Int32,

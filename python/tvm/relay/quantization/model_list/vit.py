@@ -36,7 +36,7 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "vit_base_patch32_224"
-performance = {"float32": 80.7160, "int8": 78.4180}
+performance = {"float32": 80.7160, "int8": 79.3160}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
 all_op = [

@@ -43,7 +43,7 @@ VALIDCONFIG = {
 }
 
 DEFAULTCONFIG = {
-    "threshold": Threshold.RelativeEntropy,
+    "threshold": Threshold.L2Norm,
     "method": Method.Symmetry,
     "dtype": DataType.Int8,
 }

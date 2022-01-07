@@ -518,10 +518,9 @@ class RelativeEntropy:
             shape3 = [shape2] + shape1
             temp_x = numpy.transpose(x, shape3)
             temp_x = temp_x.reshape(temp_x.shape[0], -1)
-            # yhh change 1026 temp todo
-            # for i, _ in enumerate(temp_x):
-            #     histogram = numpy.histogram(temp_x[i], self.bins, (self.min[i], self.max[i]))[0]
-            #     self.histogram[i] = self.histogram[i] + histogram
+            for i, _ in enumerate(temp_x):
+                histogram = numpy.histogram(temp_x[i], self.bins, (self.min[i], self.max[i]))[0]
+                self.histogram[i] = self.histogram[i] + histogram
 
     def _smooth_distribution(self, p, eps=0.0001):
         """Given a discrete distribution (may have not been normalized to 1),
@@ -620,10 +619,9 @@ class RelativeEntropy:
             self.neg_thresh = numpy.zeros([shape], numpy.float32)
             self.pos_thresh = numpy.zeros([shape], numpy.float32)
             for i in range(shape):
-                # self.neg_thresh[i], self.pos_thresh[i] = tmp(
-                #     self.min[i], self.max[i], self.histogram[i]
-                # )
-                # yhh change 1026 temp todo
+                self.neg_thresh[i], self.pos_thresh[i] = tmp(
+                    self.min[i], self.max[i], self.histogram[i]
+                )
                 self.neg_thresh[i], self.pos_thresh[i] = self.min[i], self.max[i]
         self._finished_post_process = True
 

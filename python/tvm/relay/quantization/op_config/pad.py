@@ -19,8 +19,6 @@
 
 import logging
 from tvm import relay
-from ..threshold import Threshold
-from ..method_dtype import Method
 from ..analyze import _conv_counter, oneargdeal
 from ..calibrate import _calibrate_core
 from ..realize import _realize_core
@@ -47,14 +45,7 @@ class Pad:
         if not vertex_config[arg].quantized or cnt - 1 in []:
             self.quantized = False
 
-        # todo ci0 can get outside
-        ci0 = {
-            "nbit": 8,
-            "threshold": Threshold.RelativeEntropy,
-            "method": Method.Symmetry,
-        }
-
-        oneargdeal(self, node, vertex_config, ci0)
+        oneargdeal(self, node, vertex_config, configs["input0"])
         LOGGER.debug("[analyze] nn.pad finish")
 
     @classmethod
