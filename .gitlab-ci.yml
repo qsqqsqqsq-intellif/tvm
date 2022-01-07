@@ -36,7 +36,12 @@ default:
     key: one-key-to-rule-them-all
     paths:
       - 3rdparty/
-
+  retry:
+    max: 1
+    when:
+      - unknown_failure
+      - runner_system_failure
+      - data_integrity_failure
 
 
 # Jobs
@@ -141,28 +146,31 @@ tvm_edgex_quant:
 # Nightly Test
 # upstream testcases related to gpu
 tvm_cpu_nightly_test:
-   stage: build
-   rules:
-     - if: $CI_PIPELINE_SOURCE == "schedule"
-   before_script:
-     - *tvm_env
-   script:
-    - |
-      echo "********** START COMPILING **********"
-      rm -rf build && mkdir build
-      pushd build
-      cp ../cmake/config.cmake .
-      echo set\(CMAKE_CXX_FLAGS "-Werror ${CMAKE_CXX_FLAGS}"\) >> config.cmake
-      echo set\(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE}\) >> config.cmake
-      echo set\(USE_MICRO ON\) >> config.cmake
-      echo set\(USE_LLVM ${DEP_ROOT}/llvm/bin/llvm-config\) >> config.cmake
-      cmake .. && make -j32
-      popd
-      echo "********** TEST TVM CPU UNIT TEST **********"
-      rm -r tests/python/contrib/edgex
-      bash ./tests/scripts/task_python_unittest.sh
-      # bash ./tests/scripts/task_python_integration.sh
-      # bash ./tests/scripts/task_python_frontend_cpu.sh
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  retry:
+    max: 1
+    when: always
+  before_script:
+    - *tvm_env
+  script:
+  - |
+    echo "********** START COMPILING **********"
+    rm -rf build && mkdir build
+    pushd build
+    cp ../cmake/config.cmake .
+    echo set\(CMAKE_CXX_FLAGS "-Werror ${CMAKE_CXX_FLAGS}"\) >> config.cmake
+    echo set\(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE}\) >> config.cmake
+    echo set\(USE_MICRO ON\) >> config.cmake
+    echo set\(USE_LLVM ${DEP_ROOT}/llvm/bin/llvm-config\) >> config.cmake
+    cmake .. && make -j32
+    popd
+    echo "********** TEST TVM CPU UNIT TEST **********"
+    rm -r tests/python/contrib/edgex
+    bash ./tests/scripts/task_python_unittest.sh
+    # bash ./tests/scripts/task_python_integration.sh
+    # bash ./tests/scripts/task_python_frontend_cpu.sh
 
 # upstream testcases related to gpu
 tvm_gpu_nightly_test:
@@ -176,6 +184,9 @@ tvm_gpu_nightly_test:
     CUDA_TOOLKIT_DIR: /usr/local/cuda
     CUDA_HOST_DRIVER_LIB: /host_cuda_driver_libs
     CUDA_DRIVER_LIB: /cuda_driver_libs
+  retry:
+    max: 1
+    when: always
   before_script:
     - *tvm_env
     - mkdir ${CUDA_DRIVER_LIB}
