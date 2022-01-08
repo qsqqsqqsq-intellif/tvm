@@ -76,6 +76,8 @@ IDENTITY_INPUT_DTYPE_OP = [
     "image.resize",
     "nn.leaky_relu",
     "nn.prelu",
+    "zeros_like",
+    "ones_like",
 ]
 
 IDENTITY_OP_LIST = [
@@ -87,6 +89,8 @@ IDENTITY_OP_LIST = [
     "yolo_reorg",
     "tile",
     "reverse",
+    "zeros_like",
+    "ones_like",
 ]
 
 # only support fp16
@@ -159,12 +163,15 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
         vertex_config[node.args[0]].output_config["quantized_axis"] = -1
 
     # three coditions do quantize
-    # ----1, int32 input
+    # ----1, int32 input and quantized. some int32 case no need to do, ex cast.
     # ----2, fp16 to int8(as int8 to fp16, int8 must have his own scale)
     # ----3, perchannel != pertensor and not identity_dtype
     # then update the quantized_axis
     if (
-        vertex_config[node].output_config["dtype"] == DataType.Int32
+        (
+            vertex_config[node].output_config["dtype"] == DataType.Int32
+            and vertex_config[node].quantized
+        )
         or (not vertex_config[node].quantized and quantized)
         or (
             vertex_config[node].quantized
@@ -226,6 +233,7 @@ def oneargdeal(cls, node, vertex_config, ci0):
         input0_axis = vertex_config[arg].output_config["axis"]
     if (
         node.attrs is not None
+        and name != "gather_nd"
         and "layout" in node.attrs.keys()
         and node.attrs.layout in ["NCHW", "NHWC"]
     ):
@@ -365,10 +373,10 @@ class Tuple:
 
         # set output0_config
         output0_config = {
+            "ref_count": 0,
             "dtype": config["input0"]["dtype"] if self.quantized else DataType.Float16,
             "axis": output_axis,
             "quantized_axis": "none",
-            "ref_count": 0,
         }
 
         if output0_config["dtype"] not in [DataType.Float16]:
@@ -392,7 +400,7 @@ class TupleGetitem:
         )
 
         # todo consider more!!
-        if isinstance(arg, relay.Call) and arg.op.name != "split":
+        if isinstance(arg, relay.Call) and arg.op.name not in ["split", "topk"]:
             assert 0, "meet tupleGetitem no support, call yhh"
         if self.quantized:
             dtype = DataType.Int8
@@ -448,7 +456,7 @@ class AnalyzeGraph(ExprVisitor):
             name = call.op.name
 
         self.idx = self.idx + 1
-        LOGGER.info("[analyze] idx is %d ....", self.idx)
+        LOGGER.info("[analyze] idx is %d << %s >> ", self.idx, name)
 
         config = self.config[self.node_id[call]]
         if "skip_conv_layers" in self.config:
@@ -516,7 +524,10 @@ class AnalyzeGraph(ExprVisitor):
             self.vertex_config[fn.body].output_config["is_fn_body"] = True
             # should consider int8 input
             # todo more configuration!!
-            if self.vertex_config[fn.body].output_config["dtype"] == DataType.Int32:
+            if (
+                self.vertex_config[fn.body].output_config["dtype"] == DataType.Int32
+                and self.vertex_config[fn.body].quantized
+            ):
                 self.vertex_config[fn.body].output_config["threshold"] = Threshold.L2Norm(
                     fn.body, -1, {}
                 )

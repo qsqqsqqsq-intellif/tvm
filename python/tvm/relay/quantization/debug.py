@@ -19,9 +19,9 @@
 
 import os
 import numpy
+import matplotlib.pyplot as plt
 import tvm
 from tvm import relay
-import matplotlib.pyplot as plt
 
 
 def norm_0(m1_, m2_):

@@ -48,6 +48,15 @@ class MinMax:
         if self.axis == -1:
             y_min = numpy.amin(x)
             y_max = numpy.amax(x)
+        elif self.axis > 10:
+            groups = self.axis - 10
+            LOGGER.info("Threshold.MinMax meet conv2d_transpose, groups = %d", groups)
+            i_c, o_c, k_h, k_w = x.shape
+            val = numpy.reshape(x, (groups, i_c // groups, o_c, k_h * k_w))
+            val = numpy.transpose(val, (0, 2, 1, 3))
+            val = numpy.reshape(val, (o_c * groups, i_c // groups, k_h, k_w))
+            y_min = numpy.amin(val, (1, 2, 3))
+            y_max = numpy.amax(val, (1, 2, 3))
         else:
             shape1 = list(range(len(x.shape)))
             shape2 = shape1[self.axis]

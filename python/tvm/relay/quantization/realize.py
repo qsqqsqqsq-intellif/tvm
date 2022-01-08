@@ -195,18 +195,44 @@ def _quantize_shift(node):
     elif isinstance(data, relay.Constant):
         data = data.data.asnumpy()
 
-        if axis != -1:
+        if axis > 10:
+            LOGGER.info("[realize] quantize conv2d_transpose_weight...")
+            output_oc = scale.shape[0]
+            i_c, o_c, k_h, k_w = data.shape
+            groups = output_oc // o_c
+            data = numpy.reshape(data, (groups, i_c // groups, o_c, k_h * k_w))
+            data = numpy.transpose(data, (0, 2, 1, 3))
+            data = numpy.reshape(data, (o_c * groups, i_c // groups, k_h, k_w))
+
             tmp1 = [1] * len(data.shape)
-            tmp2 = data.shape[axis]
-            tmp1[axis] = tmp2
+            tmp2 = output_oc
+            tmp1[0] = tmp2
             scale = scale.reshape(tmp1)
             zero_point = zero_point.reshape(tmp1)
 
-        data = data / scale + zero_point
-        data = data.round()
-        data = numpy.clip(data, q_min_max["qmin"], q_min_max["qmax"])
-        data = data.astype(dtype)
-        data = relay.const(data)
+            data = data / scale + zero_point
+            data = data.round()
+            data = numpy.clip(data, q_min_max["qmin"], q_min_max["qmax"])
+            data = data.astype(dtype)
+
+            data = numpy.reshape(data, (groups, o_c, i_c, k_h * k_w))
+            data = numpy.transpose(data, (0, 2, 1, 3))
+            data = numpy.reshape(data, (i_c, o_c, k_h, k_w))
+
+            data = relay.const(data)
+        else:
+            if axis != -1:
+                tmp1 = [1] * len(data.shape)
+                tmp2 = data.shape[axis]
+                tmp1[axis] = tmp2
+                scale = scale.reshape(tmp1)
+                zero_point = zero_point.reshape(tmp1)
+
+            data = data / scale + zero_point
+            data = data.round()
+            data = numpy.clip(data, q_min_max["qmin"], q_min_max["qmax"])
+            data = data.astype(dtype)
+            data = relay.const(data)
     else:
         raise NotImplementedError
     return data
@@ -396,8 +422,14 @@ class Realize(ExprMutator):
         new_args = [self.visit(arg) for arg in call.args]
         new_call = relay.Call(call.op, new_args, call.attrs, call.type_args, call.span)
 
+        if isinstance(call.op, relay.Function):
+            name = getattr(call.op.attrs, "Composite")
+        else:
+            name = call.op.name
+
         self.idx = self.idx + 1
-        LOGGER.info("[realize]...idx is %d...", self.idx)
+
+        LOGGER.info("[realize] idx is %d << %s >> ", self.idx, name)
 
         new_call = self.vertex_config[call].realize(
             call, new_call, self.vertex_config, self.new2old
@@ -410,6 +442,7 @@ class Realize(ExprMutator):
         self.idx = self.idx + 1
 
         config = self.vertex_config[tup]
+        print(config)
         LOGGER.info(
             "[realize]...idx is %d tuplenode... and quantized is %d", self.idx, config.quantized
         )
@@ -421,15 +454,21 @@ class Realize(ExprMutator):
 
             realized_args.append(new_arg)
 
+        # if the input with same dtype and no_quantized
+        # do nothing, ex all int32 centernet
+        dtype_list = []
+        for arg_ in realized_args:
+            dtype_list.append(relay.frontend.common.infer_type(arg_).checked_type.dtype)
+
         realized_args_new = []
-        if not config.quantized:
+        if not config.quantized and len(set(dtype_list)) != 1:
             for old_arg, new_arg in zip(tup.fields, realized_args):
                 tmp = relay.frontend.common.infer_type(new_arg)
                 if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
                     new_arg = relay.const(new_arg.data.asnumpy(), "float16")
-                elif tmp.checked_type.dtype.startswith("int"):
+                elif tmp.checked_type.dtype in ["int8", "int16"]:
                     new_arg = operate("dequantize", new_arg, config.input_config[old_arg], {}, True)
-                elif tmp.checked_type.dtype != "float16":
+                elif tmp.checked_type.dtype != "float16" and config.output_config["ref_count"] > 0:
                     new_arg = relay.cast(new_arg, "float16")
                 realized_args_new.append(new_arg)
 

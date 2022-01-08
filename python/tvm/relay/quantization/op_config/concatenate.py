@@ -63,6 +63,10 @@ class Concatenate:
         if cnt in []:
             self.quantized = False
 
+        vertex_config[arg].output_config["ref_count"] = (
+            vertex_config[arg].output_config["ref_count"] + 1
+        )
+
         # todo according to axis judge quantized!
 
         input0_config = {

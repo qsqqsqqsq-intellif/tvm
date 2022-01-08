@@ -43,6 +43,7 @@ num_workers = 8
 model_name = "center_net_resnet18_v1b_coco"
 performance = {"float": 26.8, "int8": None}
 data_path = "/data/zhaojinxi/data/coco"
+# data_path = "/home/yhh/Desktop/dedatasets-lfs/coco_val2017"
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
 all_op = [

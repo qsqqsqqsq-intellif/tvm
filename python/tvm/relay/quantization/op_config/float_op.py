@@ -18,6 +18,7 @@
 """op"""
 
 import logging
+import numpy
 from tvm import relay
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
@@ -126,23 +127,79 @@ class FloatOp:
 
             realized_args.append(new_arg)
 
+        use_fp16 = False
+        use_fp32 = False
+        use_i32 = False
+
+        for arg_ in realized_args:
+            tmp = relay.frontend.common.infer_type(arg_)
+            if isinstance(arg_, (relay.Call, relay.TupleGetItem)) and tmp.checked_type.dtype in [
+                "int32",
+                "int64",
+            ]:
+                use_i32 = True
+            elif (
+                isinstance(arg_, (relay.Call, relay.TupleGetItem))
+                and tmp.checked_type.dtype == "float32"
+            ):
+                use_fp32 = True
+            elif (
+                isinstance(arg_, relay.Constant)
+                and tmp.checked_type.dtype.startswith("int")
+                and int(tmp.checked_type.dtype[3:]) > 16
+            ):
+                use_i32 = True
+            elif isinstance(arg_, relay.Constant) and tmp.checked_type.dtype.startswith("float"):
+                # abs_min = numpy.min(numpy.abs(arg_.data.asnumpy()))
+                # abs_max = numpy.max(numpy.abs(arg_.data.asnumpy()))
+                # if (
+                #     (abs_min > 0 and abs_min < pow(2.0, -24))
+                #     or (abs_max > 0 and abs_max < pow(2.0, -24))
+                #     or (abs_max > 65504)
+                # ):
+                abs_max = numpy.max(numpy.abs(arg_.data.asnumpy()))
+                if abs_max > 65504:
+                    use_fp32 = True
+            else:
+                use_fp16 = True
+
+        if use_fp32 or use_i32:
+            use_fp16 = False
+        if use_fp32 and use_i32:
+            use_i32 = False
+
         new_realized_args = []
-        for old_arg, new_arg in zip(old_node.args, realized_args):
-            tmp = relay.frontend.common.infer_type(new_arg)
-            if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
-                new_arg = relay.const(new_arg.data.asnumpy(), "float16")
-            elif tmp.checked_type.dtype.startswith("int"):
-                new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
-            elif tmp.checked_type.dtype != "float16":
-                new_arg = relay.cast(new_arg, "float16")
+        if use_fp16:
+            for old_arg, new_arg in zip(old_node.args, realized_args):
+                tmp = relay.frontend.common.infer_type(new_arg)
+                if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
+                    new_arg = relay.const(new_arg.data.asnumpy(), "float16")
+                elif tmp.checked_type.dtype.startswith("int"):
+                    new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
+                elif tmp.checked_type.dtype != "float16":
+                    new_arg = relay.cast(new_arg, "float16")
 
-            pair_node(old_arg, new_arg, {}, {"operate": "none"}, n2o, self.quantized)
+                pair_node(old_arg, new_arg, {}, {"operate": "none"}, n2o, self.quantized)
 
-            new_realized_args.append(new_arg)
+                new_realized_args.append(new_arg)
 
-        new_node = relay.Call(
-            old_node.op, new_realized_args, old_node.attrs, old_node.type_args, old_node.span
-        )
+        elif use_i32:
+            LOGGER.info("[realize]-- %s use int32...", self.name)
+            for old_arg, new_arg in zip(old_node.args, realized_args):
+                tmp = relay.frontend.common.infer_type(new_arg)
+                if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "int32":
+                    new_arg = relay.const(new_arg.data.asnumpy(), "int32")
+                elif tmp.checked_type.dtype != "int32":
+                    new_arg = relay.cast(new_arg, "int32")
+
+                pair_node(old_arg, new_arg, {}, {"operate": "none"}, n2o, self.quantized)
+
+                new_realized_args.append(new_arg)
+
+        else:
+            assert 0, "float32 no support, concat yhh!!"
+
+        new_node = relay.Call(old_node.op, new_realized_args, old_node.attrs)
 
         LOGGER.debug("[realize] %s finish", self.name)
         return new_node
