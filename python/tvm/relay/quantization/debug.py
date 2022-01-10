@@ -89,9 +89,14 @@ def _run_graph(batch, runtime, input_keys, num_outputs):
 def _get_graph(nodes, params, ctx, target, optlevel=3):
     func = relay.Function(params, relay.Tuple(nodes))
     input_keys = [str(param.name_hint) for param in func.params]
-    with relay.transform.build_config(opt_level=optlevel):
-        graph, lib, params = relay.build_module.build(func, target=target)
-    runtime = tvm.contrib.graph_executor.create(graph, lib, ctx)
+    if "transform" in relay.__dict__:
+        with relay.transform.build_config(opt_level=optlevel):
+            graph, lib, params = relay.build_module.build(func, target=target)
+        runtime = tvm.contrib.graph_executor.create(graph, lib, ctx)
+    else:
+        with relay.build_config(opt_level=optlevel):
+            graph, lib, params = relay.build(func, target=target)
+        runtime = tvm.contrib.graph_runtime.create(graph, lib, ctx)
     runtime.set_input(**params)
     num_outputs = runtime.get_num_outputs()
     return runtime, input_keys, num_outputs
@@ -182,8 +187,12 @@ def compare_statistics(cls, method, path):
                 tmp.update({"scale": scale, "axis": axis})
             new_scale.append(tmp)
 
-    old_p = cls.pre_processed_mod["main"].params
-    new_p = cls.post_processed_mod["main"].params
+    if isinstance(cls.pre_processed_mod, relay.Function):
+        old_p = cls.pre_processed_mod.params
+        new_p = cls.post_processed_mod.params
+    else:
+        old_p = cls.pre_processed_mod["main"].params
+        new_p = cls.post_processed_mod["main"].params
     old_r, old_ik, old_no = _get_graph(old_node, old_p, cls.ctx, cls.target, cls.opt_level)
     new_r, new_ik, new_no = _get_graph(new_node, new_p, cls.ctx, cls.target, cls.opt_level)
 

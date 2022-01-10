@@ -202,14 +202,20 @@ def _get_node_runtime(nodes, params, ctx, target):
     func = relay.Function(params, relay.Tuple(nodes))
     # print(relay.frontend.common.infer_type(func))
     input_keys = [str(param.name_hint) for param in func.params]
-    try:
-        with relay.transform.build_config(opt_level=3):
-            graph, lib, params = relay.build_module.build(func, target=target)
-    except BaseException:
-        LOGGER.info("[collect] build_config use opt_level 2")
-        with relay.transform.build_config(opt_level=2):
-            graph, lib, params = relay.build_module.build(func, target=target)
-    runtime = tvm.contrib.graph_executor.create(graph, lib, ctx)
+    if "transform" in relay.__dict__:
+        try:
+            with relay.transform.build_config(opt_level=3):
+                graph, lib, params = relay.build_module.build(func, target=target)
+        except BaseException:
+            LOGGER.info("[collect] build_config use opt_level 2")
+            with relay.transform.build_config(opt_level=2):
+                graph, lib, params = relay.build_module.build(func, target=target)
+        runtime = tvm.contrib.graph_executor.create(graph, lib, ctx)
+    else:
+        with relay.build_config(opt_level=2):
+            graph, lib, params = relay.build(func, target="llvm")
+        runtime = tvm.contrib.graph_runtime.create(graph, lib, ctx)
+
     runtime.set_input(**params)
     num_outputs = runtime.get_num_outputs()
     return runtime, input_keys, num_outputs

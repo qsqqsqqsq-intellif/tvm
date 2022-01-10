@@ -30,6 +30,7 @@ LOGGER = logging.getLogger("quantize")
 
 
 def post_process(cls):
+    """post_process"""
     mod = cls.post_processed_mod
     # mod = eliminate_quantize_dequantize(mod)
     # mod = eliminate_dequantize_quantize(mod)
@@ -37,5 +38,8 @@ def post_process(cls):
     # mod = relay.transform.FoldConstant()(mod)
     mod = remove_input_quantize(mod, cls.net_in_dtype)
     LOGGER.info("[post_process]: ")
-    LOGGER.info(mod["main"])
+    if isinstance(mod, relay.Function):
+        LOGGER.info(mod)
+    else:
+        LOGGER.info(mod["main"])
     cls.post_processed_mod = mod

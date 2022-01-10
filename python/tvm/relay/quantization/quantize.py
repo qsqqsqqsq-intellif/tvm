@@ -19,6 +19,7 @@
 
 import os
 import logging
+from tvm import relay
 from .analyze import analyze_graph
 from .collect import collect_stats
 from .calibrate import calibrate_params
@@ -47,7 +48,10 @@ class Quantize:
 
         LOGGER.info("pre_process finish...")
         LOGGER.debug("afert pre_process, output: ")
-        LOGGER.debug(self.pre_processed_mod["main"])
+        if isinstance(self.pre_processed_mod, relay.Function):
+            LOGGER.debug(self.pre_processed_mod)
+        else:
+            LOGGER.debug(self.pre_processed_mod["main"])
         analyze_graph(self)
         LOGGER.info("[collect] start...")
         LOGGER.info("[collect] the calibrate_num is %d", cls.calibrate_num)

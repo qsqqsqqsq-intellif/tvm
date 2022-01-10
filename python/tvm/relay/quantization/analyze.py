@@ -207,7 +207,10 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
         elif vertex_config[node].output_config["quantized_axis"] > input_axis:
             vertex_config[node].output_config["quantized_axis"] = input_axis
 
-    tvm_dtype = runtime_ctypes.DataType(input_config["dtype"])
+    if "DataType" in runtime_ctypes.__dict__:
+        tvm_dtype = runtime_ctypes.DataType(input_config["dtype"])
+    else:
+        tvm_dtype = runtime_ctypes.TVMType(input_config["dtype"])
     tvm_type = tvm_dtype.CODE2STR[tvm_dtype.type_code]
 
     if tvm_type in ["int", "uint"]:
@@ -444,7 +447,10 @@ class AnalyzeGraph(ExprVisitor):
         self.collect_node = set()
         self.vertex_config = collections.OrderedDict()
         self.collect_result = collections.OrderedDict()
-        self.visit(mod["main"])
+        if isinstance(mod, relay.Function):
+            self.visit(mod)
+        else:
+            self.visit(mod["main"])
 
     def visit_call(self, call):
         for arg in call.args:
@@ -452,6 +458,8 @@ class AnalyzeGraph(ExprVisitor):
 
         if isinstance(call.op, relay.Function):
             name = getattr(call.op.attrs, "Composite")
+            if not isinstance(name, str):
+                name = name.value
         else:
             name = call.op.name
 

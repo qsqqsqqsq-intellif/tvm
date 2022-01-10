@@ -152,8 +152,11 @@ def _calibrate_core(arg, input_config, vertex_config, quantized=True):
     if input_config["method"] is not None:
         y = input_config["method"](input_config)
         if y["scale"].size > 1:
-            y["scale"][numpy.where(y["scale"] == 0)] = 0.001
-        tmp = {"quantized_scale": y["scale"], "quantized_zero_point": y["zero_point"]}
+            y["scale"][numpy.where(y["scale"] == 0)] = 0.01 / 127
+        tmp = {
+            "quantized_scale": y["scale"].astype("float32"),
+            "quantized_zero_point": y["zero_point"],
+        }
         vertex_config[arg].output_config.update(tmp)
     else:
         LOGGER.debug("[calibrate] 'method' is none")
@@ -162,14 +165,14 @@ def _calibrate_core(arg, input_config, vertex_config, quantized=True):
             scale = vertex_config[arg].output_config["quantized_scale"]
             zero_point = vertex_config[arg].output_config["quantized_zero_point"]
             axis = vertex_config[arg].output_config["quantized_axis"]
-            y = {"scale": scale, "zero_point": zero_point, "axis": axis}
+            y = {"scale": scale.astype("float32"), "zero_point": zero_point, "axis": axis}
         elif vertex_config[arg].quantized:
             LOGGER.debug("[calibrate] use the existed scale")
             assert "scale" in vertex_config[arg].output_config
             scale = vertex_config[arg].output_config["scale"]
             zero_point = vertex_config[arg].output_config["zero_point"]
             axis = vertex_config[arg].output_config["axis"]
-            y = {"scale": scale, "zero_point": zero_point, "axis": axis}
+            y = {"scale": scale.astype("float32"), "zero_point": zero_point, "axis": axis}
     if (
         "scale" in y
         and isinstance(arg, relay.Var)

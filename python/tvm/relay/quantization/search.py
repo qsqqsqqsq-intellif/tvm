@@ -83,10 +83,24 @@ class QuantizeSearch:
         if mod is not None and params is not None:
             if params:
                 mod["main"] = self._bind_params(mod["main"], params)
-            self.origin_mod = relay.transform.InferType()(mod)
-            if self.ori_path is not None:
-                with open(self.ori_path, "w") as f:
-                    json.dump(tvm.ir.save_json(self.origin_mod), f)
+
+            # nnp300_prj
+            if "optimize" in tvm.relay.quantize.__dict__:
+                norm_en = 1
+                self.nnp300_pre_processed_mod = tvm.relay.quantize.optimize(
+                    mod, params, norm_en, mean, scale
+                )
+                self.pre_processed_mod = (
+                    tvm.relay.quantize.detvm_quantize_optimize.FuseConv2dBiasadd().run(
+                        self.nnp300_pre_processed_mod
+                    )
+                )
+                self.pre_processed_mod = tvm.front.common.infer_type(self.pre_processed_mod)
+            else:
+                self.origin_mod = relay.transform.InferType()(mod)
+                if self.ori_path is not None:
+                    with open(self.ori_path, "w") as f:
+                        json.dump(tvm.ir.save_json(self.origin_mod), f)
         else:
             with open(self.ori_path, "r") as f:
                 self.origin_mod = tvm.ir.load_json(json.load(f))
@@ -184,6 +198,10 @@ class QuantizeSearch:
 
         quantize = Quantize(self, config)
 
+        self.quantized_func = quantize.post_processed_mod
+        # with open("/home/yhh/Desktop/tmp/nnp400/mobilenet_edgeput.json", "w") as f:
+        #     json.dump(tvm.ir.save_json(quantize.post_processed_mod), f)
+
         tmp = {
             "mod": quantize.post_processed_mod,
             "config": quantize.config,
@@ -239,6 +257,10 @@ class QuantizeSearch:
                 for quantize in self.results:
                     if quantize["config"] == config:
                         mod = quantize["mod"]
+
+                # with open("/home/yhh/Desktop/tmp/yolov5s_ult/p9999_prof300.json", "r") as f:
+                #     xx = json.load(f)
+                #     mod = tvm.ir.load_json(xx)
 
                 if mod is None:
                     raise ValueError

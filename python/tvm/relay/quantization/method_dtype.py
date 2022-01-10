@@ -28,6 +28,7 @@ class DataType:
     Int8 = "int8"
     UInt8 = "uint8"
     Int16 = "int16"
+    Int24 = "int24"
     Int32 = "int32"
     Float16 = "float16"
     Float32 = "float32"
@@ -35,7 +36,10 @@ class DataType:
 
 def _get_dtype_info(dtype, qmin=None, qmax=None):
     """get_dtype_info"""
-    dtype = runtime_ctypes.DataType(dtype)
+    if "DataType" in runtime_ctypes.__dict__:
+        dtype = runtime_ctypes.DataType(dtype)
+    else:
+        dtype = runtime_ctypes.TVMType(dtype)
     dtype_str = dtype.CODE2STR[dtype.type_code]
     dtype_bit = dtype.bits
     if qmin is None and qmax is None:
@@ -59,7 +63,7 @@ def symmetry(config):
     if "min" not in config or "max" not in config:
         y = config["threshold"].min_max
         config.update(y)
-    max_val = numpy.maximum(numpy.abs(config["min"]), numpy.abs(config["max"]))
+    max_val = numpy.maximum(numpy.abs(config["min"]), numpy.abs(config["max"])).astype("float32")
     scale = numpy.array(max_val / config["qmax"]).astype(numpy.float32)
     zero_point = numpy.zeros_like(scale).astype(numpy.int32)
     result = {"scale": scale, "zero_point": zero_point, "axis": config["threshold"].axis}

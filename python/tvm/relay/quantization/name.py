@@ -36,7 +36,10 @@ class GetName(ExprVisitor):
         self.tuple_num = 0
         LOGGER.info("  ")
         LOGGER.info("--model after pre_process structure:")
-        self.visit(mod["main"])
+        if isinstance(mod, relay.Function):
+            self.visit(mod)
+        else:
+            self.visit(mod["main"])
 
     def visit_call(self, call):
         for arg in call.args:

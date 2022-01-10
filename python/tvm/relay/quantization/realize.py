@@ -442,7 +442,6 @@ class Realize(ExprMutator):
         self.idx = self.idx + 1
 
         config = self.vertex_config[tup]
-        print(config)
         LOGGER.info(
             "[realize]...idx is %d tuplenode... and quantized is %d", self.idx, config.quantized
         )

@@ -244,8 +244,11 @@ class L2Norm:
         self.bins = config["threshold_arg"]["bins"].tolist() if "threshold_arg" in config else 2048
         assert self.bins > 0
         # 外部config配置好后删除默认256
-        if "dtype" in config:
+
+        if "dtype" in config and "DataType" in runtime_ctypes.__dict__:
             self.dst_nbins = 2 ** runtime_ctypes.DataType(config["dtype"]).bits
+        elif "dtype" in config and "TVMType" in runtime_ctypes.__dict__:
+            self.dst_nbins = 2 ** runtime_ctypes.TVMType(config["dtype"]).bits
         else:
             self.dst_nbins = 256
         self.min = float("inf")
@@ -466,8 +469,10 @@ class RelativeEntropy:
         else:
             self.histogram = numpy.zeros([shape[axis], self.bins], numpy.int64)
         # 外部config配置好后删除默认256
-        if "dtype" in config:
+        if "dtype" in config and "DataType" in runtime_ctypes.__dict__:
             self.q_bins = 2 ** runtime_ctypes.DataType(config["dtype"]).bits
+        elif "dtype" in config and "TVMType" in runtime_ctypes.__dict__:
+            self.q_bins = 2 ** runtime_ctypes.TVMType(config["dtype"]).bits
         else:
             self.q_bins = 256
         self._first_run = True
@@ -735,9 +740,7 @@ class KLDAbs:
     def __init__(self, node, axis, config):
         LOGGER.debug("use Threshold.KLDAbs...")
         self.axis = axis
-
         self.bins = 2048
-
         self.min = 0.0
         self.max = float("-inf")
         shape = node.checked_type.concrete_shape
@@ -782,7 +785,16 @@ class KLDAbs:
         """run"""
         x = numpy.abs(x)
         if self.axis == -1:
-            histogram = numpy.histogram(x, self.bins, (self.min, self.max))[0]
+            # histogram = numpy.histogram(x, self.bins, (self.min, self.max))[0]
+
+            # identity to nnp300
+            x = x.flatten()
+            width = self.max / (self.bins - 1)
+            eps = 0 if width > 0 else 0.0001
+            width += eps
+            temp = numpy.floor(x / width + 0.5) * width
+            histogram = numpy.histogram(temp, self.bins, (self.min, self.max))[0]
+
             self.histogram = self.histogram + histogram
         else:
             shape1 = list(range(len(x.shape)))

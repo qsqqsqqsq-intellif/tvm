@@ -35,8 +35,13 @@ class RemoveInputQuantize(ExprMutator):
         self.new_params = []
         self.convert = False
         self.net_in_dtype = net_in_dtype
-        mod["main"] = self.visit(mod["main"])
-        self.new_mod = relay.transform.InferType()(mod)
+        # nnp300_prj
+        if isinstance(mod, relay.Function):
+            mod = self.visit(mod)
+            self.new_mod = relay.ir_pass.infer_type(mod)
+        else:
+            mod["main"] = self.visit(mod["main"])
+            self.new_mod = relay.transform.InferType()(mod)
 
     def visit_var(self, var):
         if var in self.ori_params and self.net_in_dtype in ["uint8", "int16"]:
@@ -82,6 +87,16 @@ class RemoveInputQuantize(ExprMutator):
     def visit_function(self, fn):
         self.ori_params = fn.params
         visited = super().visit_function(fn)
+
+        # nnp300_proj
+        if "ir_pass" in relay.__dict__:
+            new_body = relay.ir_pass.infer_type(visited.body)
+            new_params = relay.ir_pass.free_vars(new_body)
+
+            visited = relay.Function(
+                new_params, new_body, new_body.checked_type, visited.type_params, visited.attrs
+            )
+
         return visited
 
 
