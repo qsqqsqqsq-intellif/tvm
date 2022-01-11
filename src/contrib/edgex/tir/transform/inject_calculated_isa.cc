@@ -55,7 +55,9 @@ static const std::unordered_map<std::string, std::vector<std::string>> dma_isa_m
     {"idma",
      {"sparsity_en_idma", "num_ci_group_idma", "op_idma", "wino_en_idma", "para_mode_idma",
       "co_w_idma", "co_h_idma", "co_d_idma", "cube_enable_idma", "B_dim2_idma", "data_type_idma"}},
-    {"wdma", {"A_dim1_wdma", "A_dim2_wdma", "k_size_wdma"}},
+    {"wdma",
+     {"A_dim1_wdma", "A_dim2_wdma", "k_size_wdma", "A_transpose_wdma", "data_type_wdma",
+      "bubble_insert_en_wdma", "wt_st_addr1_wdma", "wt_end_addr1_wdma"}},
     {"odma",
      {"extract_2to1_odma", "num_group_odma", "data_type_odma", "psum_out_en_odma", "int_type_odma",
       "co_w_odma", "co_ch_offset_odma"}}};
@@ -145,6 +147,8 @@ class CalculatedIsaInjector : public StmtExprMutator {
       this->CalculateLoopVal();
       // calculate the odma constraint value.
       this->CalculateOdmaConstraintVal();
+      // calculate the wdma constraint value.
+      this->CalculateWdmaConstraintVal();
       // start inject the calculated isa.
       return operator()(std::move(stmt));
     } else {
@@ -214,7 +218,9 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else if (op.same_as(edgex::builtin::nnp_wdma_load())) {
       InjectCalculatedIsa(
           {"epsilon", "delta", "zeta", "dense", "epsilon_times", "delta_times", "zeta_times",
-           "dense_times", "last_epsilon", "last_delta", "last_zeta", "last_dense"},
+           "dense_times", "last_epsilon", "last_delta", "last_zeta", "last_dense",
+           "epsilon_times_rewrite_dm", "delta_inc_addr", "ksize_inc_addr", "epstimes_inc_addr",
+           "delta_times_inc_addr", "mat_row_offset"},
           n.get(), "wdma");
     }
     return std::move(Call(n));
@@ -797,6 +803,101 @@ class CalculatedIsaInjector : public StmtExprMutator {
     inject_isa_val_map_.emplace("delta_ch_offset", delta_ch_offset);
   }
 
+  // Calculate the wdma constraint value.
+  void CalculateWdmaConstraintVal() {
+    int32_t a_transpose = GetValueFromMap(collector_.exist_isa_val_map_, "A_transpose_wdma");
+    int32_t para_mode = GetValueFromMap(collector_.exist_isa_val_map_, "para_mode_idma");
+    int32_t data_type = GetValueFromMap(collector_.exist_isa_val_map_, "data_type_wdma");
+    int32_t a_dim2 = GetValueFromMap(collector_.exist_isa_val_map_, "A_dim2_wdma");
+    int32_t cube_enable = GetValueFromMap(collector_.exist_isa_val_map_, "cube_enable_idma");
+    // calculate the mat_row_offset >= 16*a_dim2
+    // matrix A address offset by line
+    int32_t mat_row_offset = 16 * a_dim2;
+    inject_isa_val_map_.emplace("mat_row_offset", mat_row_offset);
+    // calculate the delta_inc_addr
+    // delta cyclic increasing address, used for matrix handling
+    int32_t delta_inc_addr{0};
+    if (a_transpose == 0 && para_mode == TILE_PARA && data_type == NNPDataType::FLOAT16) {
+      delta_inc_addr = mat_row_offset * 2;
+    } else if (a_transpose == 0 && para_mode == TILE_PARA) {
+      delta_inc_addr = mat_row_offset;
+    } else if (a_transpose == 0 && para_mode == CO_PARA && cube_enable == 0 &&
+               data_type == NNPDataType::FLOAT16) {
+      delta_inc_addr = mat_row_offset * 2;
+    } else if (a_transpose == 0 && para_mode == CO_PARA && cube_enable == 0) {
+      delta_inc_addr = mat_row_offset;
+    } else if (a_transpose == 0 && para_mode == CO_PARA && cube_enable == 1) {
+      delta_inc_addr = mat_row_offset * 2;
+    } else if (a_transpose == 0 && para_mode == CO_PARA && cube_enable == 2) {
+      delta_inc_addr = mat_row_offset * 3;
+    } else if (a_transpose == 1 && para_mode == TILE_PARA) {
+      delta_inc_addr = 256;
+    } else if (a_transpose == 1 && para_mode == CO_PARA && cube_enable == 0) {
+      delta_inc_addr = 256;
+    } else if (a_transpose == 1 && para_mode == CO_PARA && cube_enable == 1) {
+      delta_inc_addr = 512;
+    } else if (a_transpose == 1 && para_mode == CO_PARA && cube_enable == 2) {
+      delta_inc_addr = 768;
+    }
+    inject_isa_val_map_.emplace("delta_inc_addr", delta_inc_addr);
+    // calculate the ksize_inc_addr
+    int32_t bubble_insert_en =
+        GetValueFromMap(collector_.exist_isa_val_map_, "bubble_insert_en_wdma");
+    int32_t k_size = GetValueFromMap(collector_.exist_isa_val_map_, "k_size_wdma");
+    int32_t ksize_inc_addr{0};
+    if (bubble_insert_en && para_mode == TILE_PARA) {
+      ksize_inc_addr = (k_size * 2 - 1) * 128;
+    } else if (bubble_insert_en && para_mode == CO_PARA && cube_enable == 0) {
+      ksize_inc_addr = (k_size * 2 - 1) * 128;
+    } else if (bubble_insert_en && para_mode == CO_PARA && cube_enable == 1) {
+      ksize_inc_addr = (k_size * 2 - 1) * 256;
+    } else if (bubble_insert_en && para_mode == CO_PARA && cube_enable == 2) {
+      ksize_inc_addr = (k_size * 2 - 1) * 384;
+    } else if (para_mode == TILE_PARA) {
+      ksize_inc_addr = (k_size * 2 - 1) * 256;
+    } else if (para_mode == CO_PARA && cube_enable == 0) {
+      ksize_inc_addr = (k_size * 2 - 1) * 256;
+    } else if (para_mode == CO_PARA && cube_enable == 1) {
+      ksize_inc_addr = (k_size * 2 - 1) * 512;
+    } else if (para_mode == CO_PARA && cube_enable == 2) {
+      ksize_inc_addr = (k_size * 2 - 1) * 768;
+    }
+    inject_isa_val_map_.emplace("ksize_inc_addr", ksize_inc_addr);
+    // calculate the epstimes_inc_addr
+    int32_t epsilon = GetValueFromMap(inject_isa_val_map_, "epsilon");
+    int32_t epstimes_inc_addr{0};
+    if (a_transpose == 1 && bubble_insert_en == 1) {
+      epstimes_inc_addr = mat_row_offset * ((epsilon + 1) >> 1);
+    } else if (a_transpose == 1) {
+      epstimes_inc_addr = mat_row_offset * epsilon;
+    } else if (data_type == NNPDataType::FLOAT16) {
+      epstimes_inc_addr = 8 * epsilon * 16;
+    } else {
+      epstimes_inc_addr = 16 * epsilon * 16;
+    }
+    inject_isa_val_map_.emplace("epstimes_inc_addr", epstimes_inc_addr);
+    // calculate the delta_times_inc_addr
+    int32_t delta = GetValueFromMap(inject_isa_val_map_, "delta");
+    int32_t delta_times_inc_addr = delta_inc_addr * delta;
+    inject_isa_val_map_.emplace("delta_times_inc_addr", delta_times_inc_addr);
+    // calculate the epsilon_times_rewrite_dm
+    int32_t wt_st_addr1 = GetValueFromMap(collector_.exist_isa_val_map_, "wt_st_addr1_wdma");
+    int32_t wt_end_addr1 = GetValueFromMap(collector_.exist_isa_val_map_, "wt_end_addr1_wdma");
+    int32_t epsilon_times = GetValueFromMap(inject_isa_val_map_, "epsilon_times");
+    int32_t last_epsilon = GetValueFromMap(inject_isa_val_map_, "last_epsilon");
+    int32_t epsilon_times_rewrite_dm{0};
+    if ((epsilon * (epsilon_times - 1) + last_epsilon) * delta > (wt_end_addr1 - wt_st_addr1 + 1)) {
+      if (GetValueFromMap(collector_.exist_isa_val_map_, "op_idma") == MATMUL) {
+        epsilon_times_rewrite_dm = 0;
+      } else {
+        epsilon_times_rewrite_dm = 1;
+      }
+    } else {
+      epsilon_times_rewrite_dm = 0;
+    }
+    inject_isa_val_map_.emplace("epsilon_times_rewrite_dm", epsilon_times_rewrite_dm);
+  }
+
   // Get assisted value from map by specified key.
   int32_t GetValueFromMap(const std::unordered_map<std::string, int32_t>& isa_val_map,
                           const std::string& key) {
@@ -813,24 +914,6 @@ class CalculatedIsaInjector : public StmtExprMutator {
   AssistedIsaCollector collector_;
   /*! \brief Assign loop key & value. */
   std::unordered_map<std::string, int32_t> inject_isa_val_map_;
-  /*! \brief Assign epsilon value. */
-  int32_t epsilon_{0};
-  /*! \brief Assign delta value. */
-  int32_t delta_{0};
-  /*! \brief Assign zeta value. */
-  int32_t zeta_{0};
-  /*! \brief Assign dense value. */
-  int32_t dense_{0};
-  /*! \brief Assign epsilon times value. */
-  int32_t epsilon_times_{0};
-  /*! \brief Assign delta times value. */
-  int32_t delta_times_{0};
-  /*! \brief Assign zeta times value. */
-  int32_t zeta_times_{0};
-  /*! \brief Assign dense times value. */
-  int32_t dense_times_{0};
-  /*! \brief Assign group loop value. */
-  int32_t group_loop_{0};
 };
 
 Stmt InjectCalculatedIsa(Stmt stmt) { return CalculatedIsaInjector().Injector(std::move(stmt)); }

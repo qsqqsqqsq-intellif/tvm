@@ -25,6 +25,7 @@ from tvm import relay
 from tvm.contrib.edgex.tir.schedule import EdgexSchedule
 from tvm.contrib.edgex.topi import naive_vu_schedule
 from tvm.contrib.edgex.testing import TempOpStrategy, check_edgex_relay_build
+from tvm.contrib.edgex.base.edgexlog import EdgexLog as el
 
 
 @T.prim_func
@@ -52,6 +53,34 @@ def max_pool2d_s2_p1_3_3(data: T.handle, result: T.handle) -> None:
             n, c, h, w, kh, kw = T.axis.remap("SSSSRR", [nn, cc, hh, ww, khh, kww])
             with T.init():
                 Y[n, c, h, w] = -2147483648
+            Y[n, c, h, w] = T.max(Y[n, c, h, w], pad[n, c, h * 2 + kh, w * 2 + kw])
+
+
+@T.prim_func
+def max_pool2d_i8_s2_p1_3_3(data: T.handle, result: T.handle) -> None:
+    m = T.var("int32")
+    X = T.match_buffer(data, [1, 64, m, m], dtype="int8")
+    Y = T.match_buffer(result, [1, 64, m // 2, m // 2], dtype="int8")
+    pad = T.alloc_buffer([1, 64, m + 1, m + 1], dtype="int8")
+    for nn, cc, hh, ww in T.grid(1, 64, m + 1, m + 1):
+        with T.block("pad"):
+            n, c, h, w = T.axis.remap("SSSS", [nn, cc, hh, ww])
+            pad[n, c, h, w] = T.if_then_else(
+                (
+                    T.likely(1 <= h, dtype="bool")
+                    and T.likely(h < m + 1, dtype="bool")
+                    and T.likely(1 <= w, dtype="bool")
+                    and T.likely(w < m + 1, dtype="bool")
+                ),
+                X[n, c, (h - 1), (w - 1)],
+                T.int8(-128),
+                dtype="int8",
+            )
+    for nn, cc, hh, ww, khh, kww in T.grid(1, 64, m // 2, m // 2, 3, 3):
+        with T.block("compute"):
+            n, c, h, w, kh, kw = T.axis.remap("SSSSRR", [nn, cc, hh, ww, khh, kww])
+            with T.init():
+                Y[n, c, h, w] = T.int8(-128)
             Y[n, c, h, w] = T.max(Y[n, c, h, w], pad[n, c, h * 2 + kh, w * 2 + kw])
 
 
@@ -150,11 +179,16 @@ def schedule_max_pool2d_s2_p1_3_3_tiling(func, is_cpu):
     return s.mod["main"]
 
 
-def dispatch_schedule_max_pool2d_s2_p1_3_3(input_shape, use_auto_vu_strategy):
+def dispatch_schedule_max_pool2d_s2_p1_3_3(input_shape, use_auto_vu_strategy, dtype: str = "int32"):
     def fschedule(attrs, primfunc, target):
         # create tir function from pattern
         is_cpu = target.kind.name == "llvm"
-        primfunc = max_pool2d_s2_p1_3_3
+        if dtype == "int32":
+            primfunc = max_pool2d_s2_p1_3_3
+        elif dtype == "int8":
+            primfunc = max_pool2d_i8_s2_p1_3_3
+        else:
+            el.e("Not support dtype: %s" % dtype)
         input_param = primfunc.params[0]
         primfunc = primfunc.specialize({input_param: tir.decl_buffer(input_shape)})
         volume = input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3]
@@ -168,26 +202,26 @@ def dispatch_schedule_max_pool2d_s2_p1_3_3(input_shape, use_auto_vu_strategy):
     return fschedule
 
 
-def do_test_vu_maxpool(shape, use_auto_vu_strategy):
-    x = relay.var("x", dtype="int32", shape=shape)
+def do_test_vu_maxpool(shape, use_auto_vu_strategy, dtype: str = "int32"):
+    x = relay.var("x", dtype=dtype, shape=shape)
     y = relay.nn.max_pool2d(x, pool_size=(3, 3), strides=(2, 2), padding=(1, 1, 1, 1))
     relay_func = relay.Function([x], y)
 
     # compute from raw te
     def get_raw_te_output(x_np):
-        x_te = tvm.te.placeholder(shape, "int32")
+        x_te = tvm.te.placeholder(shape, dtype)
         y_te = topi.nn.pool2d(x_te, [3, 3], [2, 2], [1, 1], [1, 1, 1, 1], "max")
         s = tvm.te.create_schedule([y_te.op])
         f = tvm.build(s, [x_te, y_te], "llvm")
         x_nd = tvm.nd.array(x_np)
-        y_nd = tvm.nd.array(np.zeros([d.value for d in y_te.shape], "int32"))
+        y_nd = tvm.nd.array(np.zeros([d.value for d in y_te.shape], dtype))
         f(x_nd, y_nd)
         return y_nd.asnumpy()
 
     with TempOpStrategy(
         "nn.max_pool2d",
         ["llvm", "edgex"],
-        fschedule=dispatch_schedule_max_pool2d_s2_p1_3_3(shape, use_auto_vu_strategy),
+        fschedule=dispatch_schedule_max_pool2d_s2_p1_3_3(shape, use_auto_vu_strategy, dtype),
     ):
         check_edgex_relay_build(relay_func, numpy_func=get_raw_te_output)
 
@@ -201,6 +235,7 @@ def test_vu_maxpool_small():
 def test_vu_maxpool_tiling():
     do_test_vu_maxpool([1, 64, 224, 224], use_auto_vu_strategy=True)
     do_test_vu_maxpool([1, 64, 224, 224], use_auto_vu_strategy=False)
+    do_test_vu_maxpool([1, 64, 112, 112], use_auto_vu_strategy=True, dtype="int8")
 
 
 if __name__ == "__main__":

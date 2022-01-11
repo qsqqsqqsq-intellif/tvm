@@ -26,9 +26,9 @@ def pass_debug_wrapper(passfunc):
 
     def _func(mod, ctx):
         print(ctx)
-        print("Before pass: %s" % mod.script())
+        print("Before %s pass: %s" % (passfunc.info.name, mod.script()))
         result = passfunc(mod)
-        print("After pass: %s" % result.script())
+        print("After %s pass: %s" % (passfunc.info.name, result.script()))
         return result
 
     return tvm.transform.module_pass(_func, opt_level=2)
@@ -45,11 +45,11 @@ def build_config_nnp(extra_config=None, extra_disabled_pass=None, opt_level=2):
 
     pass_list = []
     pass_list.append((2, InjectDmaIntrin()))
-    pass_list.append((2, InjectCalculatedIsa()))
     pass_list.append((2, InjectHandShakeIntrin()))
     pass_list.append((2, RewriteVcuOps()))
     pass_list.append((2, FlatStorageConstraintHandler()))
     pass_list.append((2, StorageRewriteNNP400()))
+    pass_list.append((2, InjectCalculatedIsa()))
     pass_list.append((2, SplitVcuControlFlow()))
     pass_list.append((3, tvm.tir.transform.DecorateDeviceScope()))
     pass_list.append((3, LiftGlobalAllocation()))

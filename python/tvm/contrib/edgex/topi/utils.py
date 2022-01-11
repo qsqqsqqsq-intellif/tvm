@@ -367,6 +367,7 @@ def rewrite_param_to_dtype(
     block,
     dtype: str,
     is_reinterpret: bool,
+    pre_cast_dtype: str = None,
     relay_rewrite_mgr: PostScheduleArgumentRewriteManager = None,
 ):
     """Rewrite bias_add/quantize param buffer into specified dtype
@@ -406,13 +407,17 @@ def rewrite_param_to_dtype(
         inline_simple_transformation(pb)
 
     def do_rewrite(buffer):
+        nonlocal pre_cast_dtype
         shape = list(buffer.shape)
-        elembytes = tvm.DataType(buffer.dtype).bits // 8
+        if pre_cast_dtype is not None:
+            elembytes = tvm.DataType(pre_cast_dtype).bits // 8
+        else:
+            elembytes = tvm.DataType(buffer.dtype).bits // 8
         new_elembytes = tvm.DataType(dtype).bits // 8
         factor = elembytes // new_elembytes
         if is_reinterpret:
             assert elembytes % new_elembytes == 0
-            shape[-1] = shape[-1] * (elembytes // new_elembytes)
+            shape[-1] = shape[-1] * factor
         new_buffer = tir.decl_buffer(
             shape,
             dtype,
@@ -439,11 +444,16 @@ def rewrite_param_to_dtype(
 
         def __relay_forward(x):
             if is_reinterpret:
+                if pre_cast_dtype is not None:
+                    x = relay.cast(x, pre_cast_dtype)
                 return cast_reinterpret(x, dtype)
             return relay.cast(x, dtype)
 
         def __relay_backward(x):
             if is_reinterpret:
+                if pre_cast_dtype is not None:
+                    x = cast_reinterpret(x, pre_cast_dtype)
+                    return relay.cast(x, buffer.dtype)
                 return cast_reinterpret(x, buffer.dtype)
             return relay.cast(x, buffer.dtype)
 
@@ -532,16 +542,16 @@ def relay_rewrite_per_channel_bias_and_norm(
     # Step (1.2): stack and interleave mul&shift norm
     axes = get_axes(s, block, multiply_param_buf)
     mul_norm_axis = axes[0] if len(axes) == 1 else s.fuse_buffer(*axes)
+    mul_norm_o, mul_norm_i = s.split_buffer(mul_norm_axis, factor=2)  # [co, 2]
     axes = get_axes(s, block, shift_param_buf)
     shift_norm_axis = axes[0] if len(axes) == 1 else s.fuse_buffer(*axes)
-    s.stack_buffer(mul_norm_axis, shift_norm_axis)  # [2*co]
-    two, co = s.split_buffer(mul_norm_axis, nparts=2)  # [2, co]
-    s.reorder_buffer(co, two)
-    _, co_i = s.split_buffer(co, factor=16)  # [lines, 16, 2]
-    norm_i = s.fuse_buffer(co_i, two)  # [lines, 32]
+    _, shift_norm_i = s.split_buffer(shift_norm_axis, factor=1)  # [co, 1]
+    s.stack_buffer(mul_norm_i, shift_norm_i)  # [co, 3]
+    _, co_i = s.split_buffer(mul_norm_o, factor=16)  # [lines, 16, 3]
+    norm_i = s.fuse_buffer(co_i, mul_norm_i)  # [lines, 48]
 
     # Step (1.3): stack bias and norm params
-    s.stack_buffer(bias_i, norm_i)  # [lines, 96]
+    s.stack_buffer(bias_i, norm_i)  # [lines, 112]
 
     # relay adaption
     def relay_forward_params(b, m, s):
@@ -549,13 +559,13 @@ def relay_rewrite_per_channel_bias_and_norm(
         b = relay.nn.pad(b, [(0, (16 - n_channel % 16) % 16 * 4)])
         b = relay.reshape(b, [-1, 16 * 4])
         m = relay.reshape(m, [-1])
-        m = relay.nn.pad(m, [(0, (16 - n_channel % 16) % 16)])
+        m = relay.nn.pad(m, [(0, (16 - n_channel % 16) % 16 * 2)])
+        m = relay.reshape(m, [-1, 2])
         s = relay.reshape(s, [-1])
         s = relay.nn.pad(s, [(0, (16 - n_channel % 16) % 16)])
-        fused = relay.concatenate([m, s], axis=0)
-        fused = relay.reshape(fused, [2, -1])
-        fused = relay.transpose(fused, [1, 0])
-        fused = relay.reshape(fused, [-1, 16 * 2])
+        s = relay.reshape(s, [-1, 1])
+        fused = relay.concatenate([m, s], axis=1)
+        fused = relay.reshape(fused, [-1, 16 * 3])
         fused = relay.concatenate([b, fused], axis=1)
         return fused
 
@@ -565,12 +575,11 @@ def relay_rewrite_per_channel_bias_and_norm(
         b = relay.reshape(b, [-1])
         b = relay.strided_slice(b, [0], [n_channel * 4], slice_mode="size")
         b = relay.reshape(b, [int(_) for _ in bias_param_buf.shape])
-        fused = relay.strided_slice(fused, [0, 16 * 4], [lines, 32], slice_mode="size")
-        fused = relay.reshape(fused, [-1, 2])
-        fused = relay.transpose(fused, [1, 0])
-        m = relay.strided_slice(fused, [0, 0], [1, n_channel], slice_mode="size")
+        fused = relay.strided_slice(fused, [0, 16 * 4], [lines, 48], slice_mode="size")
+        fused = relay.reshape(fused, [-1, 3])
+        m = relay.strided_slice(fused, [0, 0], [n_channel, 2], slice_mode="size")
         m = relay.reshape(m, [int(_) for _ in multiply_param_buf.shape])
-        s = relay.strided_slice(fused, [1, 0], [1, n_channel], slice_mode="size")
+        s = relay.strided_slice(fused, [0, 2], [n_channel, 1], slice_mode="size")
         s = relay.reshape(s, [int(_) for _ in shift_param_buf.shape])
         return b, m, s
 

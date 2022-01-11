@@ -546,6 +546,9 @@ class ScheduleConv2d:
                 "epsilon_times_rewrite_wbuf_wdma": 1,
                 "delta_rewrite_wbuf_wdma": 1,  # NOTE: All rewrite flag need set 1, maybe iss bug.
                 "k_size_wdma": kernel_size[0] * kernel_size[1],
+                "bubble_insert_en_wdma": 1
+                if self._input_dtype in ["int16"] and self._weight_dtype in ["int8", "uint8"]
+                else 0,
             },
         )
 
@@ -856,7 +859,8 @@ class ScheduleConv2d:
                 matcher.pre_quantize_block,
                 matcher.quantize_multiply_block,
                 dtype="int8",
-                is_reinterpret=False,
+                is_reinterpret=True,
+                pre_cast_dtype="uint16",
                 relay_rewrite_mgr=self._relay_rewrite_mgr,
             )
             (shift_param_buf,) = rewrite_param_to_dtype(

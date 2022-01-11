@@ -35,6 +35,11 @@ int GetValueByKey(const CallNode* call, const std::string& key) {
       if (arg_str.find(key) != std::string::npos) {
         std::size_t pos = arg_str.find("=");
         std::string str_val = arg_str.substr(pos + 1);
+        if (str_val.find("0x") != std::string::npos) {
+          int val{0};
+          std::istringstream(str_val) >> std::hex >> val;
+          return val;
+        }
         return atoi(str_val.c_str());
       }
     }

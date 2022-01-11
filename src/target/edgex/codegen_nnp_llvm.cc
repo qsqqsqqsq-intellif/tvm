@@ -438,7 +438,8 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
          llvm::Intrinsic::nnp_odma_layer_cfg4, llvm::Intrinsic::nnp_odma_layer_cfg5,
          llvm::Intrinsic::nnp_odma_layer_cfg6, llvm::Intrinsic::nnp_odma_layer_addr0,
          llvm::Intrinsic::nnp_odma_layer_addr1, llvm::Intrinsic::nnp_odma_layer_addr2,
-         llvm::Intrinsic::nnp_odma_layer_ub, llvm::Intrinsic::nnp_odma_layer_burst},
+         llvm::Intrinsic::nnp_odma_layer_ub, llvm::Intrinsic::nnp_odma_layer_burst,
+         llvm::Intrinsic::nnp_odma_layer_cfg7},
         {}, bind_keys, op);
   }
 
@@ -517,9 +518,10 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     return CreateDMAOp(
         {llvm::Intrinsic::nnp_wdma_layer_cfg0, llvm::Intrinsic::nnp_wdma_layer_cfg1,
          llvm::Intrinsic::nnp_wdma_layer_cfg2, llvm::Intrinsic::nnp_wdma_layer_cfg3,
-         llvm::Intrinsic::nnp_wdma_layer_cfg4, llvm::Intrinsic::nnp_wdma_layer_addr0,
-         llvm::Intrinsic::nnp_wdma_layer_addr1, llvm::Intrinsic::nnp_wdma_layer_addr2,
-         llvm::Intrinsic::nnp_wdma_layer_addr3, llvm::Intrinsic::nnp_wdma_layer_addr4,
+         llvm::Intrinsic::nnp_wdma_layer_addr0, llvm::Intrinsic::nnp_wdma_layer_addr1,
+         llvm::Intrinsic::nnp_wdma_layer_addr2, llvm::Intrinsic::nnp_wdma_layer_addr3,
+         llvm::Intrinsic::nnp_wdma_layer_addr4, llvm::Intrinsic::nnp_wdma_layer_cfg4,
+         llvm::Intrinsic::nnp_wdma_layer_cfg5, llvm::Intrinsic::nnp_wdma_layer_cfg6,
          llvm::Intrinsic::nnp_wdma_warmup_cfg, llvm::Intrinsic::nnp_wdma_layer_ub,
          llvm::Intrinsic::nnp_wdma_layer_burst},
         {}, bind_keys, op);

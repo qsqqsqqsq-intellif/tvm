@@ -99,6 +99,7 @@ def without_inject_isa_func(a: T.handle, c: T.handle) -> None:
             "co_d_idma=1",
             "cube_enable_idma=2",
             "B_dim2_idma=0",
+            "data_type_idma=1",
             dtype="",
         )
     )
@@ -124,6 +125,11 @@ def without_inject_isa_func(a: T.handle, c: T.handle) -> None:
             "A_dim1_wdma=0",
             "A_dim2_wdma=0",
             "k_size_wdma=49",
+            "A_transpose_wdma=0",
+            "data_type_wdma=0",
+            "bubble_insert_en_wdma=0",
+            "wt_st_addr1_wdma=0x0",
+            "wt_end_addr1_wdma=0x30ff",
             dtype="",
         )
     )
@@ -258,6 +264,7 @@ def inject_isa_transformed(a: T.handle, c: T.handle) -> None:
             "co_d_idma=1",
             "cube_enable_idma=2",
             "B_dim2_idma=0",
+            "data_type_idma=1",
             "epsilon_idma=0x31",
             "delta_idma=0x1",
             "zeta_idma=0x10",
@@ -302,6 +309,11 @@ def inject_isa_transformed(a: T.handle, c: T.handle) -> None:
             "A_dim1_wdma=0",
             "A_dim2_wdma=0",
             "k_size_wdma=49",
+            "A_transpose_wdma=0",
+            "data_type_wdma=0",
+            "bubble_insert_en_wdma=0",
+            "wt_st_addr1_wdma=0x0",
+            "wt_end_addr1_wdma=0x30ff",
             "epsilon_wdma=0x31",
             "delta_wdma=0x1",
             "zeta_wdma=0x10",
@@ -314,6 +326,12 @@ def inject_isa_transformed(a: T.handle, c: T.handle) -> None:
             "last_delta_wdma=0x1",
             "last_zeta_wdma=0x6",
             "last_dense_wdma=0x1",
+            "epsilon_times_rewrite_dm_wdma=0x0",
+            "delta_inc_addr_wdma=0x0",
+            "ksize_inc_addr_wdma=0x6100",
+            "epstimes_inc_addr_wdma=0x3100",
+            "delta_times_inc_addr_wdma=0x0",
+            "mat_row_offset_wdma=0x0",
             dtype="",
         )
     )
