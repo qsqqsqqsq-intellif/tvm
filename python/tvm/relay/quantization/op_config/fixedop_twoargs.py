@@ -286,7 +286,7 @@ class FixedOpTwoArgs:
                 True,
             )
 
-            # TODO "add.." should support int8 + int8 => int32
+            # todo detvm environment no need this operation
             if self.quantized and self.name in ["add", "subtract"]:
                 if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
                     new_arg = relay.cast(new_arg, DataType.Int32)

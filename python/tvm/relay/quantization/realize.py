@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements
+# pylint: disable=unused-argument,inconsistent-return-statements,unexpected-keyword-arg,global-at-module-level
 """realize"""
 
 import logging
@@ -23,13 +23,21 @@ import numpy
 import tvm
 from tvm import relay
 from tvm.relay.expr_functor import ExprMutator
-from tvm.relay.dataflow_pattern import is_op, wildcard
-from .relay_ops import round_right_shift
+
+try:
+    from tvm.relay.dataflow_pattern import is_op, wildcard
+    from .relay_ops import round_right_shift
+except ImportError:
+    pass
+
 from .debug import pair_node
 from .method_dtype import _get_dtype_info, DataType
 
 
 LOGGER = logging.getLogger("quantize")
+
+global TARGET_NNP
+TARGET_NNP = "nnp400"
 
 
 def _quantize(node, input_config):
@@ -80,17 +88,30 @@ def eliminate_quantize_dequantize(node):
 
 def eliminate_dequantize_quantize(node):
     """eliminate_dequantize_quantize"""
+    if "ir_pass" not in relay.__dict__:
+        dequantize = is_op("qnn.dequantize")(wildcard(), wildcard(), wildcard())
+        quantize = is_op("qnn.quantize")(dequantize, wildcard(), wildcard())
 
-    dequantize = is_op("qnn.dequantize")(wildcard(), wildcard(), wildcard())
-    quantize = is_op("qnn.quantize")(dequantize, wildcard(), wildcard())
-
-    if quantize.match(node):
-        pre_arg = node.args[0]
-        cond1 = pre_arg.attrs.axis == node.attrs.axis
-        cond2 = pre_arg.args[1].data.asnumpy() == node.args[1].data.asnumpy()
-        cond3 = pre_arg.args[2].data.asnumpy() == node.args[2].data.asnumpy()
-        if cond1 and cond2.all() and cond3.all():
-            return pre_arg.args[0]
+        if quantize.match(node):
+            pre_arg = node.args[0]
+            cond1 = pre_arg.attrs.axis == node.attrs.axis
+            cond2 = pre_arg.args[1].data.asnumpy() == node.args[1].data.asnumpy()
+            cond3 = pre_arg.args[2].data.asnumpy() == node.args[2].data.asnumpy()
+            if cond1 and cond2.all() and cond3.all():
+                return pre_arg.args[0]
+    else:
+        if (
+            isinstance(node, relay.Call)
+            and node.op.name == "qnn.quantize"
+            and isinstance(node.args[0], relay.Call)
+            and node.args[0].op.name == "qnn.dequantize"
+        ):
+            pre_arg = node.args[0]
+            cond1 = pre_arg.attrs.axis == node.attrs.axis
+            cond2 = pre_arg.args[1].data.asnumpy() == node.args[1].data.asnumpy()
+            cond3 = pre_arg.args[2].data.asnumpy() == node.args[2].data.asnumpy()
+            if cond1 and cond2.all() and cond3.all():
+                return pre_arg.args[0]
 
     return node
 
@@ -119,8 +140,9 @@ def _realize_core(cls, old_arg, new_arg, vertex_config, o2n_dict):
     return new_arg
 
 
-def operate(op_type, node, output_config, input_config, convert):
+def operate(op_type, node, output_config, input_config, convert, multiplier=0):
     """operate"""
+    # multiplier 0: accumulator->int8 / 1:int8-requantize default:0
     if op_type == "quantize":
         node = _quantize(node, input_config)
         LOGGER.debug("[realize]<quantize> scale is:")
@@ -143,7 +165,7 @@ def operate(op_type, node, output_config, input_config, convert):
     node = eliminate_dequantize_quantize(node)
 
     if convert:
-        node = convert_operate(op_type, node, output_config, input_config)
+        node = convert_operate(op_type, node, output_config, input_config, multiplier)
     return node
 
 
@@ -162,6 +184,8 @@ def _quantize_shift(node):
             dtype = "int8"
         elif int(bits) <= 16:
             dtype = "int16"
+        elif int(bits) <= 32:
+            dtype = "int32"
 
     tmp = relay.frontend.common.infer_type(data)
     shape = tmp.checked_type.concrete_shape
@@ -174,7 +198,7 @@ def _quantize_shift(node):
             scale = scale.reshape(tmp1)
             zero_point = zero_point.reshape(tmp1)
 
-        new_scale = relay.const(scale, "float16")
+        new_scale = relay.const(scale.astype("float16"))
         new_zero_point = relay.const(zero_point)
 
         if tmp.checked_type.dtype != "float16":
@@ -183,15 +207,21 @@ def _quantize_shift(node):
         if (zero_point == 0).all():
             data = relay.divide(data, new_scale)
             data = relay.round(data)
-            data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
-            data = relay.cast(data, dtype)
+            if "ir_pass" not in relay.__dict__:
+                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
+                data = relay.cast(data, dtype)
+            else:
+                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], outdtype=dtype)
         else:
             data = relay.divide(data, new_scale)
             data = relay.round(data)
             data = relay.cast(data, "int32")
             data = relay.add(data, new_zero_point)
-            data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
-            data = relay.cast(data, dtype)
+            if "ir_pass" not in relay.__dict__:
+                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
+                data = relay.cast(data, dtype)
+            else:
+                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], outdtype=dtype)
     elif isinstance(data, relay.Constant):
         data = data.data.asnumpy()
 
@@ -211,6 +241,7 @@ def _quantize_shift(node):
             zero_point = zero_point.reshape(tmp1)
 
             data = data / scale + zero_point
+
             data = data.round()
             data = numpy.clip(data, q_min_max["qmin"], q_min_max["qmax"])
             data = data.astype(dtype)
@@ -228,7 +259,27 @@ def _quantize_shift(node):
                 scale = scale.reshape(tmp1)
                 zero_point = zero_point.reshape(tmp1)
 
-            data = data / scale + zero_point
+            # todo modify this for identity to nnp300, in fact can just use the next line
+            simulate_300 = False
+            if not simulate_300:
+                data = data / scale + zero_point
+            # simulate tvm 300 round, farward +-inf
+            else:
+                if len(data.shape) == 1:
+                    data = data.astype("float32") / scale.astype("float32") + zero_point.astype(
+                        "float32"
+                    )
+                else:
+                    data = data.astype("float32") * (1.0 / scale.astype("float32")).astype(
+                        "float32"
+                    ) + zero_point.astype("float32")
+                data = data.astype("float64")
+                plus_mask = numpy.where(data > 0)
+                data[plus_mask] += 0.00000001
+                minus_mask = numpy.where(data < 0)
+                data[minus_mask] -= 0.00000001
+            # simulate end
+
             data = data.round()
             data = numpy.clip(data, q_min_max["qmin"], q_min_max["qmax"])
             data = data.astype(dtype)
@@ -267,7 +318,10 @@ def _dequantize_shift(node):
     return data
 
 
-def _requantize_shift(node):
+def _requantize_shift(node, multiplier):
+    """_requantize_shift"""
+    # multiplier 0: accumulator->int8
+    #            1:int8-requantize default:0
     dequantize = node.args[0]
     data = dequantize.args[0]
 
@@ -283,23 +337,39 @@ def _requantize_shift(node):
     q_axis = node.attrs.axis
     q_min_max = _get_dtype_info(q_dtype)
 
-    # todo support int4?
+    # ex q_dtype int24 -> int32
     if q_dtype.startswith("int"):
         bits = q_dtype[3:]
         if int(bits) <= 8:
             q_dtype = "int8"
         elif int(bits) <= 16:
             q_dtype = "int16"
+        elif int(bits) <= 32:
+            q_dtype = "int32"
 
-    all_ones_int64 = numpy.ones(shape=shape, dtype="int64")
-
+    # todo shift_coef_max confirm
     mul_coef_max = 255
     shift_coef_max = 32
-    if isinstance(node.args[0].args[0], relay.Call) and (
-        node.args[0].args[0].op.name in ["nn.bias_add", "nn.conv2d", "nn.dense", "nn.batch_matmul"]
-    ):
+    if (
+        isinstance(node.args[0].args[0], relay.Call)
+        and (
+            node.args[0].args[0].op.name
+            in ["nn.bias_add", "nn.conv2d", "nn.dense", "nn.batch_matmul"]
+        )
+        and multiplier == 0
+        and TARGET_NNP == "nnp400"
+    ) or (multiplier == 0 and TARGET_NNP == "nnp320"):
         mul_coef_max = 32767
         shift_coef_max = 39
+    elif multiplier == 0 and TARGET_NNP.startswith("nnp3"):
+        mul_coef_max = 255
+        shift_coef_max = 31
+    elif multiplier == 1 and TARGET_NNP.startswith("nnp3"):
+        mul_coef_max = 127
+        shift_coef_max = 15
+    elif multiplier == 1 and TARGET_NNP.startswith("nnp4"):
+        mul_coef_max = 255
+        shift_coef_max = 15
 
     if d_axis != -1:
         tmp1 = [1] * (len(shape) - d_axis)
@@ -352,56 +422,115 @@ def _requantize_shift(node):
             new_scale.append(new_a)
             all_new_b.append(bit)
 
-        new_scale = numpy.array(new_scale, "int64").reshape(s_shape)
-        new_scale = relay.const(new_scale, "int64")
-        all_new_b = numpy.array(all_new_b, "int64").reshape(s_shape)
-        all_new_b = relay.const(all_new_b, "int64")
+        # todo now nnp400 only support int64
+        if "ir_pass" not in relay.__dict__ and TARGET_NNP == "nnp400":
+            new_scale = numpy.array(new_scale, "int64").reshape(s_shape)
+            new_scale = relay.const(new_scale, "int64")
+            all_new_b = numpy.array(all_new_b, "int64").reshape(s_shape)
+            all_new_b = relay.const(all_new_b, "int64")
 
-        pos_val = numpy.array(pos_val, "int64").reshape(s_shape)
-        pos_val = all_ones_int64 * pos_val
-        pos_val = relay.const(pos_val, "int64")
+            data = relay.cast(data, "int64")
+            data = relay.multiply(data, new_scale)
 
-        neg_val = numpy.array(neg_val, "int64").reshape(s_shape)
-        neg_val = all_ones_int64 * neg_val
-        neg_val = relay.const(neg_val, "int64")
+            rounding = "UPWARD"
 
-        data = relay.cast(data, "int64")
-        data = relay.multiply(data, new_scale)
+            if rounding == "TONEAREST":
+                all_ones_int64 = numpy.ones(shape=shape, dtype="int64")
+                pos_val = numpy.array(pos_val, "int64").reshape(s_shape)
+                pos_val = all_ones_int64 * pos_val
+                pos_val = relay.const(pos_val, "int64")
 
-        rounding = "UPWARD"
+                neg_val = numpy.array(neg_val, "int64").reshape(s_shape)
+                neg_val = all_ones_int64 * neg_val
+                neg_val = relay.const(neg_val, "int64")
 
-        if rounding == "TONEAREST":
-            zeros = relay.zeros(shape=shape, dtype="int64")
-            cond = relay.greater_equal(data, zeros)
-            where = relay.where(cond, pos_val, neg_val)
-            add = relay.add(data, where)
-            data = relay.right_shift(add, all_new_b)
-        elif rounding == "UPWARD":
-            data = round_right_shift(data, all_new_b)
-        else:
-            raise NotImplementedError
+                zeros = relay.zeros(shape=shape, dtype="int64")
+                cond = relay.greater_equal(data, zeros)
+                where = relay.where(cond, pos_val, neg_val)
+                add = relay.add(data, where)
+                data = relay.right_shift(add, all_new_b)
 
-        data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
-        data = relay.cast(data, q_dtype)
+                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
+                data = relay.cast(data, q_dtype)
+
+            elif rounding == "UPWARD":
+                data = round_right_shift(data, all_new_b)
+                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
+                data = relay.cast(data, q_dtype)
+            else:
+                raise NotImplementedError
+
+        elif (
+            "ir_pass" in relay.__dict__
+            and TARGET_NNP.startswith("nnp3")
+            and TARGET_NNP != "nnp320"
+            and multiplier == 0
+        ):
+            new_scale = numpy.array(new_scale).reshape(s_shape)
+            new_scale = relay.const(new_scale.astype("uint8"))
+            all_new_b = numpy.array(all_new_b).reshape(s_shape)
+            all_new_b = relay.const(all_new_b.astype("int32"))
+            relay.multiply(data, new_scale, out_dtype="int32")
+            relay.round_right_shift(data, all_new_b, out_dtype="int32")
+            relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=q_dtype)
+
+        elif "ir_pass" in relay.__dict__ and TARGET_NNP == "nnp320" and multiplier == 0:
+            new_scale = numpy.array(new_scale).reshape(s_shape)
+            new_scale = relay.const(new_scale.astype("int16"))
+            all_new_b = numpy.array(all_new_b).reshape(s_shape)
+            all_new_b = relay.const(all_new_b.astype("int32"))
+            relay.multiply(data, new_scale, out_dtype="int64")
+            relay.round_right_shift(data, all_new_b, out_dtype="int64")
+            relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=q_dtype)
+
+        elif "ir_pass" in relay.__dict__ and TARGET_NNP.startswith("nnp3") and multiplier == 1:
+            new_scale = numpy.array(new_scale).reshape(s_shape)
+            new_scale = relay.const(new_scale.astype("int8"))
+            all_new_b = numpy.array(all_new_b).reshape(s_shape)
+            all_new_b = relay.const(all_new_b.astype("int32"))
+            relay.multiply(data, new_scale, out_dtype="int32")
+            relay.round_right_shift(data, all_new_b, out_dtype="int32")
+            relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=q_dtype)
+
+        elif "ir_pass" not in relay.__dict__ and TARGET_NNP.startswith("nnp3"):
+            assert 0, "new tvm no support detvm requantize"
+
     else:
         raise NotImplementedError
     return data
 
 
-def convert_operate(op_type, node, output_config, input_config):
+def convert_operate(op_type, node, output_config, input_config, multiplier):
     """convert_operate"""
-    quantize = is_op("qnn.quantize")(wildcard(), wildcard(), wildcard())
-    dequantize = is_op("qnn.dequantize")(wildcard(), wildcard(), wildcard())
-    requantize = is_op("qnn.quantize")(dequantize, wildcard(), wildcard())
+    if "ir_pass" not in relay.__dict__:
+        quantize = is_op("qnn.quantize")(wildcard(), wildcard(), wildcard())
+        dequantize = is_op("qnn.dequantize")(wildcard(), wildcard(), wildcard())
+        requantize = is_op("qnn.quantize")(dequantize, wildcard(), wildcard())
 
-    if requantize.match(node):
-        node = _requantize_shift(node)
-    elif quantize.match(node):
-        node = _quantize_shift(node)
-    elif dequantize.match(node):
-        node = _dequantize_shift(node)
+        if requantize.match(node):
+            node = _requantize_shift(node, multiplier)
+        elif quantize.match(node):
+            node = _quantize_shift(node)
+        elif dequantize.match(node):
+            node = _dequantize_shift(node)
+        else:
+            pass
     else:
-        pass
+        if (
+            isinstance(node, relay.Call)
+            and node.op.name == "qnn.quantize"
+            and isinstance(node.args[0], relay.Call)
+            and node.args[0].op.name == "qnn.dequantize"
+        ):
+            node = _requantize_shift(node, multiplier)
+
+        elif isinstance(node, relay.Call) and node.op.name == "qnn.quantize":
+            node = _quantize_shift(node)
+
+        elif isinstance(node, relay.Call) and node.op.name == "qnn.dequantize":
+            node = _dequantize_shift(node)
+        else:
+            pass
     return node
 
 
@@ -414,9 +543,13 @@ class Realize(ExprMutator):
         self.vertex_config = vertex_config
         self.new2old = {}
         self.idx = -1
-        func = self.visit(self.mod["main"])
-        quantized_mod = tvm.IRModule.from_expr(func)
-        self.quantized_mod = relay.transform.InferType()(quantized_mod)
+        if not isinstance(self.mod, relay.Function):
+            func = self.visit(self.mod["main"])
+            quantized_mod = tvm.IRModule.from_expr(func)
+            self.quantized_mod = relay.transform.InferType()(quantized_mod)
+        else:
+            func = self.visit(self.mod)
+            self.quantized_mod = func
 
     def visit_call(self, call):
         new_args = [self.visit(arg) for arg in call.args]
@@ -468,13 +601,20 @@ class Realize(ExprMutator):
                 elif tmp.checked_type.dtype in ["int8", "int16"]:
                     new_arg = operate("dequantize", new_arg, config.input_config[old_arg], {}, True)
                 elif tmp.checked_type.dtype != "float16" and config.output_config["ref_count"] > 0:
+                    # output node no need to cast
                     new_arg = relay.cast(new_arg, "float16")
                 realized_args_new.append(new_arg)
 
-            new_tup = relay.Tuple(realized_args_new, tup.span)
+            if "ir_pass" not in relay.__dict__:
+                new_tup = relay.Tuple(realized_args_new, tup.span)
+            else:
+                new_tup = relay.Tuple(realized_args_new)
 
         else:
-            new_tup = relay.Tuple(realized_args, tup.span)
+            if "ir_pass" not in relay.__dict__:
+                new_tup = relay.Tuple(realized_args, tup.span)
+            else:
+                new_tup = relay.Tuple(realized_args)
 
         return new_tup
 
@@ -531,7 +671,12 @@ class Realize(ExprMutator):
             pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
 
         new_body = relay.frontend.common.infer_type(new_body)
-        new_params = relay.analysis.free_vars(new_body)
+
+        if "analysis" in relay.__dict__:
+            new_params = relay.analysis.free_vars(new_body)
+        else:
+            new_params = relay.ir_pass.free_vars(new_body)
+
         new_fn = relay.Function(
             new_params, new_body, new_body.checked_type, new_fn.type_params, new_fn.attrs
         )
@@ -541,6 +686,10 @@ class Realize(ExprMutator):
 
 def realize_graph(cls):
     LOGGER.info("[realize] start......")
+    global TARGET_NNP
+    if "target" in cls.config:
+        TARGET_NNP = cls.config["target"]
+
     realize = Realize(cls.pre_processed_mod, cls.vertex_config)
     LOGGER.info("[realize] finish ")
     cls.post_processed_mod = realize.quantized_mod
