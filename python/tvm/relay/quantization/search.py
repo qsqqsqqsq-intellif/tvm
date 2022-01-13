@@ -86,8 +86,11 @@ class QuantizeSearch:
             self.pre_path = None
 
         if mod is not None and params is not None:
-            if params:
+            # compatible with nnp300
+            if params and not isinstance(mod, relay.Function):
                 mod["main"] = self._bind_params(mod["main"], params)
+            elif params:
+                mod = self._bind_params(mod, params)
 
             # nnp300_prj
             if "optimize" in tvm.relay.quantize.__dict__:
@@ -100,7 +103,9 @@ class QuantizeSearch:
                         self.nnp300_pre_processed_mod
                     )
                 )
-                self.pre_processed_mod = tvm.front.common.infer_type(self.pre_processed_mod)
+                self.pre_processed_mod = tvm.relay.frontend.common.infer_type(
+                    self.pre_processed_mod
+                )
             else:
                 self.origin_mod = relay.transform.InferType()(mod)
                 if self.ori_path is not None:
@@ -129,7 +134,7 @@ class QuantizeSearch:
         if self.pre_path is not None and os.path.exists(self.pre_path):
             with open(self.pre_path, "r") as f:
                 self.pre_processed_mod = tvm.ir.load_json(json.load(f))
-        else:
+        elif "optimize" not in tvm.relay.quantize.__dict__:
             pre_process(self, mean, scale)
             if self.pre_path is not None:
                 with open(self.pre_path, "w") as f:
