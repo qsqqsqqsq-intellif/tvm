@@ -14,17 +14,23 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,unused-import,inconsistent-return-statements
+# pylint: disable=unused-argument,unused-import,inconsistent-return-statements,bare-except
 """post process"""
 
 import logging
 from tvm import relay
-from .post_processes import (
-    eliminate_quantize_dequantize,
-    eliminate_dequantize_quantize,
-    remove_input_quantize,
-    extract_module,
-)
+
+# compatible with nnp300
+try:
+    from .post_processes import (
+        eliminate_quantize_dequantize,
+        eliminate_dequantize_quantize,
+        extract_module,
+    )
+except:
+    pass
+from .pre_process import remove_input_quantize
+
 
 LOGGER = logging.getLogger("quantize")
 

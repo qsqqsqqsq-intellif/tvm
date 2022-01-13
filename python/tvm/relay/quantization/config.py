@@ -58,7 +58,11 @@ class ConfigSpace(ExprVisitor):
         self.exp_ref = {}
         self.idx = -1
         self.quantize_config = {} if quantize_config is None else quantize_config
-        self.visit(mod["main"])
+        # compatible with nnp300
+        if not isinstance(mod, relay.Function):
+            self.visit(mod["main"])
+        else:
+            self.visit(mod)
 
     def visit_call(self, call):
         for arg in call.args:
@@ -66,6 +70,8 @@ class ConfigSpace(ExprVisitor):
 
         if isinstance(call.op, relay.Function):
             name = getattr(call.op.attrs, "Composite")
+            if not isinstance(name, str):
+                name = name.value
         else:
             name = call.op.name
 

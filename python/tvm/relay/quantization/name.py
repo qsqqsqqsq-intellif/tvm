@@ -47,6 +47,8 @@ class GetName(ExprVisitor):
 
         if isinstance(call.op, relay.Function):
             name = getattr(call.op.attrs, "Composite")
+            if not isinstance(name, str):
+                name = name.value
         else:
             name = call.op.name
         LOGGER.info("  ")

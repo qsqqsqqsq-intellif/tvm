@@ -202,6 +202,7 @@ def _get_node_runtime(nodes, params, ctx, target):
     func = relay.Function(params, relay.Tuple(nodes))
     # print(relay.frontend.common.infer_type(func))
     input_keys = [str(param.name_hint) for param in func.params]
+    # compatible with nnp300
     if "transform" in relay.__dict__:
         try:
             with relay.transform.build_config(opt_level=3):
@@ -226,7 +227,10 @@ def collect_stats(quantize):
     _get_threshold_static(quantize)
     nodes = list(quantize.collect_node)
     if nodes != []:
-        params = quantize.pre_processed_mod["main"].params
+        if not isinstance(quantize.pre_processed_mod, relay.Function):
+            params = quantize.pre_processed_mod["main"].params
+        else:
+            params = quantize.pre_processed_mod.params
         runtime, input_keys, num_outputs = _get_node_runtime(
             nodes, params, quantize.ctx, quantize.target
         )

@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements
+# pylint: disable=unused-argument,inconsistent-return-statements,bare-except
 """Automatic quantization toolkit."""
 
 import os
@@ -27,7 +27,12 @@ from tvm import relay
 from .name import get_name
 from .config import config_space
 from .quantize import Quantize
-from .pre_process import pre_process
+
+# compatible with nnp300
+try:
+    from .pre_process import pre_process
+except:
+    pass
 from .relay_viz import RelayVisualizer
 from .default_process import default_data, default_eval
 from .debug import cosine

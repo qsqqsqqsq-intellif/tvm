@@ -14,11 +14,12 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements
+# pylint: disable=unused-argument,inconsistent-return-statements,unexpected-keyword-arg
 """op"""
 
 import logging
 from tvm import relay
+from tvm._ffi import runtime_ctypes
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
 from ..analyze import _conv_counter, oneargdeal
@@ -27,7 +28,7 @@ from ..realize import _realize_core
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("IdentityOp",)
+__all__ = ("GlobalSumPool2d",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -48,24 +49,24 @@ DEFAULTCONFIG = {
 }
 
 
-class IdentityOp:
-    """IdentityOp"""
+class GlobalSumPool2d:
+    """global_sum_pool2d"""
 
-    name = "identity_op"
+    name = "nn.global_sum_pool2d"
     controlable = False
 
     def __init__(self, node, vertex_config, config):
         cnt = _conv_counter()
 
-        arg = node.args[0]
-        self.quantized = True
-        if not vertex_config[arg].quantized or cnt - 1 in []:
+        self.quantized = vertex_config[node.args[0]].quantized
+        if cnt - 1 in []:
             self.quantized = False
 
         ci0 = config["input0"]
 
         oneargdeal(self, node, vertex_config, ci0)
-        LOGGER.debug("[anaylze] %s finish", self.name)
+
+        LOGGER.debug("[anaylze] global_sum_pool2d finish")
 
     @classmethod
     def get_config(cls, config, call):
@@ -84,18 +85,22 @@ class IdentityOp:
 
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
+        LOGGER.debug("[realize] global_sum_pool2d start")
         old_arg = old_node.args[0]
         new_arg = new_node.args[0]
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
-
-        # compatible with nnp300
         if "ir_pass" not in relay.__dict__:
-            new_node = relay.Call(
-                old_node.op, [new_arg], old_node.attrs, old_node.type_args, old_node.span
-            )
-        else:
-            new_node = relay.Call(old_node.op, [new_arg], old_node.attrs, old_node.type_args)
+            dtype = runtime_ctypes.DataType(self.input_config[old_arg]["dtype"])
+            if self.quantized:
+                if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
+                    new_arg = relay.cast(new_arg, vertex_config[old_node].output_config["dtype"])
 
-        LOGGER.debug("[realize] %s finish", self.name)
+            new_node = relay.nn.global_sum_pool2d(new_arg)
+        else:
+            if self.quantized:
+                new_node = relay.nn.global_sum_pool2d(new_arg, "NCHW", out_dtype="int32")
+            else:
+                new_node = relay.nn.global_sum_pool2d(new_arg)
+
         return new_node

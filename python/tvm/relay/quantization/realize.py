@@ -211,7 +211,7 @@ def _quantize_shift(node):
                 data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
                 data = relay.cast(data, dtype)
             else:
-                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], outdtype=dtype)
+                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=dtype)
         else:
             data = relay.divide(data, new_scale)
             data = relay.round(data)
@@ -221,7 +221,7 @@ def _quantize_shift(node):
                 data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
                 data = relay.cast(data, dtype)
             else:
-                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], outdtype=dtype)
+                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=dtype)
     elif isinstance(data, relay.Constant):
         data = data.data.asnumpy()
 
@@ -471,9 +471,9 @@ def _requantize_shift(node, multiplier):
             new_scale = relay.const(new_scale.astype("uint8"))
             all_new_b = numpy.array(all_new_b).reshape(s_shape)
             all_new_b = relay.const(all_new_b.astype("int32"))
-            relay.multiply(data, new_scale, out_dtype="int32")
-            relay.round_right_shift(data, all_new_b, out_dtype="int32")
-            relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=q_dtype)
+            data = relay.multiply(data, new_scale, out_dtype="int32")
+            data = relay.round_right_shift(data, all_new_b, out_dtype="int32")
+            data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=q_dtype)
 
         elif "ir_pass" in relay.__dict__ and TARGET_NNP == "nnp320" and multiplier == 0:
             new_scale = numpy.array(new_scale).reshape(s_shape)
@@ -554,7 +554,11 @@ class Realize(ExprMutator):
 
     def visit_call(self, call):
         new_args = [self.visit(arg) for arg in call.args]
-        new_call = relay.Call(call.op, new_args, call.attrs, call.type_args, call.span)
+        # compatible with nnp300
+        if "ir_pass" not in relay.__dict__:
+            new_call = relay.Call(call.op, new_args, call.attrs, call.type_args, call.span)
+        else:
+            new_call = relay.Call(call.op, new_args, call.attrs, call.type_args)
 
         if isinstance(call.op, relay.Function):
             name = getattr(call.op.attrs, "Composite")
