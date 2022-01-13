@@ -16,7 +16,6 @@
 # under the License.
 # pylint: disable=unused-argument,inconsistent-return-statements
 """convert multiply to conv2d"""
-from functools import reduce
 import numpy as np
 import tvm
 from tvm import relay
@@ -45,7 +44,9 @@ class ConvertMultiplyToConv(ExprMutator):
                 ichannel = shape0[1].value
                 ochannel = shape1[0].value
                 assert ichannel == ochannel
-                s = reduce(lambda x, y: x * y, shape1)
+                s = 1
+                for x in shape1:
+                    s = s * x.value
                 assert s == ochannel
                 r_shape = [ochannel, 1, 1, 1, 1]
                 mul_w = mul_w.reshape(r_shape)
@@ -65,7 +66,9 @@ class ConvertMultiplyToConv(ExprMutator):
                 ichannel = shape0[1].value
                 ochannel = shape1[0].value
                 assert ichannel == ochannel
-                s = reduce(lambda x, y: x * y, shape1)
+                s = 1
+                for x in shape1:
+                    s = s * x.value
                 assert s == ochannel
                 r_shape = [ichannel, 1, 1, 1, 1]
                 x = np.ones((ochannel, 1, 1, 1), dtype=np.float32)
