@@ -29,12 +29,8 @@ torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-if tvm.runtime.enabled("gpu"):
-    ctx = tvm.cuda()
-    target = "cuda"
-else:
-    ctx = tvm.cpu()
-    target = "llvm"
+ctx = tvm.cpu()
+target = "llvm"
 
 batch_size = 1
 calibrate_num = 500

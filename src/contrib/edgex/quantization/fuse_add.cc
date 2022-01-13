@@ -50,6 +50,7 @@ class FuseAdd : public ExprMutator {
       : add_op_(Op::Get("add")),
         dense_op_(Op::Get("nn.dense")),
         conv2d_op_(Op::Get("nn.conv2d")),
+        conv3d_op_(Op::Get("nn.conv3d")),
         bias_add_op_(Op::Get("nn.bias_add")) {}
 
   Expr VisitExpr_(const CallNode* n) {
@@ -76,7 +77,7 @@ class FuseAdd : public ExprMutator {
           auto new_weight = FoldConstantOpt(Add(bias_weight, add_weight));
           return Call(bias_add_op_, {arg0->args[0], new_weight}, arg0->attrs, arg0->type_args);
         }
-      } else if (arg0->op == dense_op_ || arg0->op == conv2d_op_) {
+      } else if (arg0->op == dense_op_ || arg0->op == conv2d_op_ || arg0->op == conv3d_op_) {
         auto op_shape = n->args[0]->checked_type().as<TensorTypeNode>()->shape;
         int axis = op_shape.size() - shape.size();
         auto add_weight = new_n.as<CallNode>()->args[1];
@@ -110,6 +111,7 @@ class FuseAdd : public ExprMutator {
   const Op& add_op_;
   const Op& dense_op_;
   const Op& conv2d_op_;
+  const Op& conv3d_op_;
   const Op& bias_add_op_;
 
   std::unordered_map<Expr, Type, ObjectPtrHash, ObjectPtrEqual> ty_map_;

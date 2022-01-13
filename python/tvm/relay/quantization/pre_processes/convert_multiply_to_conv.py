@@ -16,6 +16,8 @@
 # under the License.
 # pylint: disable=unused-argument,inconsistent-return-statements
 """convert multiply to conv2d"""
+from functools import reduce
+import numpy as np
 import tvm
 from tvm import relay
 from tvm.relay.expr_functor import ExprMutator
@@ -33,6 +35,57 @@ class ConvertMultiplyToConv(ExprMutator):
 
             shape0 = call.args[0].checked_type.shape
             shape1 = call.args[1].checked_type.shape
+
+            if (
+                len(shape0) == 5
+                and isinstance(visited.args[0], relay.Call)
+                and visited.args[0].op.name in ["nn.conv3d"]
+            ):
+                mul_w = visited.args[1].data.asnumpy()
+                ichannel = shape0[1].value
+                ochannel = shape1[0].value
+                assert ichannel == ochannel
+                s = reduce(lambda x, y: x * y, shape1)
+                assert s == ochannel
+                r_shape = [ochannel, 1, 1, 1, 1]
+                mul_w = mul_w.reshape(r_shape)
+
+                conv3d_w = visited.args[0].args[1].data.asnumpy()
+                new_w = conv3d_w * mul_w
+                conv3d_arg = relay.Constant(tvm.nd.array(new_w))
+                attrs = dict(visited.args[0].attrs)
+
+                return relay.nn.conv3d(visited.args[0].args[0], conv3d_arg, **attrs)
+
+            if len(shape0) == 5 and (
+                not isinstance(visited.args[0], relay.Call)
+                or visited.args[0].op.name not in ["nn.conv3d"]
+            ):
+                assert len(shape1) == 4
+                ichannel = shape0[1].value
+                ochannel = shape1[0].value
+                assert ichannel == ochannel
+                s = reduce(lambda x, y: x * y, shape1)
+                assert s == ochannel
+                r_shape = [ichannel, 1, 1, 1, 1]
+                x = np.ones((ochannel, 1, 1, 1), dtype=np.float32)
+
+                zeros = np.zeros((1, 1, 1), dtype=np.float32)
+
+                mul_w = visited.args[1].data.asnumpy()
+                mul_w = mul_w.reshape(r_shape)
+
+                mul_w = mul_w * x
+                for i in range(0, ochannel):
+                    for j in range(0, ichannel):
+                        if i != j:
+                            mul_w[i][j] = zeros
+                conv3d_arg = relay.Constant(tvm.nd.array(mul_w))
+
+                return relay.nn.conv3d(
+                    visited.args[0], conv3d_arg, channels=ochannel, kernel_size=[1, 1, 1]
+                )
+
             if len(shape0) != 4:
                 return visited
 

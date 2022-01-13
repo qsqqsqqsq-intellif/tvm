@@ -61,6 +61,41 @@ class Conv2dBiasAdd(ExprMutator):
         return new_call
 
 
+class Conv3dBiasAdd(ExprMutator):
+    """Conv3dBiasAdd"""
+
+    conv_node = is_op("nn.conv3d")(wildcard(), wildcard())
+    bias_node = is_op("nn.bias_add")(conv_node, wildcard())
+
+    def __init__(self, mod):
+        super().__init__()
+        mod["main"] = self.visit(mod["main"])
+        self.new_mod = relay.transform.InferType()(mod)
+
+    def visit_call(self, call):
+        new_args = [self.visit(arg) for arg in call.args]
+        new_call = relay.Call(call.op, new_args, call.attrs, call.type_args, call.span)
+
+        if self.bias_node.match(new_call):
+            a0 = relay.var("arg0_")
+            a1 = relay.var("arg1_")
+            a2 = relay.var("arg2_")
+
+            conv3d = relay.nn.conv3d(a0, a1, **dict(new_call.args[0].attrs))
+            bias_add = relay.nn.bias_add(conv3d, a2, **dict(new_call.attrs))
+            new_fn = relay.Function([a0, a1, a2], bias_add)
+            new_fn = new_fn.with_attr("Composite", "conv3d_bias_add")
+            new_fn = new_fn.with_attr("Primitive", 1)
+
+            arg0 = new_call.args[0].args[0]
+            arg1 = new_call.args[0].args[1]
+            arg2 = new_call.args[1]
+            new_call = relay.Call(new_fn, [arg0, arg1, arg2])
+            return new_call
+
+        return new_call
+
+
 class DenseBiasAdd(ExprMutator):
     """DenseBiasAdd"""
 
@@ -416,6 +451,7 @@ class HighDimensionDense(ExprMutator):
 def pattern_match(mod):
     """pattern_match"""
     mod = Conv2dBiasAdd(mod).new_mod
+    mod = Conv3dBiasAdd(mod).new_mod
     mod = DenseBiasAdd(mod).new_mod
     # mod = HardSwish(mod).new_mod
     # mod = HardSigmoid(mod).new_mod
