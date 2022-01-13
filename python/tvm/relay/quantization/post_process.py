@@ -29,7 +29,7 @@ try:
     )
 except:
     pass
-from .pre_process import remove_input_quantize
+from .post_processes import remove_input_quantize
 
 
 LOGGER = logging.getLogger("quantize")
