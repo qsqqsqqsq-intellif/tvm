@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements
+# pylint: disable=unused-argument,inconsistent-return-statements,unexpected-keyword-arg
 """op"""
 
 import logging
@@ -184,7 +184,10 @@ class FixedOpTwoArgs:
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
         LOGGER.debug("[realize]-- %s realize...", self.name.upper())
-        dtype = runtime_ctypes.DataType(self.input_config[old_node.args[0]]["dtype"])
+        if "DataType" in runtime_ctypes.__dict__:
+            dtype = runtime_ctypes.DataType(self.input_config[old_node.args[0]]["dtype"])
+        else:
+            dtype = runtime_ctypes.TVMType(self.input_config[old_node.args[0]]["dtype"])
 
         realized_args = []
         for old_arg, new_arg in zip(old_node.args, new_node.args):
@@ -240,6 +243,8 @@ class FixedOpTwoArgs:
         scale_right = self.input_config[old_node.args[1]]["scale"]
         scale_max = self.max_scale
 
+        # print(len(numpy.where((scale_left == scale_right) == False)[0]))
+
         LOGGER.debug("[realize] %s before adjust, left scale is:", self.name.upper())
         LOGGER.debug(scale_left)
         LOGGER.debug("[realize] %s before adjust, right scale is:", self.name.upper())
@@ -284,6 +289,7 @@ class FixedOpTwoArgs:
                 self.input_config[old_arg],
                 self.adjust_input_config[old_arg],
                 True,
+                multiplier=1,
             )
 
             # todo detvm environment no need this operation
@@ -301,7 +307,12 @@ class FixedOpTwoArgs:
             )
             adjust_realized_args.append(new_arg)
         # new_node = relay.add(adjust_realized_args[0], adjust_realized_args[1])
-        new_node = relay.Call(self.op, adjust_realized_args, old_node.attrs)
+        if self.name == "add" and "ir_pass" in relay.__dict__:
+            new_node = relay.add(
+                adjust_realized_args[0], adjust_realized_args[1], out_dtype="int32"
+            )
+        else:
+            new_node = relay.Call(self.op, adjust_realized_args, old_node.attrs)
 
         LOGGER.debug("[realize] %s finish", self.name.upper())
         return new_node

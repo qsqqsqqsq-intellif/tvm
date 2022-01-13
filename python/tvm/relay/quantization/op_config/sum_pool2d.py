@@ -90,11 +90,22 @@ class SumPool2d:
         new_arg = new_node.args[0]
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
-        dtype = runtime_ctypes.DataType(self.input_config[old_arg]["dtype"])
-        if self.quantized:
-            if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
-                new_arg = relay.cast(new_arg, vertex_config[old_node].output_config["dtype"])
+        if "ir_pass" not in relay.__dict__:
+            dtype = runtime_ctypes.DataType(self.input_config[old_arg]["dtype"])
+            if self.quantized:
+                if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
+                    new_arg = relay.cast(new_arg, vertex_config[old_node].output_config["dtype"])
 
-        new_node = relay.nn.sum_pool2d(new_arg, **dict(new_node.attrs))
+            new_node = relay.nn.sum_pool2d(new_arg, **dict(new_node.attrs))
+        else:
+            new_attr = {}
+            new_attr["pool_size"] = new_node.attrs.pool_size
+            new_attr["strides"] = new_node.attrs.strides
+            new_attr["padding"] = new_node.attrs.padding
+            new_attr["layout"] = new_node.attrs.layout
+            new_attr["ceil_mode"] = new_node.attrs.ceil_mode
+            if self.quantized:
+                new_attr["out_dtype"] = "int32"
+            new_node = relay.nn.sum_pool2d(new_arg, **new_attr)
 
         return new_node

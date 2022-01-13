@@ -469,6 +469,8 @@ class AnalyzeGraph(ExprVisitor):
         config = self.config[self.node_id[call]]
         if "skip_conv_layers" in self.config:
             config["skip_conv_layers"] = self.config["skip_conv_layers"]
+        if "target" in self.config:
+            config["target"] = self.config["target"]
 
         if name in FIXED_OP_TWOARGS_LIST:
             self.vertex_config[call] = OPCONFIGS["FixedOpTwoArgs"](call, self.vertex_config, config)

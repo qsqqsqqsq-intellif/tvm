@@ -65,6 +65,9 @@ class Multiply:
             not vertex_config[node.args[0]].quantized and not vertex_config[node.args[1]].quantized
         ):
             self.quantized = False
+        self.target = "nnp400"
+        if "target" in config:
+            self.target = config["target"]
 
         ci0 = config["input0"]
         ci1 = config["input1"]
@@ -128,7 +131,10 @@ class Multiply:
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
         LOGGER.debug("[realize]-- MULTIPLY realize...")
-        dtype = runtime_ctypes.DataType(self.input_config[old_node.args[0]]["dtype"])
+        if DataType in runtime_ctypes.__dict__:
+            dtype = runtime_ctypes.DataType(self.input_config[old_node.args[0]]["dtype"])
+        else:
+            dtype = runtime_ctypes.TVMType(self.input_config[old_node.args[0]]["dtype"])
 
         realized_args = []
         for old_arg, new_arg in zip(old_node.args, new_node.args):
@@ -136,6 +142,7 @@ class Multiply:
             new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
             if self.quantized:
+                assert not self.target.startswith("nnp3"), "nnp3xx mult no support quantized"
                 if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
                     new_arg = relay.cast(new_arg, DataType.Int32)
             realized_args.append(new_arg)

@@ -170,6 +170,8 @@ class QuantizeSearch:
             config["skip_conv_layers"] = self.quantize_config["skip_conv_layers"]
 
         config["target"] = "nnp400"
+        if isinstance(self.quantize_config, dict) and "target" in self.quantize_config:
+            config["target"] = self.quantize_config["target"]
         return config
 
     def quantize(self, config):

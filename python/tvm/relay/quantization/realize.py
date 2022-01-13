@@ -369,7 +369,8 @@ def _requantize_shift(node, multiplier):
         shift_coef_max = 15
     elif multiplier == 1 and TARGET_NNP.startswith("nnp4"):
         mul_coef_max = 255
-        shift_coef_max = 15
+        # todo must confirm!!!
+        shift_coef_max = 32
 
     if d_axis != -1:
         tmp1 = [1] * (len(shape) - d_axis)

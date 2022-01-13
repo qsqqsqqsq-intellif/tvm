@@ -19,7 +19,11 @@
 
 import logging
 from tvm import relay
-from ..relay_ops import round_right_shift
+
+try:
+    from ..relay_ops import round_right_shift
+except ImportError:
+    pass
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
 from ..analyze import _conv_counter, oneargdeal

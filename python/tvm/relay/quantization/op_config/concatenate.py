@@ -189,23 +189,37 @@ class Concatenate:
             new_tuple_node = []
             for old_arg_, new_arg_ in zip(old_arg.fields, new_arg.fields):
                 new_arg_ = operate(
-                    "requantize", new_arg_, input_config[old_arg_], self.adjust_input_config, True
+                    "requantize",
+                    new_arg_,
+                    input_config[old_arg_],
+                    self.adjust_input_config,
+                    True,
+                    multiplier=1,
                 )
                 new_tuple_node.append(new_arg_)
 
-            new_tup = relay.Tuple(new_tuple_node, old_arg.span)
+            if "ir_pass" not in relay.__dict__:
+                new_tup = relay.Tuple(new_tuple_node, old_arg.span)
+            else:
+                new_tup = relay.Tuple(new_tuple_node)
 
             self.input_config[old_arg]["scale"] = scale_new
 
             self.output_config["scale"] = scale_new
 
-            new_node = relay.Call(
-                old_node.op, [new_tup], new_node.attrs, new_node.type_args, new_node.span
-            )
+            if "ir_pass" not in relay.__dict__:
+                new_node = relay.Call(
+                    old_node.op, [new_tup], new_node.attrs, new_node.type_args, new_node.span
+                )
+            else:
+                new_node = relay.Call(old_node.op, [new_tup], new_node.attrs, new_node.type_args)
             return new_node
 
         # TODO ADD MORE CODE DEAL vector scale!!!
-        new_node = relay.Call(
-            old_node.op, [new_arg], new_node.attrs, new_node.type_args, new_node.span
-        )
+        if "ir_pass" not in relay.__dict__:
+            new_node = relay.Call(
+                old_node.op, [new_arg], new_node.attrs, new_node.type_args, new_node.span
+            )
+        else:
+            new_node = relay.Call(old_node.op, [new_arg], new_node.attrs, new_node.type_args)
         return new_node

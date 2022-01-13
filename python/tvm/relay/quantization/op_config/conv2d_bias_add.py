@@ -79,7 +79,10 @@ class Conv2dBiasAdd:
             if isinstance(expr, relay.Call) and expr != node:
                 temp.append(expr)
 
-        relay.analysis.post_order_visit(node.op, fvisit)
+        if "analysis" in relay.__dict__:
+            relay.analysis.post_order_visit(node.op, fvisit)
+        else:
+            relay.ir_pass.post_order_visit(node.op, fvisit)
         conv2d = temp[0]
         bias_add = temp[1]
         self._inner_config = {}
@@ -147,8 +150,11 @@ class Conv2dBiasAdd:
             input2_config.update(_get_dtype_info(input2_config["dtype"]))
 
         input3_axis = 0
+        bias_dtype = DataType.Int32
+        if "target" in config and config["target"].startswith("nnp3"):
+            bias_dtype = DataType.Int24
         input3_config = {
-            "dtype": DataType.Int32 if self.quantized else DataType.Float32,
+            "dtype": bias_dtype if self.quantized else DataType.Float32,
             "axis": input3_axis,
             "method": None,
             "threshold": None,
@@ -249,7 +255,10 @@ class Conv2dBiasAdd:
             if isinstance(expr, relay.Call) and expr != old_node:
                 tmp.append(expr)
 
-        relay.analysis.post_order_visit(old_node.op, fvisit)
+        if "analysis" in relay.__dict__:
+            relay.analysis.post_order_visit(old_node.op, fvisit)
+        else:
+            relay.ir_pass.post_order_visit(old_node.op, fvisit)
 
         if self.quantized:
             conv2d_attrs = dict(tmp[0].attrs)
