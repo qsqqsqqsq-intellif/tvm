@@ -232,16 +232,12 @@ class NaiveVuScheduleConfig:
     # whether output data need store to DDR
     is_ddr_output: bool = True
 
-    # whether output channel tiling is enabled
-    tile_co: bool = False
-
-    # output channel tiles num
-    tile_co_num: int = -1
-
     # is there a block can be compute_at or reverse_compute_at to the main_block
-    is_compute_at: bool = False
+    has_reverse_compute_at: bool = False
 
     # cache read/write should be executed before tiling when tiling is not divisible.
+    # This is a work around for cache write bug when tiling is not divisible.
+    # TODO(@qingsiqi): remove this when cache write bug fixed.
     is_tiling_divisible: bool = True
 
 
@@ -250,26 +246,24 @@ class NaiveVuSchedule:
 
     def __init__(
         self,
-        prim_func,
-        is_cpu=False,
-        allow_multi_block=False,
-        enable_relay_rewrite=False,
+        prim_func: tir.PrimFunc,
+        sch: tir.schedule.Schedule = None,
+        is_cpu: bool = False,
+        allow_multi_block: bool = False,
+        relay_rewrite_mgr: PostScheduleArgumentRewriteManager = None,
         cfg: NaiveVuScheduleConfig = None,
     ) -> None:
-        self.prim_func = prim_func
-        if cfg is None:
-            cfg = NaiveVuScheduleConfig
-        self._cfg = cfg
+        self._prim_func = prim_func
+        self._cfg = NaiveVuScheduleConfig() if cfg is None else cfg
+        self._sch = EdgexSchedule(self._prim_func, debug_mode=False) if sch is None else sch
+        self._relay_rewrite_mgr = relay_rewrite_mgr
         self._is_cpu = is_cpu
         self._allow_multi_block = allow_multi_block
-        self._enable_relay_rewrite = enable_relay_rewrite
-        self._sch = EdgexSchedule(self.prim_func, debug_mode=False)
         self.analyze()
 
     def analyze_compute_at(self):
         """analyze if there is a block can be compute_at or reverse_compute_at to the main_block"""
-
-        s = EdgexSchedule(self.prim_func, debug_mode=False)
+        s = EdgexSchedule(self._prim_func, debug_mode=False)
 
         # Phase1: try inline all blocks
         main_blocks = inline_all_blocks(s)
@@ -304,8 +298,8 @@ class NaiveVuSchedule:
                     read_bufs,
                 )
 
-                # Phase4: try compute_at
-                is_compute_at = False
+                # Phase4: try reverse compute_at
+                has_reverse_compute_at = False
                 if len(s.get_consumers(main_block)) == 1:
                     if inner_axes:
                         compute_at_axes = inner_axes[-1]
@@ -317,20 +311,16 @@ class NaiveVuSchedule:
                         try:
                             s.reverse_compute_at(block, compute_at_axes)
                             block_info[s.get_sref(block)] = "compute_ated"
-                            is_compute_at = True
+                            has_reverse_compute_at = True
                         except:
                             pass
 
-        return is_compute_at
+        return has_reverse_compute_at
 
     def analyze(self):
         """analyze vu prim_func to get tiling and packing information."""
-
-        self._cfg.is_compute_at = self.analyze_compute_at()
+        self._cfg.has_reverse_compute_at = self.analyze_compute_at()
         s = self._sch
-        self._relay_rewrite_mgr = (
-            PostScheduleArgumentRewriteManager(s) if self._enable_relay_rewrite else None
-        )
 
         # Phase0: i64 quantize param rewrite
         rewrite_quantize_params_to_u8(s, self._relay_rewrite_mgr)
@@ -635,6 +625,7 @@ class NaiveVuSchedule:
         """A naive strategy to schedule vu computation with single anchor op"""
 
         s = self._sch
+        is_tiling_divisible = self._cfg.is_tiling_divisible
 
         block_info = {}
         for block in self._main_blocks:
@@ -662,13 +653,13 @@ class NaiveVuSchedule:
                         self._pack_axis,
                         self._pack_vf,
                         self._buffer_pack_dims,
-                        self._cfg.is_tiling_divisible,
+                        is_tiling_divisible,
                     ) = self.analyse_compute_axes(s, main_block, block_stmt, self._axes)
                     self._need_pack = self._axes[-1] != self._pack_axis
 
                 # Phase2: load/save to dm/vm before loop_tiling when no compute_at
                 # and tiling not divisible
-                if not self._cfg.is_compute_at and not self._cfg.is_tiling_divisible:
+                if not self._cfg.has_reverse_compute_at and not is_tiling_divisible:
                     (
                         eidma_blocks,
                         vidma_blocks,
@@ -707,7 +698,7 @@ class NaiveVuSchedule:
 
             # Phase5: try reverse_compute_at the consumer block to curent block at inner_axis[-1]
             # only support one consumer block
-            if self._cfg.is_compute_at and len(s.get_consumers(main_block)) == 1:
+            if self._cfg.has_reverse_compute_at and len(s.get_consumers(main_block)) == 1:
                 if inner_axes:
                     compute_at_axes = inner_axes[-1]
                 else:
@@ -722,7 +713,7 @@ class NaiveVuSchedule:
                         pass
 
             # Phase6: load/save to dm/vm
-            if self._cfg.is_compute_at or self._cfg.is_tiling_divisible:
+            if self._cfg.has_reverse_compute_at or is_tiling_divisible:
                 (
                     eidma_blocks,
                     vidma_blocks,
@@ -773,7 +764,18 @@ class NaiveVuSchedule:
                 eodma_blocks=eodma_blocks,
             )
 
-        print(s.mod["main"])
-        if self._enable_relay_rewrite:
+        if self._relay_rewrite_mgr:
             return self._relay_rewrite_mgr.create_annotated_func()
         return s.mod["main"]
+
+
+def naive_vu_schedule(prim_func, is_cpu=False, allow_multi_block=False, enable_relay_rewrite=False):
+    sch = EdgexSchedule(prim_func)
+    relay_rewrite_mgr = (
+        PostScheduleArgumentRewriteManager(sch) if enable_relay_rewrite is not None else None
+    )
+    cfg = NaiveVuScheduleConfig()
+    scheduled_func = NaiveVuSchedule(
+        prim_func, sch, is_cpu, allow_multi_block, relay_rewrite_mgr, cfg
+    ).schedule()
+    return scheduled_func

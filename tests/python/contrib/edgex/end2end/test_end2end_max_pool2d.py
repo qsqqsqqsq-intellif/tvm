@@ -23,7 +23,7 @@ import tvm.script.tir as T
 from tvm import topi
 from tvm import relay
 from tvm.contrib.edgex.tir.schedule import EdgexSchedule
-from tvm.contrib.edgex.topi import NaiveVuSchedule
+from tvm.contrib.edgex.topi import naive_vu_schedule
 from tvm.contrib.edgex.testing import TempOpStrategy, check_edgex_relay_build
 from tvm.contrib.edgex.base.edgexlog import EdgexLog as el
 
@@ -193,7 +193,7 @@ def dispatch_schedule_max_pool2d_s2_p1_3_3(input_shape, use_auto_vu_strategy, dt
         primfunc = primfunc.specialize({input_param: tir.decl_buffer(input_shape)})
         volume = input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3]
         if use_auto_vu_strategy:
-            return NaiveVuSchedule(primfunc, is_cpu).schedule()
+            return naive_vu_schedule(primfunc, is_cpu)
         elif volume <= 1024:
             return schedule_max_pool2d_s2_p1_3_3(primfunc, is_cpu)
         else:

@@ -21,7 +21,7 @@ import numpy as np
 import tvm.testing
 import tvm.script.tir as T
 from tvm.contrib.edgex.tir.schedule import EdgexSchedule
-from tvm.contrib.edgex.topi import NaiveVuSchedule
+from tvm.contrib.edgex.topi import naive_vu_schedule
 from tvm.contrib.edgex.testing import check_edgex_tir_build
 
 
@@ -208,7 +208,7 @@ def do_test_vu_elewise_after_pool2d(shape, use_auto_vu_strategy):
     primfunc = primfunc.specialize({input_param: tir.decl_buffer(shape)})
     volume = shape[0] * shape[1] * shape[2] * shape[3]
     if use_auto_vu_strategy:
-        s = NaiveVuSchedule(primfunc, allow_multi_block=True).schedule()
+        s = naive_vu_schedule(primfunc, allow_multi_block=True)
     elif volume <= 1024:
         s = schedule_elewise_after_pool2d_s2_p1_2_2(primfunc, False)
     else:
