@@ -90,8 +90,8 @@ class RemoveInputQuantize(ExprMutator):
         # compatible with nnp300
         if (
             is_call(visited.args[0], "clip")
-            and visited.args[0].attrs.out_dtype == self.net_in_dtype
             and "ir_pass" in relay.__dict__
+            and visited.args[0].attrs.out_dtype == self.net_in_dtype
         ):
             the_expr = visited.args[0].args[0]
             if is_call(the_expr, "round"):
