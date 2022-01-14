@@ -17,6 +17,7 @@
 # pylint: disable=unused-argument,inconsistent-return-statements,bare-except
 """Automatic quantization utilities."""
 
+# compatible with nnp300
 try:
     from .eliminate_quantize_dequantize import eliminate_quantize_dequantize
     from .eliminate_dequantize_quantize import eliminate_dequantize_quantize

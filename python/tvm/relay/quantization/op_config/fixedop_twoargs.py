@@ -292,8 +292,12 @@ class FixedOpTwoArgs:
                 multiplier=1,
             )
 
-            # todo detvm environment no need this operation
-            if self.quantized and self.name in ["add", "subtract"]:
+            # compatible with nnp300
+            if (
+                self.quantized
+                and self.name in ["add", "subtract"]
+                and "ir_pass" not in relay.__dict__
+            ):
                 if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
                     new_arg = relay.cast(new_arg, DataType.Int32)
             # todo confirm self.quantized
