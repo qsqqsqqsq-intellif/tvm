@@ -36,36 +36,31 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 16
 model_name = "r3d_18"
-performance = {"float": 51.5192, "int8": None}
+performance = {"float": 51.5192, "int8": 51.3242}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
 all_op = [
-    "multiply",
-    "add",
-    "nn.conv3d",
+    "conv3d_bias_add",
     "nn.relu",
+    "add",
     "nn.adaptive_avg_pool3d",
     "reshape",
     "dense_bias_add",
 ]
 
 
-class ConvertBHWCtoBCHW(torch.nn.Module):
-    """Convert tensor from (B, H, W, C) to (B, C, H, W)"""
-
-    def forward(self, vid: torch.Tensor) -> torch.Tensor:
-        return vid.permute(0, 3, 1, 2)
-
-
-class ConvertBCHWtoCBHW(torch.nn.Module):
-    """Convert tensor from (B, C, H, W) to (C, B, H, W)"""
-
-    def forward(self, vid: torch.Tensor) -> torch.Tensor:
-        return vid.permute(1, 0, 2, 3)
-
-
 def prepare_data_loaders(data_path, batch_size):
-    cache_path = data_path + "/val.pt"
+    class ConvertBHWCtoBCHW(torch.nn.Module):
+        """Convert tensor from (B, H, W, C) to (B, C, H, W)"""
+
+        def forward(self, vid: torch.Tensor) -> torch.Tensor:
+            return vid.permute(0, 3, 1, 2)
+
+    class ConvertBCHWtoCBHW(torch.nn.Module):
+        """Convert tensor from (B, C, H, W) to (C, B, H, W)"""
+
+        def forward(self, vid: torch.Tensor) -> torch.Tensor:
+            return vid.permute(1, 0, 2, 3)
 
     transform = torchvision.transforms.Compose(
         [
@@ -79,6 +74,8 @@ def prepare_data_loaders(data_path, batch_size):
             ConvertBCHWtoCBHW(),
         ]
     )
+
+    cache_path = data_path + "/val.pt"
 
     if os.path.exists(cache_path):
         dataset_test = torch.load(cache_path)
