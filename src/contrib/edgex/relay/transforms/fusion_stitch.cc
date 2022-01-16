@@ -440,6 +440,10 @@ class AtomicGraph {
                          {"tuple", "tuple_get", ""},
                          {"nn.relu", "nn.prelu", "nn.leaky_relu"},
                          {"clip", ""}});
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_CONV, {{"nn.conv2d"}});
+    // QAT: [cast-sum_pool2d-multiply]
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_POOL,
+                        {{"cast"}, {"sum", ""}, {"nn.sum_pool2d"}, {"multiply"}});
     // ATOMIC_POOL + ATOMIC_ELTWISE
     add_atomic_op_specs(
         &atomic_op_specs, ATOMIC_POOL,
@@ -449,9 +453,9 @@ class AtomicGraph {
          {"round_right_shift"},
          {"clip"},
          {"cast"}});
-    add_atomic_op_specs(
-        &atomic_op_specs, ATOMIC_POOL,
-        {{"nn.max_pool2d", "nn.global_max_pool2d", "nn.global_avg_pool2d", "nn.sum_pool2d"}});
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_POOL,
+                        {{"nn.max_pool2d", "nn.global_max_pool2d", "nn.global_avg_pool2d",
+                          "nn.sum_pool2d", "nn.avg_pool2d"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_ADAPTIVEPOOL, {{"nn.adaptive_avg_pool2d"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_ELTWISE,
                         {{"cast"},
@@ -464,10 +468,12 @@ class AtomicGraph {
                          {"cast"},
                          {"nn.relu", "nn.prelu", "nn.leaky_relu", ""}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_ELTWISE,
-                        {{"cast"},
+                        {{"cast", ""},
+                         {"sum", ""},
                          {"add", "subtract", "multiply"},
                          {"nn.bias_add", ""},
                          {"right_shift", "round_right_shift", ""},
+                         {"add", ""},
                          {"clip", ""},
                          {"cast", ""}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_BIASADD,
@@ -491,6 +497,7 @@ class AtomicGraph {
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_RESHAPE, {{"expand_dims"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_DEVICECOPY, {{"device_copy"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_DENSE, {{"nn.dense"}, {"nn.bias_add", ""}});
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_PAD, {{"nn.pad"}});
     return std::move(atomic_op_specs);
   }
 

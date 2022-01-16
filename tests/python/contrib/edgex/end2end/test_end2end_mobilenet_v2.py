@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """Unit tests for mobilenet_v2"""
+import json
 import os
 import pytest
 import tvm
@@ -24,7 +25,6 @@ from tvm.contrib.edgex.testing import (
     check_edgex_relay_build,
     get_fused_functions,
     TempOpStrategy,
-    load_model_json_from_predev,
 )
 from tvm.contrib.edgex.relay.op.strategy import fschedule_general_vu
 import numpy as np
@@ -85,7 +85,8 @@ def get_mobilenet_v2():
         + "/pytorch/mobilenet_v2/quantized/mobilenet_v2.params"
     )
     assert os.path.exists(mod_file) and os.path.exists(params_file)
-    mod = load_model_json_from_predev(mod_file)
+    with open(mod_file, "r") as fi:
+        mod = tvm.ir.load_json(json.load(fi))
     with open(params_file, "rb") as fi:
         params = relay.load_param_dict(fi.read())
 

@@ -20,15 +20,9 @@ import pytest
 import json
 from tvm import testing
 from tvm import relay
-from tvm.contrib.edgex.testing import load_model_json_from_predev, get_graph_runtime_output
+from tvm.contrib.edgex.testing import get_graph_runtime_output
 from tvm.contrib.debugger import debug_runtime
 import numpy as np
-
-
-@pytest.mark.parametrize("net", ["resnet50", "inception_v1", "inception_v4", "mobilenet_v2"])
-def test_load_model_json_from_old_version(net):
-    mod_file = os.getenv("EDGEX_MODELS_DIR", "/tmp") + "/pytorch/%s/quantized/%s.json" % (net, net)
-    load_model_json_from_predev(mod_file)
 
 
 @pytest.mark.skip("for debug use")
@@ -90,9 +84,8 @@ def test_networks(net):
         net,
     )
     assert os.path.exists(mod_file) and os.path.exists(params_file)
-    # with open(mod_file, "r") as fi:
-    #   mod = tvm.ir.load_json(json.load(fi))
-    mod = load_model_json_from_predev(mod_file)
+    with open(mod_file, "r") as fi:
+        mod = tvm.ir.load_json(json.load(fi))
     with open(params_file, "rb") as fi:
         params = relay.load_param_dict(fi.read())
 
@@ -113,7 +106,7 @@ def test_networks(net):
 
 
 @pytest.mark.edgex_slow
-@pytest.mark.parametrize("net", ["inception_v1"])
+@pytest.mark.parametrize("net", ["inception_v1", "inception_v4", "densenet"])
 def test_more_networks(net):
     test_networks(net)
 

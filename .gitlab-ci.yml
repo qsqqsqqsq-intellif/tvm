@@ -22,6 +22,7 @@ stages:
 
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
+  GET_SOURCES_ATTEMPTS: 3
   CMAKE_BUILD_TYPE: Release
   DEP_ROOT: /workspace
   DCL_ROOT_DIR: $DEP_ROOT/de-dcl

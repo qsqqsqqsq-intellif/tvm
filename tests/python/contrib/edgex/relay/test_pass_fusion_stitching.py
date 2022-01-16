@@ -20,20 +20,16 @@ import pytest
 import json
 from tvm import relay
 from tvm.contrib.edgex.relay.transform import FusionStitch
-from tvm.contrib.edgex.testing import load_model_json_from_predev
 
 
-def get_fusion_stitch_mod(net, save=False, from_predev=False):
+def get_fusion_stitch_mod(net, save=False):
     mod_file = os.getenv("EDGEX_MODELS_DIR") + "/pytorch/%s/quantized/ori/%s.json" % (net, net)
     assert os.path.exists(mod_file)
-    if from_predev:
-        mod = load_model_json_from_predev(mod_file)
-    else:
-        with open(mod_file, "r") as fi:
-            mod = tvm.ir.load_json(json.load(fi))
-
+    with open(mod_file, "r") as fi:
+        mod = tvm.ir.load_json(json.load(fi))
     mod = relay.transform.InferType()(mod)
     mod = FusionStitch()(mod)
+
     if save:
         mod_file = os.getenv("EDGEX_MODELS_DIR") + "/pytorch/%s/quantized/%s.json" % (net, net)
         with open(mod_file, "w") as fo:
@@ -43,19 +39,17 @@ def get_fusion_stitch_mod(net, save=False, from_predev=False):
 
 @pytest.mark.parametrize("net", ["resnet50", "inception_v1"])
 def test_fusion_stitching(net):
-    model_dir = os.getenv("EDGEX_MODELS_DIR", "/tmp")
-    mod_file = model_dir + "/pytorch/%s/quantized/%s.json" % (
-        net,
-        net,
-    )
+    mod_file = os.getenv("EDGEX_MODELS_DIR", "/tmp") + "/pytorch/%s/quantized/%s.json" % (net, net)
     assert os.path.exists(mod_file)
-    expected_mod = load_model_json_from_predev(mod_file)
-    mod = get_fusion_stitch_mod(net, from_predev=True)
+    with open(mod_file, "r") as fi:
+        expected_mod = tvm.ir.load_json(json.load(fi))
+
+    mod = get_fusion_stitch_mod(net)
     assert tvm.ir.structural_equal(mod, expected_mod)
 
 
 @pytest.mark.edgex_slow
-@pytest.mark.parametrize("net", ["mobilenet_v2", "inception_v4"])
+@pytest.mark.parametrize("net", ["mobilenet_v2", "mobilenet_v2_qat", "inception_v4", "densenet"])
 def test_more_fusion_stitching(net):
     test_fusion_stitching(net)
 
