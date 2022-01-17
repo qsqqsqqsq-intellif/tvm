@@ -29,18 +29,14 @@ torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-if tvm.runtime.enabled("gpu"):
-    ctx = tvm.cuda()
-    target = "cuda"
-else:
-    ctx = tvm.cpu()
-    target = "llvm"
+ctx = tvm.cpu()
+target = "llvm"
 
 batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "densenet121"
-performance = {"float": 74.434, "int8": None}
+performance = {"float": 74.434, "int8": 74.4120}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
 all_op = [
