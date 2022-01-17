@@ -131,7 +131,7 @@ class Multiply:
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
         LOGGER.debug("[realize]-- MULTIPLY realize...")
-        if DataType in runtime_ctypes.__dict__:
+        if "DataType" in runtime_ctypes.__dict__:
             dtype = runtime_ctypes.DataType(self.input_config[old_node.args[0]]["dtype"])
         else:
             dtype = runtime_ctypes.TVMType(self.input_config[old_node.args[0]]["dtype"])
