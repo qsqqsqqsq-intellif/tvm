@@ -111,7 +111,7 @@ def get_mobilenet_v2():
     return mod, params
 
 
-@pytest.mark.edgex_slow
+@pytest.mark.skip("skip vu vacc i64 not support.")
 def test_mobilenet_v2_per_op():
     """test mobilenet_v2 all ops, run each fused graph independently"""
     mod, params = get_mobilenet_v2()
@@ -137,7 +137,7 @@ def test_mobilenet_v2_per_op():
             )
 
 
-@pytest.mark.edgex_slow
+@pytest.mark.skip("skip vu vacc i64 not support.")
 def test_mobilenet_v2_end2end():
     """test mobilenet_v2 end2end"""
     mod, params = get_mobilenet_v2()
