@@ -111,6 +111,21 @@ def eliminate_dequantize_quantize(node):
             cond2 = pre_arg.args[1].data.asnumpy() == node.args[1].data.asnumpy()
             cond3 = pre_arg.args[2].data.asnumpy() == node.args[2].data.asnumpy()
             if cond1 and cond2.all() and cond3.all():
+                ori_call = node.args[0].args[0]
+                if isinstance(ori_call.op, relay.Function):
+                    name = getattr(ori_call.op.attrs, "Composite")
+                    if not isinstance(name, str):
+                        name = name.value
+                else:
+                    name = ori_call.op.name
+
+                if name in ["nn.relu"]:
+                    r_datatype = node.attrs.out_dtype
+                    q_max_min = _get_dtype_info(r_datatype)
+                    return relay.clip(
+                        pre_arg.args[0], q_max_min["qmin"], q_max_min["qmax"], out_dtype=r_datatype
+                    )
+
                 return pre_arg.args[0]
 
     return node
@@ -260,8 +275,7 @@ def _quantize_shift(node):
                 zero_point = zero_point.reshape(tmp1)
 
             # todo modify this for identity to nnp300, in fact can just use the next line
-            simulate_300 = False
-            if not simulate_300:
+            if TARGET_NNP.startswith("nnp4"):
                 data = data / scale + zero_point
             # simulate tvm 300 round, farward +-inf
             else:

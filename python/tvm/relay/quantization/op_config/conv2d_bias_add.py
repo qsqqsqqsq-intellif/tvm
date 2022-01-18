@@ -267,6 +267,8 @@ class Conv2dBiasAdd:
                 conv2d_attrs["out_dtype"] = "int64"
             conv2d_node = relay.nn.conv2d(realized_args[0], realized_args[1], **conv2d_attrs)
             bias_attrs = dict(tmp[1].attrs)
+            if "ir_pass" in relay.__dict__:
+                bias_attrs["out_dtype"] = conv2d_attrs["out_dtype"]
             bias_node = relay.nn.bias_add(conv2d_node, realized_args[2], **bias_attrs)
 
             if self.input_config[old_node.args[0]]["dtype"] == "int16":
