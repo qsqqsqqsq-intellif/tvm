@@ -252,6 +252,13 @@ class FixedOpTwoArgs:
         LOGGER.debug("[realize] %s final max scale is:", self.name.upper())
         LOGGER.debug(scale_max)
 
+        # print("add left scale is")
+        # numpy.set_printoptions(precision=9, suppress=False)
+        # print(scale_left)
+        # print("add right scale is")
+        # numpy.set_printoptions(precision=9, suppress=False)
+        # print(scale_right)
+
         # get the final adjust scale
         self.adjust_input_config = {}
         self.adjust_input_config[old_node.args[0]] = {

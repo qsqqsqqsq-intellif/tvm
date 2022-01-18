@@ -250,7 +250,8 @@ class Conv2dBiasAdd:
             realized_args.append(new_arg)
 
         tmp = []
-
+        # print("weight sum is ", realized_args[1].data.asnumpy().flatten().sum())
+        # print("bias is ", realized_args[2].data)
         def fvisit(expr):
             if isinstance(expr, relay.Call) and expr != old_node:
                 tmp.append(expr)

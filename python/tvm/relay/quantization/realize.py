@@ -494,21 +494,24 @@ def _requantize_shift(node, multiplier):
             new_scale = relay.const(new_scale.astype("int16"))
             all_new_b = numpy.array(all_new_b).reshape(s_shape)
             all_new_b = relay.const(all_new_b.astype("int32"))
-            relay.multiply(data, new_scale, out_dtype="int64")
-            relay.round_right_shift(data, all_new_b, out_dtype="int64")
-            relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=q_dtype)
+            data = relay.multiply(data, new_scale, out_dtype="int64")
+            data = relay.round_right_shift(data, all_new_b, out_dtype="int64")
+            data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=q_dtype)
 
         elif "ir_pass" in relay.__dict__ and TARGET_NNP.startswith("nnp3") and multiplier == 1:
             new_scale = numpy.array(new_scale).reshape(s_shape)
             new_scale = relay.const(new_scale.astype("int8"))
             all_new_b = numpy.array(all_new_b).reshape(s_shape)
             all_new_b = relay.const(all_new_b.astype("int32"))
-            relay.multiply(data, new_scale, out_dtype="int32")
-            relay.round_right_shift(data, all_new_b, out_dtype="int32")
-            relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=q_dtype)
+            data = relay.multiply(data, new_scale, out_dtype="int32")
+            data = relay.round_right_shift(data, all_new_b, out_dtype="int32")
+            data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=q_dtype)
 
         elif "ir_pass" not in relay.__dict__ and TARGET_NNP.startswith("nnp3"):
             assert 0, "new tvm no support detvm requantize"
+
+        # print("new_scale:", new_scale.data.asnumpy().flatten()[:])
+        # print("new_b:", all_new_b.data.asnumpy().flatten()[:])
 
     else:
         raise NotImplementedError
