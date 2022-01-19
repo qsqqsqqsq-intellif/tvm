@@ -638,7 +638,7 @@ inline Tensor pool_impl_nd(const Tensor& x, const Array<PrimExpr>& kernel_size,
         },
         "tensor", kElementWise);
   } else if (pool_type == kSumPool) {
-    auto temp = do_pad ? pad(x, pad_before, pad_after, tvm::min_value(x->dtype), "pad_temp") : x;
+    auto temp = do_pad ? pad(x, pad_before, pad_after, 0, "pad_temp") : x;
     return tvm::te::compute(
         out_shape,
         [&](const Array<Var>& output) {
@@ -651,7 +651,7 @@ inline Tensor pool_impl_nd(const Tensor& x, const Array<PrimExpr>& kernel_size,
           }
           return tvm::sum(temp(indices), daxis);
         },
-        "tensor", "pool_max");
+        "tensor", "pool_sum");
   } else {
     LOG(ERROR) << "Unrecognized pool_type: " << pool_type;
     return x;
