@@ -65,18 +65,13 @@ class RemoveInputQuantize(ExprMutator):
                 visited.type_args,
             )
 
-        # compatible with nnp300
-        if (
-            is_call(visited.args[0], "cast")
-            and visited.args[0].attrs.dtype == self.net_in_dtype
-            and "ir_pass" not in relay.__dict__
-        ):
+        if is_call(visited.args[0], "cast") and visited.args[0].attrs.dtype == self.net_in_dtype:
             the_expr = visited.args[0].args[0]
             if is_call(the_expr, "clip"):
                 the_expr = the_expr.args[0]
                 if is_call(the_expr, "round"):
                     the_expr = the_expr.args[0]
-                    if is_call(the_expr, "divide"):
+                    if is_call(the_expr, "multiply"):
                         the_expr = the_expr.args[0]
                         if is_call(the_expr, "cast") and isinstance(the_expr.args[0], relay.Var):
                             self.convert = True
@@ -86,26 +81,6 @@ class RemoveInputQuantize(ExprMutator):
                                 visited.attrs,
                                 visited.type_args,
                             )
-
-        # compatible with nnp300
-        if (
-            is_call(visited.args[0], "clip")
-            and "ir_pass" in relay.__dict__
-            and visited.args[0].attrs.out_dtype == self.net_in_dtype
-        ):
-            the_expr = visited.args[0].args[0]
-            if is_call(the_expr, "round"):
-                the_expr = the_expr.args[0]
-                if is_call(the_expr, "divide"):
-                    the_expr = the_expr.args[0]
-                    if is_call(the_expr, "cast") and isinstance(the_expr.args[0], relay.Var):
-                        self.convert = True
-                        return relay.Call(
-                            visited.op,
-                            [the_expr.args[0], *visited.args[1:]],
-                            visited.attrs,
-                            visited.type_args,
-                        )
 
         return visited
 

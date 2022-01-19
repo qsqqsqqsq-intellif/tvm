@@ -119,7 +119,7 @@ def eliminate_dequantize_quantize(node):
                 else:
                     name = ori_call.op.name
 
-                if name in ["nn.relu"]:
+                if name in ["nn.relu", "nn.max_pool2d", "concatenate"]:
                     r_datatype = node.attrs.out_dtype
                     q_max_min = _get_dtype_info(r_datatype)
                     return relay.clip(
@@ -206,6 +206,7 @@ def _quantize_shift(node):
     shape = tmp.checked_type.concrete_shape
 
     if isinstance(data, (relay.Var, relay.Call, relay.TupleGetItem)):
+        scale = (1.0 / scale).astype("float32")
         if axis != -1:
             tmp1 = [1] * len(shape)
             tmp2 = shape[axis]
@@ -220,23 +221,18 @@ def _quantize_shift(node):
             data = relay.cast(data, "float16")
 
         if (zero_point == 0).all():
-            data = relay.divide(data, new_scale)
+            data = relay.multiply(data, new_scale)
             data = relay.round(data)
-            if "ir_pass" not in relay.__dict__:
-                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
-                data = relay.cast(data, dtype)
-            else:
-                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=dtype)
+            data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
+            data = relay.cast(data, dtype)
         else:
-            data = relay.divide(data, new_scale)
+            data = relay.multiply(data, new_scale)
             data = relay.round(data)
             data = relay.cast(data, "int32")
             data = relay.add(data, new_zero_point)
-            if "ir_pass" not in relay.__dict__:
-                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
-                data = relay.cast(data, dtype)
-            else:
-                data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=dtype)
+            data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"])
+            data = relay.cast(data, dtype)
+
     elif isinstance(data, relay.Constant):
         data = data.data.asnumpy()
 
