@@ -43,7 +43,7 @@ SUPPORTED_MODELS = get_all_models()
 batch_size = 1
 calibrate_num = 500
 model_name = "InceptionV4"
-performance = {"float": 80.142, "int8": 79.614}
+performance = {"float": 80.142, "int8": 79.866}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
 all_op = [
@@ -112,15 +112,6 @@ else:
     mod, params = get_relay_module(model_name, "tensorflow", "/data/share/demodels-lfs")
     # mod, params = get_relay_module(model_name, "tensorflow", "/home/yhh/Desktop/detvm/deepeye/demodels-lfs")
 
-
-quantize_config = {}
-quantize_config["call"] = {
-    "threshold": Threshold.MinMax,
-    "method": Method.Symmetry,
-    "dtype": "int8",
-}
-
-
 quantize_search = relay.quantization.QuantizeSearch(
     model_name=model_name,
     mod=mod,
@@ -134,7 +125,6 @@ quantize_search = relay.quantization.QuantizeSearch(
     mean=mean,
     scale=scale,
     compare_statistics=False,
-    quantize_config=quantize_config,
 )
 
 config = quantize_search.get_default_config()

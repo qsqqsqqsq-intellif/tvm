@@ -39,7 +39,7 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "googlenet"
-performance = {"float": 72.882, "int8": 72.504, "乘右移": 71.962}
+performance = {"float": 72.882, "int8": 72.6640}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
 all_op = [
