@@ -453,11 +453,11 @@ def pattern_match(mod):
     mod = Conv2dBiasAdd(mod).new_mod
     mod = Conv3dBiasAdd(mod).new_mod
     mod = DenseBiasAdd(mod).new_mod
-    # mod = HardSwish(mod).new_mod
-    # mod = HardSigmoid(mod).new_mod
+    mod = HardSwish(mod).new_mod
+    mod = HardSigmoid(mod).new_mod
     mod = LayerNorm(mod).new_mod
     mod = GELU(mod).new_mod
-    # mod = Swish(mod).new_mod
+    mod = Swish(mod).new_mod
     mod = HighDimensionDenseAdd(mod).new_mod
     mod = HighDimensionDense(mod).new_mod
     return mod

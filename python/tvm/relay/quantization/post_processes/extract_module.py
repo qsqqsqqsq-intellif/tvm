@@ -16,10 +16,13 @@
 # under the License.
 # pylint: disable=unused-argument,inconsistent-return-statements
 """extract_module"""
-import pickle
+# import pickle
+import json
 from collections import deque
 import tvm
 from tvm import relay
+
+# from tvm.relay.dataflow_pattern import is_constant, is_op, wildcard
 from tvm.relay.expr_functor import ExprMutator
 
 
@@ -66,10 +69,16 @@ class ExtractParamsPass(ExprMutator):
         self.count += 1
         for i in range(len(visit.args)):
             arg = visit.args[i]
-            if isinstance(arg, tvm.relay.Constant) and arg.data.shape:
+            if isinstance(arg, tvm.relay.Constant):
                 var_name = "{}_{}_arg_{}".format(visit.op.name, current_index, i)
-                var = relay.var(var_name, shape=arg.data.shape, dtype=arg.data.dtype)
-                self.params[var_name] = arg.data
+                shape = arg.data.shape
+                data = arg.data.asnumpy()
+                if not shape:
+                    out_shape = call.checked_type.shape
+                    shape = [1 for _ in out_shape]
+                    data = data.reshape(shape)
+                var = relay.var(var_name, shape=shape, dtype=arg.data.dtype)
+                self.params[var_name] = data
                 self.func_vars.append(var)
                 visit = replace_arg_of_expr(visit, i, var)
         return visit
@@ -210,62 +219,106 @@ class CutGraph(ExprMutator):
         return self.visit(func)
 
 
+# class CutVitGraph(ExprMutator):
+#     """cut vit graph"""
+
+#     def __init__(self):
+#         super().__init__()
+#         self.bias_num = 0
+#         input = wildcard()
+#         power = is_op("power")(input, is_constant())
+#         mul = is_op("multiply")(is_constant(), power)
+#         add = is_op("add")(input, mul)
+#         mul2 = is_op("multiply")(is_constant(), add)
+#         tanh = is_op("tanh")(mul2)
+#         mul3 = is_op("multiply")(is_constant(), input)
+#         add = is_op("add")(is_constant(), tanh)
+#         self.gelu = is_op("multiply")(mul3, add)
+#         self.begin = False
+#         self.add_cnt = 0
+#         self.body = None
+
+#     def visit_call(self, call):
+#         visited = super().visit_call(call)
+
+#         if self.begin and visited.op.name == "add":
+#             self.add_cnt = self.add_cnt + 1
+
+#         # self.body = visited
+
+#         if self.add_cnt >= 2 and not self.body:
+#             self.body = visited
+
+#         if self.body:
+#             visited = self.body
+
+#         if self.gelu.match(visited):
+#             self.begin = True
+
+#         return visited
+
+#     def visit_function(self, fn):
+#         params = fn.params
+#         super().visit_function(fn)
+
+#         return relay.Function(params, self.body)
+
+#     def run(self, func):
+#         return self.visit(func)
+
+
 def extract_module(mod, path, name, batch):
     """extract_module"""
 
-    pre_func = CutGraph().run(mod["main"])
+    # pre_func = CutGraph().run(mod["main"])
 
-    func, params = ExtractParamsPass().run(pre_func)
+    func, params = ExtractParamsPass().run(mod["main"])
     func = relay.frontend.common.infer_type(func)
 
-    # ShowMeta().run(func)
+    # with open(path + name + "_int.txt", "w+") as f:
+    #     f.write(func.__str__())
 
-    with open(path + name + "_int.txt", "w+") as f:
-        f.write(func.__str__())
+    # with open(path + name + "_params_int.pkl", "wb+") as f:
+    #     pickle.dump(params, f)
 
-    for k, _ in params.items():
-        params[k] = params[k].asnumpy()
+    save_mod = tvm.IRModule.from_expr(func)
 
-    with open(path + name + "_params_int.pkl", "wb+") as f:
-        pickle.dump(params, f)
+    with open(path + name + ".json", "w+") as f:
+        json.dump(tvm.ir.save_json(save_mod), f)
 
-    # import json
-    # with open(path + name + ".json", "w+") as f:
-    #     json.dump(tvm.ir.save_json(mod), f)
+    with open(path + name + "_params.params", "wb+") as f:
+        f.write(tvm.runtime.save_param_dict(params))
 
-    # with open(path + name + "_params.params", "wb+") as f:
-    #     f.write(tvm.runtime.save_param_dict(params))
+    # func = GetOutput().run(pre_func)
+    # new_mod = tvm.IRModule.from_expr(func)
 
-    func = GetOutput().run(pre_func)
-    new_mod = tvm.IRModule.from_expr(func)
+    # with tvm.transform.PassContext(opt_level=3):
+    #     graph, lib, params = relay.build(new_mod, "llvm")
+    #     runtime = tvm.contrib.graph_executor.create(graph, lib, tvm.cpu())
+    #     runtime.set_input(**params)
+    #     result = []
+    #     for key in batch.keys():
+    #         runtime.set_input(key, batch[key])
+    #         result.append(batch[key])
 
-    with tvm.transform.PassContext(opt_level=3):
-        graph, lib, params = relay.build(new_mod, "llvm")
-        runtime = tvm.contrib.graph_executor.create(graph, lib, tvm.cpu())
-        runtime.set_input(**params)
-        result = []
-        for key in batch.keys():
-            runtime.set_input(key, batch[key])
-            result.append(batch[key])
+    #     runtime.run()
+    #     num_outputs = runtime.get_num_outputs()
+    #     for j in range(0, num_outputs):
+    #         result.append(runtime.get_output(j).asnumpy())
 
-        runtime.run()
-        num_outputs = runtime.get_num_outputs()
-        for j in range(0, num_outputs):
-            result.append(runtime.get_output(j).asnumpy())
+    #     data_map = FilterResult(result).run(func)
+    #     # with open(path + name + "_data_int.pkl", 'wb+') as f:
+    #     #     pickle.dump(data_map, f)
+    #     #     exit()
 
-        data_map = FilterResult(result).run(func)
-        # with open(path + name + "_data_int.pkl", 'wb+') as f:
-        #     pickle.dump(data_map, f)
-        #     exit()
+    #     j = 0
+    #     xxx = {}
+    #     max_num = 99999
+    #     for key, value in data_map.items():
+    #         xxx[key] = value
+    #         if (j + 1) % max_num == 0 or (j + 1) == len(data_map):
+    #             with open(path + name + "_data_int_{}.pkl".format(int(j / max_num)), "wb+") as f:
+    #                 pickle.dump(xxx, f)
+    #             xxx.clear()
 
-        j = 0
-        xxx = {}
-        max_num = 99999
-        for key, value in data_map.items():
-            xxx[key] = value
-            if (j + 1) % max_num == 0 or (j + 1) == len(data_map):
-                with open(path + name + "_data_int_{}.pkl".format(int(j / max_num)), "wb+") as f:
-                    pickle.dump(xxx, f)
-                xxx.clear()
-
-            j = j + 1
+    #         j = j + 1

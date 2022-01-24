@@ -62,7 +62,8 @@ class ConvertMultiplyToConv(ExprMutator):
                 not isinstance(visited.args[0], relay.Call)
                 or visited.args[0].op.name not in ["nn.conv3d"]
             ):
-                assert len(shape1) == 4
+                if len(shape1) != 4:
+                    return visited
                 ichannel = shape0[1].value
                 ochannel = shape1[0].value
                 assert ichannel == ochannel

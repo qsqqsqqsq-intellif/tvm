@@ -159,7 +159,7 @@ class QuantizeSearch:
             arg = name_dict[k]
             if arg is None:
                 raise ValueError("Multiple args in the function have name %s" % k)
-            bind_dict[arg] = relay.expr.const(v)
+            bind_dict[arg] = relay.expr.const(v, v.dtype)
         return relay.expr.bind(func, bind_dict)
 
     def get_default_config(self):
