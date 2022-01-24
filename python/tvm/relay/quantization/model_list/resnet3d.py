@@ -49,19 +49,21 @@ all_op = [
 ]
 
 
+class ConvertBHWCtoBCHW(torch.nn.Module):
+    """Convert tensor from (B, H, W, C) to (B, C, H, W)"""
+
+    def forward(self, vid: torch.Tensor) -> torch.Tensor:
+        return vid.permute(0, 3, 1, 2)
+
+
+class ConvertBCHWtoCBHW(torch.nn.Module):
+    """Convert tensor from (B, C, H, W) to (C, B, H, W)"""
+
+    def forward(self, vid: torch.Tensor) -> torch.Tensor:
+        return vid.permute(1, 0, 2, 3)
+
+
 def prepare_data_loaders(data_path, batch_size):
-    class ConvertBHWCtoBCHW(torch.nn.Module):
-        """Convert tensor from (B, H, W, C) to (B, C, H, W)"""
-
-        def forward(self, vid: torch.Tensor) -> torch.Tensor:
-            return vid.permute(0, 3, 1, 2)
-
-    class ConvertBCHWtoCBHW(torch.nn.Module):
-        """Convert tensor from (B, C, H, W) to (C, B, H, W)"""
-
-        def forward(self, vid: torch.Tensor) -> torch.Tensor:
-            return vid.permute(1, 0, 2, 3)
-
     transform = torchvision.transforms.Compose(
         [
             ConvertBHWCtoBCHW(),
@@ -75,35 +77,31 @@ def prepare_data_loaders(data_path, batch_size):
         ]
     )
 
-    cache_path = data_path + "/val.pt"
+    cache_path = os.path.join(data_path, "val.pt")
 
     if os.path.exists(cache_path):
-        dataset_test = torch.load(cache_path)
-        dataset_test.transform = transform
+        dataset = torch.load(cache_path)
+        dataset.transform = transform
     else:
-        dataset_test = torchvision.datasets.Kinetics400(
-            data_path + "/val",
+        dataset = torchvision.datasets.Kinetics400(
+            os.path.join(data_path, "val"),
             frames_per_clip=16,
-            step_between_clips=1,
+            step_between_clips=16,
             transform=transform,
             num_workers=num_workers,
-            frame_rate=15,
-            extensions=(
-                "avi",
-                "mp4",
-            ),
+            frame_rate=30,
         )
 
-        torch.save(dataset_test, cache_path)
+        torch.save(dataset, cache_path)
 
-    sampler = UniformClipSampler(dataset_test.video_clips, 5)
+    sampler = UniformClipSampler(dataset.video_clips, 5)
 
     def collate_fn(batch):
         batch = [(d[0], d[2]) for d in batch]
         return torch.utils.data.dataloader.default_collate(batch)
 
     data_loader = torch.utils.data.DataLoader(
-        dataset_test,
+        dataset,
         batch_size=batch_size,
         sampler=sampler,
         num_workers=num_workers,
@@ -113,7 +111,7 @@ def prepare_data_loaders(data_path, batch_size):
 
 
 data_path = "/data/zhaojinxi/data/kinetics400"
-data_loader = prepare_data_loaders(data_path, 1)
+data_loader = prepare_data_loaders(data_path, batch_size)
 
 calibrate_data = []
 for i, (video, label) in enumerate(data_loader):
@@ -176,5 +174,5 @@ quantize_search = relay.quantization.QuantizeSearch(
 
 config = quantize_search.get_default_config()
 quantize_search.quantize(config)
-# quantize_search.visualize("post_processed", config)
+# quantize_search.visualize("post_process", config)
 quantize_search.evaluate("post_process", config)

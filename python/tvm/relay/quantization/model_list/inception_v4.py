@@ -21,8 +21,6 @@ from collections import namedtuple
 from acctest.model_zoo.utils import get_all_models
 from acctest.testing.nnp400.load_model import get_relay_module
 from acctest.testing.nnp400.inference import get_batch_process, evaluate
-from tvm.relay.quantization.threshold import Threshold
-from tvm.relay.quantization.method_dtype import Method
 import tvm
 from tvm import relay
 import tvm.relay.quantization
@@ -129,5 +127,5 @@ quantize_search = relay.quantization.QuantizeSearch(
 
 config = quantize_search.get_default_config()
 quantize_search.quantize(config)
-# quantize_search.visualize("post_processed", config)
+# quantize_search.visualize("post_process", config)
 quantize_search.evaluate("post_process", config)

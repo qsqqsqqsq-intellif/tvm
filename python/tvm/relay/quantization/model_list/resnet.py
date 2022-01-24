@@ -75,7 +75,7 @@ def prepare_data_loaders(data_path, batch_size):
 
 data_path = "/data/zhaojinxi/data/imagenet"
 # data_path = "/home/yhh/Desktop/dedatasets-lfs"
-data_loader = prepare_data_loaders(data_path, 1)
+data_loader = prepare_data_loaders(data_path, batch_size)
 
 calibrate_data = []
 for i, (image, label) in enumerate(data_loader):
@@ -138,5 +138,5 @@ quantize_search = relay.quantization.QuantizeSearch(
 
 config = quantize_search.get_default_config()
 quantize_search.quantize(config)
-# quantize_search.visualize("post_processed", config)
+# quantize_search.visualize("post_process", config)
 quantize_search.evaluate("post_process", config)

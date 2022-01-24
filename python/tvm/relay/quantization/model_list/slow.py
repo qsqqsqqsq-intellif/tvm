@@ -20,54 +20,67 @@ import tqdm
 import numpy
 import torch
 import torchvision
+from torchvision.transforms._transforms_video import CenterCropVideo, NormalizeVideo
+from pytorchvideo.data.encoded_video import EncodedVideo
+from pytorchvideo.transforms import ApplyTransformToKey, ShortSideScale, UniformTemporalSubsample
 import tvm
 from tvm import relay
-
 import tvm.relay.quantization
 
 torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-ctx = tvm.cpu()
-target = "llvm"
+if tvm.runtime.enabled("gpu"):
+    ctx = tvm.cuda()
+    target = "cuda"
+else:
+    ctx = tvm.cpu()
+    target = "llvm"
 
 batch_size = 1
 calibrate_num = 500
-num_workers = 8
-model_name = "densenet121"
-performance = {"float": 74.434, "int8": 74.4120}
+num_workers = 16
+model_name = "slow_r50"
+performance = {"float": 63.4735, "int8": None}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
-all_op = [
-    "conv2d_bias_add",
-    "nn.relu",
-    "nn.max_pool2d",
-    "concatenate",
-    "add",
-    "nn.conv2d",
-    "multiply",
-    "nn.avg_pool2d",
-    "nn.adaptive_avg_pool2d",
-    "reshape",
-    "squeeze",
-    "dense_bias_add",
-]
+all_op = []
 
 
 def prepare_data_loaders(data_path, batch_size):
-    dataset = torchvision.datasets.ImageFolder(
-        os.path.join(data_path, "val"),
-        torchvision.transforms.Compose(
+    transform = ApplyTransformToKey(
+        key="video",
+        transform=torchvision.transforms.Compose(
             [
-                torchvision.transforms.Resize(256),
-                torchvision.transforms.CenterCrop(224),
-                torchvision.transforms.ToTensor(),
-                # torchvision.transforms.Normalize(
-                #     mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                # ),
+                UniformTemporalSubsample(8),
+                # torchvision.transforms.Lambda(lambda x: x / 255.0),
+                # NormalizeVideo([0.45, 0.45, 0.45], [0.225, 0.225, 0.225]),
+                ShortSideScale(size=256),
+                CenterCropVideo(crop_size=(256, 256)),
             ]
         ),
+    )
+
+    def loader(path):
+        video = EncodedVideo.from_path(path)
+        video_data = video.get_clip(start_sec=0, end_sec=64 / 30)
+        video_data = transform(video_data)
+        inputs = video_data["video"]
+        return inputs
+
+    def is_valid_file(path):
+        try:
+            EncodedVideo.from_path(path)
+            valid = True
+        except:
+            valid = False
+        return valid
+
+    dataset = torchvision.datasets.DatasetFolder(
+        root=data_path,
+        loader=loader,
+        is_valid_file=is_valid_file,
     )
 
     sampler = torch.utils.data.RandomSampler(dataset)
@@ -77,16 +90,15 @@ def prepare_data_loaders(data_path, batch_size):
     return data_loader
 
 
-data_path = "/data/zhaojinxi/data/imagenet"
-# data_path = "/home/yhh/Desktop/dedatasets-lfs"
+data_path = "/data/zhaojinxi/data/kinetics400/val"
 data_loader = prepare_data_loaders(data_path, batch_size)
 
 calibrate_data = []
-for i, (image, label) in enumerate(data_loader):
+for i, (video, label) in enumerate(data_loader):
     if i >= (calibrate_num // batch_size):
         break
-    image = (image.numpy() * 255).astype(numpy.uint8)
-    calibrate_data.append({"input": image})
+    video = numpy.clip(video.numpy(), 0, 255).round().astype(numpy.uint8)
+    calibrate_data.append({"input": video})
 
 
 def yield_calibrate_data():
@@ -99,9 +111,9 @@ def evaluate(runtime):
     total = 0
 
     t = tqdm.tqdm(data_loader)
-    for image, label in t:
-        image = (image.numpy() * 255).astype(numpy.uint8)
-        data = {"input": image}
+    for video, label in t:
+        video = numpy.clip(video.numpy(), 0, 255).round().astype(numpy.uint8)
+        data = {"input": video}
         label = label.numpy()
         runtime.set_input(**data)
         runtime.run()
@@ -119,8 +131,8 @@ if os.path.exists(path):
     mod = None
     params = None
 else:
-    x = torch.randn([1, 3, 224, 224])
-    model = torch.hub.load("pytorch/vision:v0.10.0", model_name, pretrained=True)
+    model = torch.hub.load("facebookresearch/pytorchvideo", model_name, pretrained=True)
+    x = torch.randn([1, 3, 8, 256, 256])
     scripted_model = torch.jit.trace(model.eval(), x)
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
@@ -135,9 +147,8 @@ quantize_search = relay.quantization.QuantizeSearch(
     ctx=ctx,
     target=target,
     root_path=root_path,
-    mean=[0.485 * 255, 0.456 * 255, 0.406 * 255],
-    scale=[0.229 * 255, 0.224 * 255, 0.225 * 255],
-    opt_level=2,
+    mean=[0.45 * 255, 0.45 * 255, 0.45 * 255],
+    scale=[0.225 * 255, 0.225 * 255, 0.225 * 255],
     compare_statistics=False,
 )
 
