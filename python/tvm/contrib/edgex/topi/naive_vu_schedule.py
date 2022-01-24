@@ -66,7 +66,7 @@ def is_reduce_block(s, block):
 
 def is_param_buffer(buffer):
     """naively determine small buffer"""
-    return len([x for x in buffer.shape if x > 1]) == 1
+    return len([x for x in buffer.shape if x > 1]) <= 1
 
 
 def inline_all_blocks(s: EdgexSchedule):

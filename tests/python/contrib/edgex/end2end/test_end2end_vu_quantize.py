@@ -296,6 +296,57 @@ def quantize_i32_input(a: T.handle, mullt_norm: T.handle, shift_norm: T.handle, 
 # fmt: on
 
 
+@T.prim_func
+def quantize_per_tensor_i32_input(
+    a: T.handle, mullt_norm: T.handle, shift_norm: T.handle, out: T.handle
+) -> None:
+    c = T.var("int32")
+    h = T.var("int32")
+    w = T.var("int32")
+    A = T.match_buffer(a, [1, c, h, w], dtype="int32")
+    MulNorm = T.match_buffer(mullt_norm, [1, 1, 1, 1], dtype="uint8")
+    ShiftNorm = T.match_buffer(shift_norm, [1, 1, 1, 1], dtype="uint8")
+    C = T.match_buffer(out, [1, c, h, w], dtype="int8")
+    T_cast_add = T.alloc_buffer([1, c, h, w], dtype="int64")
+    T_cast_mulnorm = T.alloc_buffer([1, 1, 1, 1], dtype="int64")
+    T_cast_shiftnorm = T.alloc_buffer([1, 1, 1, 1], dtype="int64")
+    T_multiply = T.alloc_buffer([1, c, h, w], dtype="int64")
+    T_round_right_shift = T.alloc_buffer([1, c, h, w], dtype="int64")
+    T_clip = T.alloc_buffer([1, c, h, w], dtype="int64")
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
+        with T.block("cast_add"):
+            v0, v1, v2, v3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T_cast_add[v0, v1, v2, v3] = T.cast(A[v0, v1, v2, v3], "int64")
+    for i0, i1, i2, i3 in T.grid(1, 1, 1, 1):
+        with T.block("cast_mult_norm"):
+            v0, v1, v2, v3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T_cast_mulnorm[v0, v1, v2, v3] = T.cast(MulNorm[v0, v1, v2, v3], "int64")
+    for i0, i1, i2, i3 in T.grid(1, 1, 1, 1):
+        with T.block("cast_shift_norm"):
+            v0, v1, v2, v3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T_cast_shiftnorm[v0, v1, v2, v3] = T.cast(ShiftNorm[v0, v1, v2, v3], "int64")
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
+        with T.block("multiply"):
+            v0, v1, v2, v3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T_multiply[v0, v1, v2, v3] = T_cast_add[v0, v1, v2, v3] * T_cast_mulnorm[v0, 0, 0, 0]
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
+        with T.block("round_right_shift"):
+            v0, v1, v2, v3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T_round_right_shift[v0, v1, v2, v3] = T.nnp_round_right_shift(
+                T_multiply[v0, v1, v2, v3], T_cast_shiftnorm[v0, 0, 0, 0], dtype="int64"
+            )
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
+        with T.block("clip"):
+            v0, v1, v2, v3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T_clip[v0, v1, v2, v3] = T.max(
+                T.min(T_round_right_shift[v0, v1, v2, v3], T.int64(127)), T.int64(-128)
+            )
+    for i0, i1, i2, i3 in T.grid(1, c, h, w):
+        with T.block("cast_back_i8"):
+            v0, v1, v2, v3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            C[v0, v1, v2, v3] = T.cast(T_clip[v0, v1, v2, v3], "int8")
+
+
 def do_test_veltadd(channels, height, weight, has_add, has_relu):
     shape = [1, channels, height, weight]
     name = "veltadd%s%s_%d_%d_%d" % (
@@ -323,15 +374,21 @@ def do_test_veltadd(channels, height, weight, has_add, has_relu):
     check_edgex_tir_build(name, func, check_cpu=True, input_data=input_data)
 
 
-def do_test_i32_quantize(channels, height, weight):
+def do_test_i32_quantize(channels, height, weight, per_tensor):
     shape = [1, channels, height, weight]
     name = "quantize_i32_input_%d_%d_%d" % (channels, height, weight)
-    func = quantize_i32_input
+    if per_tensor:
+        func = quantize_per_tensor_i32_input
+        m = np.random.randint(0, 5, [1, 1, 1, 1]).astype("uint8")
+        s = np.random.randint(0, 9, [1, 1, 1, 1]).astype("uint8")
+    else:
+        func = quantize_i32_input
+        m = np.random.randint(0, 5, [channels, 1, 1]).astype("uint8")
+        s = np.random.randint(0, 9, [channels, 1, 1]).astype("uint8")
+    x = np.random.randint(-128, 127, shape).astype("int32")
     func = func.specialize({func.params[0]: tir.decl_buffer(shape)})
     func = naive_vu_schedule(func)
-    x = np.random.randint(-128, 127, shape).astype("int32")
-    m = np.random.randint(0, 5, [channels, 1, 1]).astype("uint8")
-    s = np.random.randint(0, 9, [channels, 1, 1]).astype("uint8")
+
     check_edgex_tir_build(name, func, check_cpu=True, input_data=[x, m, s])
 
 
@@ -356,8 +413,10 @@ def test_veltadd_unary_no_relu():
 
 
 def test_i32_quantize():
-    do_test_i32_quantize(channels=32, height=1, weight=1)
-    # do_test_i32_quantize(channels=16, height=14, weight=14)
+    do_test_i32_quantize(channels=32, height=1, weight=1, per_tensor=False)
+    do_test_i32_quantize(channels=32, height=1, weight=1, per_tensor=True)
+    # do_test_i32_quantize(channels=32, height=32, weight=32, per_tensor=False)
+    # do_test_i32_quantize(channels=16, height=14, weight=14, per_tensor=False)
 
 
 def test_setmode_side_effect():
