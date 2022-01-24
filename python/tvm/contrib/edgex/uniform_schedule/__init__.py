@@ -14,17 +14,6 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Edgex APIs of TVM python package.
-"""
-from .edgex_runtime import *
-from .edgex import *
-from . import tir
-from . import arith
-from . import topi
-from . import relay
-from . import base
-from . import uniform_schedule
-from .config import get_cfg
-from .base.edgexlog import EdgexLog as el
-
-el.i("[TVM VERSION is {}]".format(get_cfg().TVM_VERSION))
+"""Namespace for edgex uniform schedule"""
+from .graph import *
+from .scheduler_base import *
