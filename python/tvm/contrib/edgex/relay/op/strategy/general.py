@@ -32,7 +32,10 @@ def register_edgex_fschedule(op_name):
     """Workaround annotation for fschedule register"""
 
     def _wrapped_fschedule(fschedule):
-        if _op.get(op_name).has_attr("FEdgeXSchedule"):
+        if (
+            _op.get(op_name).has_attr("FEdgeXSchedule")
+            and _op.get(op_name).get_attr("FEdgeXSchedule") is not None
+        ):
             generic_fschedule = _op.get(op_name).get_attr("FEdgeXSchedule")
         else:
             generic_fschedule = get_native_generic_func(op_name + "_edgex_fschedule")
@@ -110,3 +113,9 @@ def round_right_shift_strategy_edgex(attrs, inputs, out_type, target):
 
 
 reg.register_schedule("cast_reinterpret", dummy_schedule)
+
+
+@register_edgex_fschedule("concatenate")
+def schedule_concatenate_edgex(attrs, prim_func, target):
+    """concatenate edgex schedule"""
+    return tvm.contrib.edgex.topi.schedule_concatenate_edgex_impl(prim_func, is_cpu=False)
