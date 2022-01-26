@@ -46,7 +46,7 @@ all_op = [
     "conv2d_bias_add",
     "clip",
     "add",
-    "nn.adaptive_avg_pool2d",
+    "nn.sum_pool2d",
     "reshape",
     "dense_bias_add",
 ]

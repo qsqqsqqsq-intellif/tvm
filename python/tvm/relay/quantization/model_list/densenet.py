@@ -44,13 +44,10 @@ all_op = [
     "nn.relu",
     "nn.max_pool2d",
     "concatenate",
-    "add",
     "nn.conv2d",
+    "nn.sum_pool2d",
     "multiply",
-    "nn.avg_pool2d",
-    "nn.adaptive_avg_pool2d",
     "reshape",
-    "squeeze",
     "dense_bias_add",
 ]
 

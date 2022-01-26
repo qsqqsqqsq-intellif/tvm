@@ -28,7 +28,7 @@ from ..realize import _realize_core, operate
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("Conv3dBiasAdd",)
+__all__ = ("Conv3DBiasAdd",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -49,7 +49,7 @@ DEFAULTCONFIG = {
 }
 
 
-class Conv3dBiasAdd:
+class Conv3DBiasAdd:
     """conv3d_bias_add"""
 
     name = "conv3d_bias_add"

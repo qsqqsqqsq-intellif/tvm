@@ -50,18 +50,18 @@ model_name = "yolov5s"
 performance = {"float": 37.098, "int8": None}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
-
 all_op = [
     "conv2d_bias_add",
-    "sigmoid",
-    "multiply",
+    "swish",
     "add",
     "concatenate",
     "nn.max_pool2d",
-    "image.resize",
+    "image.resize2d",
     "reshape",
     "transpose",
+    "sigmoid",
     "strided_slice",
+    "multiply",
     "subtract",
     "power",
 ]

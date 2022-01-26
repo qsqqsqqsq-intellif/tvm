@@ -28,7 +28,7 @@ from ..realize import _realize_core, operate
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("Conv3d",)
+__all__ = ("Conv3D",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -49,7 +49,7 @@ DEFAULTCONFIG = {
 }
 
 
-class Conv3d:
+class Conv3D:
     """conv3d"""
 
     name = "nn.conv3d"

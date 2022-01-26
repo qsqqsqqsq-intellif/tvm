@@ -49,8 +49,8 @@ all_op = [
     "nn.relu",
     "nn.max_pool2d",
     "add",
-    "nn.adaptive_avg_pool2d",
-    "image.resize",
+    "nn.sum_pool2d",
+    "image.resize2d",
     "concatenate",
 ]
 

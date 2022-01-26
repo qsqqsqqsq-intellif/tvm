@@ -74,6 +74,7 @@ IDENTITY_INPUT_DTYPE_OP = [
     "take",
     "nn.pad",
     "image.resize",
+    "image.resize2d",
     "nn.leaky_relu",
     "nn.prelu",
     "zeros_like",

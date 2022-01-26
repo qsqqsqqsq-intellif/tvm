@@ -23,11 +23,11 @@ from ..threshold import Threshold
 from ..method_dtype import Method, DataType
 from ..analyze import _conv_counter, oneargdeal
 from ..calibrate import _calibrate_core
-from ..realize import _realize_core
+from ..realize import _realize_core, operate
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("MaxPool2D",)
+__all__ = ("ImageResize2D",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -48,29 +48,26 @@ DEFAULTCONFIG = {
 }
 
 
-class MaxPool2D:
-    """max_pool2d"""
+class ImageResize2D:
+    """image resize 2d"""
 
-    name = "nn.max_pool2d"
+    name = "image.resize2d"
     controlable = False
 
     def __init__(self, node, vertex_config, config):
         cnt = _conv_counter()
 
         self.quantized = True  # TODO whether
-        # nnp300 quantized first!
-        if (
-            not vertex_config[node.args[0]].quantized
-            and "target" in config
-            and config["target"].startswith("nnp400")
-        ) or ("skip_conv_layers" in config and cnt - 1 in config["skip_conv_layers"]):
+        if not vertex_config[node.args[0]].quantized or (
+            "skip_conv_layers" in config and cnt - 1 in config["skip_conv_layers"]
+        ):
             self.quantized = False
 
         ci0 = config["input0"]
 
         oneargdeal(self, node, vertex_config, ci0)
 
-        LOGGER.debug("[anaylze] max_pool2d finish")
+        LOGGER.debug("[anaylze] image.resize2d finish")
 
     @classmethod
     def get_config(cls, config, call):
@@ -78,7 +75,7 @@ class MaxPool2D:
 
     def quantize_params(self, node, vertex_config):
         """quantize_params"""
-        LOGGER.info("[calibrate] maxpool2d start")
+        LOGGER.info("[calibrate] image.resize2d start...")
         arg = node.args[0]
         input_config = self.input_config[arg]
 
@@ -95,5 +92,12 @@ class MaxPool2D:
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
-        new_node = relay.nn.max_pool2d(new_arg, **dict(new_node.attrs))
+        if self.quantized:
+            new_node = relay.image.resize2d(new_arg, **dict(new_node.attrs))
+            return new_node
+
+        tmp = relay.frontend.common.infer_type(new_arg)
+        if tmp.checked_type.dtype.startswith("int"):
+            new_arg = operate("dequantize", new_arg, self.input_config[old_node.args[0]], {}, True)
+        new_node = relay.image.resize2d(new_arg, **dict(new_node.attrs))
         return new_node

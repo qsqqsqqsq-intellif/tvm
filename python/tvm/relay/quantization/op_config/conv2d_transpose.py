@@ -28,7 +28,7 @@ from ..realize import _realize_core, operate
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("Conv2dTranspose",)
+__all__ = ("Conv2DTranspose",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -49,7 +49,7 @@ DEFAULTCONFIG = {
 }
 
 
-class Conv2dTranspose:
+class Conv2DTranspose:
     """conv2d"""
 
     name = "nn.conv2d_transpose"

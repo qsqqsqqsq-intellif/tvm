@@ -44,9 +44,8 @@ all_op = [
     "nn.relu",
     "nn.max_pool2d",
     "add",
-    "nn.adaptive_avg_pool2d",
+    "nn.sum_pool2d",
     "reshape",
-    "squeeze",
     "dense_bias_add",
 ]
 

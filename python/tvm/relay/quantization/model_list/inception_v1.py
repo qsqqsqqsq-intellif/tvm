@@ -47,7 +47,7 @@ all_op = [
     "nn.relu",
     "nn.max_pool2d",
     "concatenate",
-    "nn.avg_pool2d",
+    "nn.sum_pool2d",
     "nn.batch_flatten",
     "dense_bias_add",
 ]

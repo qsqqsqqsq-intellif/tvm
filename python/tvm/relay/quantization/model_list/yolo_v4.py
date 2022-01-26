@@ -38,23 +38,23 @@ performance = {"float": 64.088, "int8": None}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
 all_op = [
+    "conv2d_bias_add",
     "multiply",
     "nn.conv2d",
-    "add",
     "exp",
+    "add",
     "log",
     "tanh",
-    "nn.pad",
     "concatenate",
-    "maximum",
+    "nn.leaky_relu",
     "nn.max_pool2d",
-    "image.resize",
-    "conv2d_bias_add",
+    "image.resize2d",
     "reshape",
     "split",
     "sigmoid",
     "subtract",
 ]
+
 
 Config = namedtuple(
     "Config",
