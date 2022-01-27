@@ -20,7 +20,7 @@ import os
 import pytest
 import tvm
 from tvm import relay
-from tvm.contrib.edgex.relay.transform import ConvertDepthwiseConv2DToConv2D
+from tvm.contrib.edgex.relay.transform import ConvertDepthwiseConv2D
 from tvm.contrib.edgex.testing import (
     check_edgex_relay_build,
     get_fused_functions,
@@ -104,8 +104,7 @@ def get_resnet50():
             norm = np.maximum(np.minimum(norm, 2 ** 20), -(2 ** 20))
             params[k] = tvm.nd.array(norm)
 
-    mod, params = ConvertDepthwiseConv2DToConv2D(params).run(mod)
-    mod = relay.transform.InferType()(mod)
+    mod, params = ConvertDepthwiseConv2D(mod, params)
     return mod, params
 
 

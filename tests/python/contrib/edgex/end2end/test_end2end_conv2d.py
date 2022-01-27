@@ -21,7 +21,7 @@ from tvm.ir.module import IRModule
 import tvm.testing
 import tvm.contrib.edgex
 from tvm.contrib.edgex.relay.transform import (
-    ConvertDepthwiseConv2DToConv2D,
+    ConvertDepthwiseConv2D,
 )
 from tvm.contrib.edgex.testing import check_edgex_relay_build
 from tvm.relay.quantization.relay_ops import round_right_shift
@@ -42,7 +42,7 @@ def do_test_single_conv2d(
     if groups > 1:
         mod = relay.transform.DefuseOps()(mod)
         func_with_params = bind_params_by_name(mod["main"], relay_params)
-        mod = IRModule.from_expr(ConvertDepthwiseConv2DToConv2D().run(func_with_params))
+        mod, relay_params = ConvertDepthwiseConv2D(mod, relay_params)
         mod = relay.transform.FoldConstant()(mod)
     mod = relay.transform.FuseOps(fuse_opt_level=0)(mod)
     check_edgex_relay_build(mod, params=relay_params, check_cpu=True, test_fused=True)
@@ -108,6 +108,19 @@ def test_single_depthwise_conv2d_end2end():
         padding=[0, 0, 0, 0],
         dilation=[1, 1],
         kernel_size=[1, 1],
+        out_dtype="int32",
+    )
+    # large group number
+    do_test_single_conv2d(
+        input_shape=[1, 960, 7, 7],
+        input_dtype="uint8",
+        weight_shape=[960, 1, 3, 3],
+        weight_dtype="int8",
+        groups=960,
+        strides=[1, 1],
+        padding=[0, 0, 0, 0],
+        dilation=[1, 1],
+        kernel_size=[3, 3],
         out_dtype="int32",
     )
 
