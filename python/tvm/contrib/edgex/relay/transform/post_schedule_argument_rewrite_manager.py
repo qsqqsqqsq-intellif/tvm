@@ -32,7 +32,7 @@ class PostScheduleArgumentRewriteManager:
         self.schedule = schedule
         self.cur_params = []
         self.updates = []
-        self.__update_func_info()
+        self.update_func_info()
         self.origin_params = self.cur_params
 
     def trace_update(self, origin_buf, new_buf, forward_transform, backward_transform):
@@ -75,7 +75,7 @@ class PostScheduleArgumentRewriteManager:
             ), "Do not support local <-> function param buffer conversions"
             return
         self.updates.append((origin_idxs, new_idxs, forward_transform, backward_transform))
-        self.__update_func_info()
+        self.update_func_info()
 
     def has_argument_rewrite(self):
         return len(self.updates) > 0
@@ -191,7 +191,7 @@ class PostScheduleArgumentRewriteManager:
             func.params, func.body, func.ret_type, func.buffer_map, dict_attr, func.span
         )
 
-    def __update_func_info(self):
+    def update_func_info(self):
         func = self.schedule.mod[self.funcname]
         self.cur_params = [
             (p, func.buffer_map[p] if p in func.buffer_map else None) for p in func.params

@@ -427,7 +427,140 @@ def test_consecutive_small_conv_sharing_dm():
     )
 
 
+@T.prim_func
+def conv2d_NCHWc(
+    x: T.handle,
+    weight: T.handle,
+    y: T.handle,
+    stride_h: T.int32,
+    stride_w: T.int32,
+    pad_top: T.int32,
+    pad_left: T.int32,
+    pad_bottom: T.int32,
+    pad_right: T.int32,
+) -> None:
+    n = T.var("int32")
+    c_i = T.var("int32")
+    c_o = T.var("int32")
+    c_b = T.var("int32")
+    h = T.var("int32")
+    w = T.var("int32")
+    k_h = T.var("int32")
+    k_w = T.var("int32")
+    X = T.match_buffer(x, [n, c_i, h, w, c_b], dtype="int8")
+    W = T.match_buffer(weight, [c_o, c_i, k_h, k_w, c_b, c_b], dtype="int8")
+    Y = T.match_buffer(
+        y,
+        [
+            n,
+            c_o,
+            (h + pad_top + pad_bottom - k_h) // stride_h + 1,
+            (w + pad_left + pad_right - k_w) // stride_w + 1,
+            c_b,
+        ],
+        dtype="int32",
+    )
+
+    # pad data first
+    Xpad = T.alloc_buffer(
+        [n, c_i, h + pad_top + pad_bottom, w + pad_left + pad_right, c_b], dtype="int8"
+    )
+    for i0, i1, i2, i3, i4 in T.grid(
+        n, c_i, h + pad_top + pad_bottom, w + pad_left + pad_right, c_b
+    ):
+        with T.block("pad_data"):
+            ax0, ax1, ax2, ax3, ax4 = T.axis.remap("SSSSS", [i0, i1, i2, i3, i4])
+            Xpad[ax0, ax1, ax2, ax3, ax4] = T.if_then_else(
+                T.likely(pad_top <= ax2, dtype="bool")
+                and T.likely(ax2 < h + pad_bottom, dtype="bool")
+                and T.likely(pad_left <= ax3, dtype="bool")
+                and T.likely(ax3 < w + pad_right, dtype="bool"),
+                X[ax0, ax1, ax2 - pad_top, ax3 - pad_left, ax4],
+                T.int8(0),
+                dtype="int8",
+            )
+
+    # compute conv2d_NCHWc
+    # nn:1, co:c_o/oc_chunk, oh:o_h, ow:o_w, ic:i_c, kh:k_h, kw:k_w, cb:c_b/oc_block
+    for i0, i1, i2, i3, i4, i5, i6, i7 in T.grid(
+        n,
+        c_o,
+        (h + pad_top + pad_bottom - k_h) // stride_h + 1,
+        (w + pad_left + pad_right - k_w) // stride_w + 1,
+        c_b,
+        c_i * c_b,
+        k_h,
+        k_w,
+    ):
+        with T.block("conv2d_NCHWc"):
+            nn, co, oh, ow, cb, ic, kh, kw = T.axis.remap(
+                "SSSSSRRR", [i0, i1, i2, i3, i4, i5, i6, i7]
+            )
+            with T.init():
+                Y[nn, co, oh, ow, cb] = 0
+            Y[nn, co, oh, ow, cb] += (
+                T.cast(
+                    Xpad[
+                        nn,
+                        T.floordiv(ic, c_b),
+                        oh * stride_h + kh,
+                        ow * stride_w + kw,
+                        T.floormod(ic, c_b),
+                    ],
+                    "int32",
+                )
+                * T.cast(W[co, T.floordiv(ic, c_b), kh, kw, T.floormod(ic, c_b), cb], "int32")
+            )
+
+
+def test_tir_func_conv2d_NCHW16c():
+    n, c_i, c_o, c_b, h, w = 1, 1, 4, 16, 224, 224
+    strides = [2, 2]
+    kernel_size = [7, 7]
+    padding = [3, 3, 3, 3]
+    dilation = [1, 1]
+    input_shape = [n, c_i, h, w, c_b]
+    weight_shape = [c_o, c_i, *kernel_size, c_b, c_b]
+    primfunc = conv2d_NCHWc
+    x, w, _, stride_h, stride_w, pad_top, pad_left, pad_bottom, pad_right = conv2d_NCHWc.params
+    primfunc = primfunc.specialize(
+        {
+            x: tir.decl_buffer(input_shape, "int8"),
+            w: tir.decl_buffer(weight_shape, "int8"),
+            stride_h: strides[0],
+            stride_w: strides[1],
+            pad_top: padding[0],
+            pad_left: padding[1],
+            pad_bottom: padding[2],
+            pad_right: padding[3],
+        }
+    )
+
+    def fschedule(attrs, func, target):
+        s = EdgexSchedule(func)
+        relay_rewrite_mgr = PostScheduleArgumentRewriteManager(s)
+        conv = s.get_block("conv2d_NCHWc")
+        schedule_edgex_conv_block(
+            s,
+            conv,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            groups=1,
+            layout="NCHW16c",
+            kernel_layout="OIHW16i16o",
+            relay_rewrite_mgr=relay_rewrite_mgr,
+        )
+        return relay_rewrite_mgr.create_annotated_func()
+
+    check_edgex_tir_build(
+        "tir_conv2d_NCHWc", primfunc, edgex_fschedule=fschedule, output_idx=2, data_range=1
+    )
+
+
 if __name__ == "__main__":
     test_tir_func_single_conv2d()
     test_tir_func_quantized_conv2d()
     test_consecutive_small_conv_sharing_dm()
+    test_tir_func_conv2d_NCHW16c()

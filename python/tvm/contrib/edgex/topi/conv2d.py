@@ -17,6 +17,7 @@
 # pylint: disable=invalid-name, missing-function-docstring, unused-argument, unexpected-keyword-arg
 """Conv2D schedule on edgex"""
 import functools
+import re
 import tvm
 from tvm import tir, relay
 from tvm.topi.nn.utils import get_pad_tuple
@@ -73,6 +74,8 @@ class ScheduleConv2d:
         padding,
         dilation,
         groups,
+        layout,
+        kernel_layout,
         relay_rewrite_mgr: PostScheduleArgumentRewriteManager = None,
         cfg: Conv2dScheduleConfig = None,
     ):
@@ -94,10 +97,23 @@ class ScheduleConv2d:
         self._weight_dtype = weight_dtype
         self._output_dtype = output_dtype
         self._groups = groups
+        self._layout = layout
+        self._kernel_layout = kernel_layout
         self._kernel_size = kernel_size
         self._strides = strides
         self._padding = padding
         self._dilation = dilation
+        self._interleaved = re.match(r"NCHW(\d*)c", layout)
+        self._input_C = self._input_shape[1] * (self._input_shape[-1] if self._interleaved else 1)
+        self._weight_O = self._weight_shape[0] * (
+            self._weight_shape[-1] if self._interleaved else 1
+        )
+        self._weight_I = self._weight_shape[1] * (
+            self._weight_shape[-2] if self._interleaved else 1
+        )
+        self._output_C = self._output_shape[1] * (
+            self._output_shape[-1] if self._interleaved else 1
+        )
 
         # conv internal attrs
         self._epsilon = 0
@@ -126,15 +142,23 @@ class ScheduleConv2d:
         conv,
     ):
         """Rewrite conv2d weight layout by edgex cube weight layout convention"""
+        # schedule use OIHW weight layout
+        if self._interleaved:
+            co, ci, kh, kw, ib, ob = self._sch.get_read_buffer_axes(conv, 2)
+            self._sch.reorder_buffer(co, ob, ci, ib, kh, kw)
+            self._sch.fuse_buffer(co, ob)
+            self._sch.fuse_buffer(ci, ib)
+            if self._relay_rewrite_mgr is not None:
+                self._relay_rewrite_mgr.update_func_info()
         co, ci, kh, kw = self._sch.get_read_buffer_axes(conv, 2)
         origin_weight_buffer = self._sch.get_buffer_of(co)
-        num_co_group = self._weight_shape[0] // self._groups
+        num_co_group = self._weight_O // self._groups
         if self._cfg.tile_co:
             num_co_group_tile = num_co_group // self._cfg.tile_co_num
         else:
             num_co_group_tile = num_co_group
-        num_ci_group = self._weight_shape[1]
-        kernel_size = self._weight_shape[2:]
+        num_ci_group = self._weight_I
+        kernel_size = self._weight_shape[2:4]
         alpha = 16
         beta = self._ci_para_lines
         # get the loop value.
@@ -346,20 +370,25 @@ class ScheduleConv2d:
         eidma,
     ):
         """Tensorize eidma block"""
-        n, c, h, w = self._sch.get_write_buffer_axes(eidma, 0)
+        axes = self._sch.get_write_buffer_axes(eidma, 0)
+        n, c, h, w = axes[:4]
         group, ci_group = self._sch.split_buffer(c, factors=[self._groups, None])
-        c1, c0 = self._sch.split_buffer(ci_group, factor=self._ci_para_lines)
-        self._sch.reorder_buffer(n, group, c1, h, w, c0)
+        if not self._interleaved:
+            c1, c0 = self._sch.split_buffer(ci_group, factor=self._ci_para_lines)
+            self._sch.reorder_buffer(n, group, c1, h, w, c0)
 
         if self._cfg.tile_co:
-            _, n, c, h, w = self._sch.get_loops(eidma)
+            loops = self._sch.get_loops(eidma)
+            n, c, h, w = loops[1:5]
         else:
-            n, c, h, w = self._sch.get_loops(eidma)
+            loops = self._sch.get_loops(eidma)
+            n, c, h, w = loops[:4]
         group, ci_group = self._sch.split(c, factors=[self._groups, None])
-        c1, c0 = self._sch.split(ci_group, factors=[None, self._ci_para_lines])
-        self._sch.reorder(n, group, c1, h, w, c0)
+        if not self._interleaved:
+            c1, c0 = self._sch.split(ci_group, factors=[None, self._ci_para_lines])
+            self._sch.reorder(n, group, c1, h, w, c0)
 
-        if self._input_shape[1] % self._ci_para_lines != 0:
+        if self._input_C % self._ci_para_lines != 0:
             self._sch.loop_partition([c1])
 
         if self._cfg.tile_co:
@@ -385,15 +414,19 @@ class ScheduleConv2d:
         dilation,
     ):
         """Tensorize idma block"""
-        n, c, h, w = self._sch.get_write_buffer_axes(idma, 0)
+        axes = self._sch.get_write_buffer_axes(idma, 0)
+        n, c, h, w = axes[:4]
         group, ci_group = self._sch.split_buffer(c, factors=[self._groups, None])
-        c1, c0 = self._sch.split_buffer(ci_group, factor=self._ci_para_lines)
-        self._sch.reorder_buffer(n, group, c1, h, w, c0)
+        if not self._interleaved:
+            c1, c0 = self._sch.split_buffer(ci_group, factor=self._ci_para_lines)
+            self._sch.reorder_buffer(n, group, c1, h, w, c0)
 
         if self._cfg.tile_co:
-            _, n, c, h, w = self._sch.get_loops(idma)
+            loops = self._sch.get_loops(idma)
+            n, c, h, w = loops[1:5]
         else:
-            n, c, h, w = self._sch.get_loops(idma)
+            loops = self._sch.get_loops(idma)
+            n, c, h, w = loops[:4]
         group, ci_group = self._sch.split(c, factors=[self._groups, None])
 
         # idma write dm buffer should align last dimension with 16/8
@@ -406,7 +439,7 @@ class ScheduleConv2d:
         )
 
         dtype_id, elem_bytes = EDGEX_DTYPE_INFO[self._input_dtype]
-        ci_row_offset = self._ci_para_lines * self._input_shape[-1] * elem_bytes
+        ci_row_offset = self._ci_para_lines * self._input_shape[3] * elem_bytes
         self.tensorize_dma(
             idma,
             "nnp_idma_load",
@@ -446,7 +479,7 @@ class ScheduleConv2d:
                 "co_w_idma": self._output_shape[3],
                 "pad_v_idma": 0,  # padding value
                 "num_group_idma": self._groups,
-                "num_ci_group_idma": self._input_shape[1] // self._groups,
+                "num_ci_group_idma": self._input_C // self._groups,
                 "pad_mode_idma": 0,  # padding mode, 0:constant padding(pad_v); 1:edge padding
                 "pad_bh_idma": 0,
                 "pad_f_idma": 0,
@@ -474,7 +507,7 @@ class ScheduleConv2d:
                 "group_offset_idma": int(
                     tvm.tir.ceil(
                         tvm.tir.div(
-                            float(self._input_shape[1] // self._groups), float(self._ci_para_lines)
+                            float(self._input_C // self._groups), float(self._ci_para_lines)
                         )
                     ).value
                 )
@@ -590,23 +623,30 @@ class ScheduleConv2d:
 
     def tensorize_odma(self, odma, strides):
         """Tensorize odma block"""
-        n, c, h, w = self._sch.get_write_buffer_axes(odma, 0)
+        axes = self._sch.get_write_buffer_axes(odma, 0)
+        n, c, h, w = axes[:4]
         if self._groups > 1:
             group, co_group = self._sch.split_buffer(c, factors=[self._groups, None])
             if self._cfg.tile_co:
                 co_group_o, co_group_i = self._sch.split_buffer(
                     co_group, nparts=self._cfg.tile_co_num
                 )
-                c1, c0 = self._sch.split_buffer(co_group_i, factor=16)
-                self._sch.reorder_buffer(co_group_o, n, group, c1, h, w, c0)
+                if self._interleaved:
+                    self._sch.reorder_buffer(co_group_o, n, group, co_group_i, h, w, axes[-1])
+                else:
+                    c1, c0 = self._sch.split_buffer(co_group_i, factor=16)
+                    self._sch.reorder_buffer(co_group_o, n, group, c1, h, w, c0)
             else:
                 c1, c0 = self._sch.split_buffer(co_group, factor=16)
                 self._sch.reorder_buffer(n, group, c1, h, w, c0)
         else:
             if self._cfg.tile_co:
                 co_o, co_i = self._sch.split_buffer(c, nparts=self._cfg.tile_co_num)
-                c1, c0 = self._sch.split_buffer(co_i, factor=16)
-                self._sch.reorder_buffer(co_o, n, c1, h, w, c0)
+                if self._interleaved:
+                    self._sch.reorder_buffer(co_o, n, co_i, h, w, axes[-1])
+                else:
+                    c1, c0 = self._sch.split_buffer(co_i, factor=16)
+                    self._sch.reorder_buffer(co_o, n, c1, h, w, c0)
             else:
                 c1, c0 = self._sch.split_buffer(c, factor=16)
                 self._sch.reorder_buffer(n, c1, h, w, c0)
@@ -623,12 +663,12 @@ class ScheduleConv2d:
         else:
             el.e("Not support dtype: %s" % self._output_dtype)
         co_dense_offset = (
-            lines * self._output_shape[-1] * self._output_shape[-2] * self._odma_out_elem_bytes
+            lines * self._output_shape[3] * self._output_shape[2] * self._odma_out_elem_bytes
         )
         if self._cfg.tile_co:
-            num_co_group = self._output_shape[1] // self._groups // self._cfg.tile_co_num
+            num_co_group = self._output_C // self._groups // self._cfg.tile_co_num
         else:
-            num_co_group = self._output_shape[1] // self._groups
+            num_co_group = self._output_C // self._groups
         self.tensorize_dma(
             odma,
             "nnp_odma_store",
@@ -695,16 +735,20 @@ class ScheduleConv2d:
     def tensorize_eodma(self, eodma):
         """Tensorize eodma block"""
         if self._cfg.tile_co:
-            _, _, c, _, _ = self._sch.get_loops(eodma)
-            co_group_tile = self._output_shape[1] // self._groups // self._cfg.tile_co_num
+            loops = self._sch.get_loops(eodma)
+            c = loops[2]
+            co_group_tile = self._output_C // self._groups // self._cfg.tile_co_num
         else:
-            _, c, _, _ = self._sch.get_loops(eodma)
-            co_group_tile = self._output_shape[1] // self._groups
+            loops = self._sch.get_loops(eodma)
+            c = loops[1]
+            co_group_tile = self._output_C // self._groups
         if self._groups > 1:
             _, co_group = self._sch.split(c, factors=[self._groups, None])
-            c1, _ = self._sch.split(co_group, factors=[None, 16])
+            if not self._interleaved:
+                c1, _ = self._sch.split(co_group, factors=[None, 16])
         else:
-            c1, _ = self._sch.split(c, factors=[None, 16])
+            if not self._interleaved:
+                c1, _ = self._sch.split(c, factors=[None, 16])
 
         # eodma write dm buffer should align c0 dimension with 16
         odma = get_producer_block(self._sch, eodma, 0)
@@ -789,7 +833,7 @@ class ScheduleConv2d:
         s = self._sch
 
         # sanity checks
-        n_channel = self._weight_shape[0]
+        n_channel = self._weight_O
         assert relu_multiply_param_buf is None and relu_shift_param_buf is None
         has_bias = bias_param_buf is not None
         if has_bias:
@@ -929,7 +973,11 @@ class ScheduleConv2d:
             self._psum_out_en, self._output_dtype, self._int_type
         )
         swift_tile_cfg(
-            self._cfg, self._global_hw_cfg, self._output_shape, self._odma_out_elem_bytes
+            self._cfg,
+            self._global_hw_cfg,
+            self._output_shape,
+            self._odma_out_elem_bytes,
+            self._layout,
         )
 
         # read weight from ddr -> dm -> wbuf, refactor weight layouts
@@ -939,7 +987,9 @@ class ScheduleConv2d:
 
         # schedule tiling
         if self._cfg.tile_co:
-            no, co, _, _ = self._sch.get_loops(last_Y_block)
+            # tile C dim for r"NCHW(\d*c)?" layout
+            loops = self._sch.get_loops(last_Y_block)
+            no, co = loops[:2]
             co_o, co_i = self._sch.split(co, factors=[self._cfg.tile_co_num, None])
             self._sch.reorder(co_o, no, co_i)
             if Ydm != last_Y_block:  # output ddr exists
@@ -956,10 +1006,10 @@ class ScheduleConv2d:
             self._sch.pragma(
                 self._sch.get_loops(Ydm)[1],
                 "nnp_num_co",
-                self._output_shape[1] // self._cfg.tile_co_num,
+                self._output_C // self._cfg.tile_co_num,
             )
         else:
-            self._sch.pragma(self._sch.get_loops(Ydm)[0], "nnp_num_co", self._output_shape[1])
+            self._sch.pragma(self._sch.get_loops(Ydm)[0], "nnp_num_co", self._output_C)
 
         # block tensorizations
         self.__conv2d_tensorize(Xdm, Wdm, Bdm, Xbuf, Wbuf, Bbuf, Ydm, Yddr, Conv)
@@ -973,10 +1023,14 @@ def schedule_edgex_conv_block(
     padding,
     dilation,
     groups,
+    layout="NCHW",
+    kernel_layout="OIHW",
     relay_rewrite_mgr=None,
     cfg=None,
 ):
     """schedule edgex convolution on current schedule state"""
+    if not layout.startswith("NCHW") and kernel_layout.startswith("OIHW"):
+        el.e(r"Only support 'NCHW(\d*c)?' and 'OIHW(\d*i\d*o)?' layout.")
     block_stmt = sched.get_sref(conv).stmt
     output_buffer = block_stmt.reads[0].buffer
     input_buffer = block_stmt.reads[1].buffer
@@ -1006,6 +1060,8 @@ def schedule_edgex_conv_block(
         padding=padding,
         dilation=dilation,
         groups=groups,
+        layout=layout,
+        kernel_layout=kernel_layout,
         relay_rewrite_mgr=relay_rewrite_mgr,
         cfg=cfg,
     )
@@ -1020,6 +1076,8 @@ def conv2d_nchw_tir_schedule(attrs, prim_func, tgt):
     padding = attrs.get_int_tuple("padding")
     padding = get_pad_tuple(padding, kernel_size)
     groups = attrs.groups
+    layout = attrs.data_layout
+    kernel_layout = attrs.kernel_layout
     sched = EdgexSchedule(prim_func)
     relay_rewrite_mgr = PostScheduleArgumentRewriteManager(sched)
     conv_block = sched.get_block("compute")
@@ -1031,6 +1089,8 @@ def conv2d_nchw_tir_schedule(attrs, prim_func, tgt):
         padding=padding,
         dilation=dilation,
         groups=groups,
+        layout=layout,
+        kernel_layout=kernel_layout,
         relay_rewrite_mgr=relay_rewrite_mgr,
     )
     return relay_rewrite_mgr.create_annotated_func()

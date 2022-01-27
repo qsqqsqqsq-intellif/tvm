@@ -596,10 +596,11 @@ def swift_tile_cfg(cfg, global_hw_cfg: EdgexConfig, shape, elem_bytes, layout="N
     """Get the tile configuration helper function."""
     if global_hw_cfg is None:
         el.e("Invalid edgex configuration.")
-    if layout != "NCHW":
+    if not layout.startswith("NCHW"):
         el.e("Only support 'NCHW' layout tile")
     new_shape = deepcopy(shape)
-    new_shape[1] = ceiling_align(new_shape[1], 16)
+    if layout == "NCHW":
+        new_shape[1] = ceiling_align(new_shape[1], 16)
     elems = reduce(lambda x, y: x * y, new_shape)
     byte_sizes = elems * elem_bytes
     if byte_sizes > global_hw_cfg.DM_SIZE and shape[1] > 1:
