@@ -18,3 +18,4 @@
 """Automatic quantization utilities."""
 
 from .search import QuantizeSearch
+from .quantize import run_quantization

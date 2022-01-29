@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """Edgex relay graph command line debugger tool."""
-# pylint: disable=missing-class-docstring,missing-function-docstring,broad-except
+# pylint: disable=missing-class-docstring,missing-function-docstring,broad-except,import-outside-toplevel
 import os
 import sys
 import json
@@ -23,6 +23,8 @@ import tempfile
 import argparse
 import subprocess
 import shutil
+import importlib
+import inspect
 import tvm
 from tvm import relay
 from tvm import IRModule
@@ -197,6 +199,16 @@ class RelayGraphDebugger:
             with open(params, "rb") as infile:
                 params = relay.load_param_dict(infile.read())
         return mod, params
+
+    @staticmethod
+    def save_module(output_dir, model_name, mod, params):
+        if not os.path.isdir(output_dir):
+            os.makedirs(output_dir)
+        with open(os.path.join(output_dir, f"{model_name}.json"), "w") as outfile:
+            json.dump(tvm.ir.save_json(mod), outfile)
+        if params is not None:
+            with open(os.path.join(output_dir, f"{model_name}.params"), "wb") as outfile:
+                outfile.write(runtime.save_param_dict(params))
 
     def restore_state(self):
         state_file = os.path.join(self.workspace_dir, "state.json")
@@ -402,7 +414,7 @@ class RelayGraphDebugger:
                     exitcode = subprocess.call(
                         [
                             sys.executable,
-                            sys.argv[0],
+                            __file__,
                             "simple_run",
                             "--json=%s" % json_path,
                             "--params=%s" % params_path,
@@ -475,23 +487,32 @@ class RelayGraphDebugger:
         print(table)
 
 
-def parse_args(cmd, extra_args, use_cache=True):
+def parse_shape_dict(data):
+    result = {}
+    specs = data.strip().split(";")
+    for spec in specs:
+        terms = spec.split("=")
+        key = terms[0]
+        value = terms[1].lstrip("[").rstrip("]")
+        value = [int(_.strip()) for _ in value.split(",")]
+        result[key] = value
+    return result
+
+
+def parse_args(cmd, extra_args, use_cache=True, require_relay_mod=False, require_main_arg=False):
     # config current workspace directory
     cached_workspace_infofile = os.path.join(
         os.environ.get("HOME", "/tmp"), ".my_graph_debugger_workspace_info"
     )
     cached_workspace_dir = None
-    if use_cache:
-        if os.path.exists(cached_workspace_infofile):
-            with open(cached_workspace_infofile, "r") as infile:
-                cached_workspace_dir = infile.read().strip()
+    if os.path.exists(cached_workspace_infofile):
+        with open(cached_workspace_infofile, "r") as infile:
+            cached_workspace_dir = infile.read().strip()
     main_arg = None
     if len(extra_args) > 0 and not extra_args[0].startswith("-"):
         main_arg = extra_args[0]
         extra_args = extra_args[1:]
-    require_input_graph = cmd in {"init", "simple_run"}
-    require_funcname = cmd in {"run"}
-    require_json_arg = require_input_graph and main_arg is None
+    require_json_arg = require_relay_mod and main_arg is None
     require_workspace_arg = not cached_workspace_dir and cmd in {"restore", "run"}
 
     # config argument parser
@@ -510,7 +531,7 @@ def parse_args(cmd, extra_args, use_cache=True):
         default="auto",
         help='Fused op namehint prefix or specify as "auto".',
     )
-    parser.add_argument("--name", "-n", type=str, help="Specify name of fused function to run.")
+    parser.add_argument("--input", "-i", type=str, help="Specify input name.")
     parser.add_argument(
         "--mode",
         "-m",
@@ -557,12 +578,34 @@ def parse_args(cmd, extra_args, use_cache=True):
         dest="cont",
         help="Continue from last run state.",
     )
+    parser.add_argument(
+        "--model-format",
+        default=None,
+        help="Frontend model format.",
+    )
+    parser.add_argument(
+        "--input-shapes",
+        default=None,
+        type=parse_shape_dict,
+        help="Frontend model shape dict.",
+    )
+    parser.add_argument(
+        "--passes",
+        type=lambda x: [_.strip() for _ in x.split(",") if _.strip() != ""],
+        help="Specify transform passes to run.",
+    )
     args = parser.parse_args(extra_args)
 
     # update some parsed arguments
     if main_arg is not None:
-        if require_input_graph:
-            if os.path.exists(main_arg):
+        if require_relay_mod:
+            if os.path.isdir(main_arg):
+                model_name = os.path.basename(main_arg)
+                if args.json is None:
+                    args.json = os.path.join(main_arg, model_name + ".json")
+                if args.params is None:
+                    args.params = os.path.join(main_arg, model_name + ".params")
+            elif os.path.exists(main_arg):
                 if args.json is None:
                     args.json = main_arg
                 if main_arg.endswith(".json") and os.path.exists(main_arg[:-5] + ".params"):
@@ -577,9 +620,9 @@ def parse_args(cmd, extra_args, use_cache=True):
             else:
                 print_error("Unknown input graph path: " % main_arg)
                 sys.exit(-1)
-        elif require_funcname:
-            if args.name is None:
-                args.name = main_arg
+        elif require_main_arg:
+            if args.input is None:
+                args.input = main_arg
     if args.workspace is None:
         if cached_workspace_dir is not None:
             args.workspace = cached_workspace_dir
@@ -594,22 +637,124 @@ def parse_args(cmd, extra_args, use_cache=True):
     return args
 
 
+CMD_HANDLER_DICT = {}
+
+
+class CmdHandler:
+    def __init__(
+        self, func, doc="", is_debugger_cmd=False, require_relay_mod=False, require_main_arg=False
+    ):
+        self.func = func
+        self.doc = doc
+        self.is_debugger_cmd = is_debugger_cmd
+        self.require_relay_mod = require_relay_mod
+        self.require_main_arg = require_main_arg
+
+
 def show_arg_help():
-    parse_args("CMD", ["--help"])
+    msg = f"Available commands are: \n\n"
+    for cmd in CMD_HANDLER_DICT:
+        handler = CMD_HANDLER_DICT[cmd]
+        msg += "[" + cmd + "]\n"
+        content = handler.doc.lstrip("\n")
+        indent = " ".join(["" for _ in range(len(content) - len(content.lstrip()))])
+        for line in content.split("\n"):
+            line = "    " + indent + line + "\n"
+            msg += line
+    print(msg)
+
+
+def register_cmd(
+    cmd, doc="", is_debugger_cmd=False, require_relay_mod=False, require_main_arg=False
+):
+    """Rgister a command handler
+
+    Parameters
+    ----------
+    cmd : str
+        Command name, used as `relay_debug [cmd] [--arg...]`
+
+    doc : str
+        Help message for the command
+
+    is_debugger_cmd : bool
+        Create a graph debugger object with the handler
+
+    require_relay_mod : bool
+        The cmd use relay module as input
+
+    require_main_arg : bool
+        Command require a main argument, as `relay_debug [cmd] [main_arg] [--arg...]`
+
+    """
+
+    def func(handler):
+        CMD_HANDLER_DICT[cmd] = CmdHandler(
+            handler, doc, is_debugger_cmd, require_relay_mod, require_main_arg
+        )
+        return handler
+
+    return func
 
 
 def dispatch_cmd(cmd, extra_args):
     """execute the command"""
-    if cmd == "help":
-        parse_args(None, ["--help"])
-    elif cmd == "simple_run":
-        # simple run path
-        args = parse_args(cmd, extra_args, use_cache=False)
-        mod, params = RelayGraphDebugger.load_module(args.json, args.params)
-        RelayGraphDebugger.simple_run(mod, params, result_json=args.output)
+    if cmd not in CMD_HANDLER_DICT:
+        print_error("Unknown command: " + cmd)
+        show_arg_help()
+        sys.exit(-1)
+
+    handler = CMD_HANDLER_DICT[cmd]
+    args = parse_args(
+        cmd,
+        extra_args,
+        use_cache=handler.is_debugger_cmd,
+        require_relay_mod=handler.require_relay_mod,
+        require_main_arg=handler.require_main_arg,
+    )
+    debugger = None
+    if handler.is_debugger_cmd:
+        debugger = RelayGraphDebugger(
+            mod=args.json,
+            params=args.params,
+            workspace_dir=args.workspace,
+            fused_op_namehint=args.fused_op_namehint,
+            verbose=args.verbose,
+        )
+        handler.func(args=args, debugger=debugger)
+    else:
+        handler.func(args)
+
+
+@register_cmd(
+    "simple_run",
+    require_relay_mod=True,
+    doc="""
+Compile and execute input relay module.
+- relay_debug simple_run -j resnet50.json -p resnet50.params
+- relay_debug simple_run resnet50 (if .json and .params take same prefix)
+""",
+)
+def simple_run(args):
+    mod, params = RelayGraphDebugger.load_module(args.json, args.params)
+    RelayGraphDebugger.simple_run(mod, params, result_json=args.output)
+
+
+@register_cmd(
+    "show",
+    require_main_arg=True,
+    doc="""
+Show current relay graph.
+- relay_debug show resnet50.json
+- relay_debug show (show curent graph)
+- relay_debug show funcname (show single fused function)
+""",
+)
+def show_debug_graph(args):
+    if args.input is not None and os.path.exists(args.input):
+        mod, _ = RelayGraphDebugger.load_module(args.input, args.params)
+        print(mod.astext(False))
         return
-    # general process path
-    args = parse_args(cmd, extra_args)
     debugger = RelayGraphDebugger(
         mod=args.json,
         params=args.params,
@@ -617,34 +762,167 @@ def dispatch_cmd(cmd, extra_args):
         fused_op_namehint=args.fused_op_namehint,
         verbose=args.verbose,
     )
-    if cmd == "show":
-        debugger.restore()
-        debugger.show(args.name)
-    elif cmd == "status":
-        state = debugger.restore_state()
-        debugger.show_stats(state["last_perop_info"])
-    elif cmd == "init":
-        debugger.initialize()
-        debugger.dump(override=args.override)
-    elif cmd == "run":
-        debugger.restore()
-        if args.name is not None:
-            debugger.run_single(args.name)
-        else:
-            debugger.run_all(
-                args.mode,
-                blacklist_ops=args.blacklist,
-                whitelist_ops=args.whitelist,
-                multiprocess=args.multiprocess,
-                cont=args.cont,
-            )
+    debugger.restore()
+    debugger.show(args.input)
+
+
+@register_cmd(
+    "status",
+    is_debugger_cmd=True,
+    doc="""
+Show current graph's debug status.
+- relay_debug status
+""",
+)
+def list_debug_status(args, debugger):  # pylint: disable=unused-argument
+    state = debugger.restore_state()
+    debugger.show_stats(state["last_perop_info"])
+
+
+@register_cmd(
+    "init",
+    is_debugger_cmd=True,
+    require_relay_mod=True,
+    require_main_arg=True,
+    doc="""
+Initialize graph debugger workspace.
+- relay_debug init -j resnet50.json -p resnet50.params
+- relay_debug init resnet50 (if .json and .params take same prefix)
+- relay_debug init resnet50 -d myworkspace/resnet50 (select workspace directory)
+""",
+)
+def init_debug_status(args, debugger):
+    debugger.initialize()
+    debugger.dump(override=args.override)
+
+
+@register_cmd(
+    "run",
+    is_debugger_cmd=True,
+    require_main_arg=True,
+    doc="""
+Compile and run current relay module in debugger workspace.
+- relay_debug run (run all graph)
+- relay_debug run funcname (run one fused function)
+- relay_debug run -c (continue from last status)
+""",
+)
+def run(args, debugger):
+    debugger.restore()
+    if args.input is not None:
+        debugger.run_single(args.input)
     else:
-        print_error("Unknown command: " + cmd)
-        show_arg_help()
+        debugger.run_all(
+            args.mode,
+            blacklist_ops=args.blacklist,
+            whitelist_ops=args.whitelist,
+            multiprocess=args.multiprocess,
+            cont=args.cont,
+        )
+
+
+@register_cmd(
+    "convert",
+    require_main_arg=True,
+    doc="""
+Convert relay module from frontend, dump result json and params to output directory.
+- relay_debug convert resnet50.onnx -o mydir/resnet50
+""",
+)
+def convert_frontend_model(args):
+    if args.input is None:
+        print_error("No model path specified")
         sys.exit(-1)
+    from tvm.driver.tvmc.frontends import load_model
+
+    model_path = args.input
+    tvmc_model = load_model(
+        args.input, model_format=args.model_format, shape_dict=args.input_shapes
+    )
+    model_name = os.path.basename(model_path)
+    model_name = model_name[: model_name.rfind(".")]
+    mod, params = tvmc_model.mod, tvmc_model.params
+    if args.output:
+        print_info(f"Dump converted relay model to {args.output}")
+        RelayGraphDebugger.save_module(args.output, model_name, mod, params)
+    else:
+        print(mod.astext(False))
 
 
-def app_main():
+@register_cmd(
+    "quantize",
+    require_relay_mod=True,
+    doc="""
+Run edgex quantization on input relay module, dump result json and params to output directory.
+- relay_debug quantize -j resnet50.json -p resnet50.params -o quantized/resnet50
+- relay_debug quantize resnet50 -o quantized/resnet50 (if .json and .params take same prefix)
+""",
+)
+def quantize(args):
+    if args.output is None:
+        raise ValueError("Must specify an output directory")
+    mod, params = RelayGraphDebugger.load_module(args.json, args.params)
+    model_name = os.path.basename(args.json).rstrip(".json")
+    quant_mod, quant_params = relay.quantization.run_quantization(
+        model_name, mod, params, fast_mode=True, config=None
+    )
+    print_info(f"Dump quantized relay model to {args.output}")
+    RelayGraphDebugger.save_module(args.output, model_name, quant_mod, quant_params)
+
+
+@register_cmd(
+    "fuse",
+    require_relay_mod=True,
+    doc="""
+Run edgex fusion stitching pass on input relay module, dump result json and params to output directory.
+- relay_debug fuse resnet50.json -o fused/resnet50
+""",
+)
+def run_fusion_stitch(args):
+    mod, params = RelayGraphDebugger.load_module(args.json, args.params)
+    model_name = os.path.basename(args.json).rstrip(".json")
+    if args.output is None:
+        raise ValueError("Must specify an output directory")
+    mod = tvm.contrib.edgex.relay.transform.FusionStitch()(mod)
+    RelayGraphDebugger.save_module(args.output, model_name, mod, params)
+
+
+@register_cmd(
+    "run_pass",
+    require_relay_mod=True,
+    doc="""
+Run specified transform pass on input relay module, dump result json and params to output directory.
+- relay_debug run_pass -j resnet50.json -p resnet50.params -o transformed/resnet50
+- relay_debug run_pass resnet50 -o transformed/resnet50 (if .json and .params take same prefix)
+""",
+)
+def run_relay_passes(args):
+    mod, params = RelayGraphDebugger.load_module(args.json, args.params)
+    model_name = os.path.basename(args.json).rstrip(".json")
+    if not isinstance(args.passes, list):
+        raise ValueError("Require --passes argument")
+    for pass_name in args.passes:
+        idx = pass_name.rfind(".")
+        modname, funcname = pass_name[:idx], pass_name[idx + 1 :]
+        if not modname.startswith("tvm"):
+            modname = "tvm." + modname
+        pass_func = getattr(importlib.import_module(modname), funcname)()
+        arg_spec = inspect.getfullargspec(pass_func)
+        if len(arg_spec.args) == 1:
+            # guess this is func(mod)
+            mod = pass_func(mod)
+        elif len(arg_spec.args) == 2:
+            # guess this is func(mod, params)
+            mod, params = pass_func(mod, params)
+        else:
+            raise ValueError(f"{pass_name} may not be a valid relay transformation")
+    if args.output:
+        RelayGraphDebugger.save_module(args.output, model_name, mod, params)
+    else:
+        print(mod.astext(False))
+
+
+def main():
     """command line entry"""
     if len(sys.argv) < 2:
         print_error("Missing command line arguments")
@@ -656,4 +934,4 @@ def app_main():
 
 
 if __name__ == "__main__":
-    app_main()
+    main()

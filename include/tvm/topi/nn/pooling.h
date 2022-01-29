@@ -390,6 +390,16 @@ inline Tensor adaptive_pool_impl(const Tensor& x, const Array<PrimExpr>& output_
           return div(pool_sum(indices), divide_factor);
         },
         "tensor", kElementWise);
+  } else if (pool_type == kSumPool) {
+    return tvm::te::compute(
+        out_shape,
+        [&](const Array<Var>& output) {
+          Array<PrimExpr> indices;
+          Array<tir::IterVar> reduce_axes;
+          std::tie(indices, reduce_axes) = get_iter_vars(output, true);
+          return tvm::sum(x(indices), reduce_axes);
+        },
+        "tensor", "adaptive_pool_sum");
   } else {
     LOG(ERROR) << "Unrecognized pool_type: " << pool_type;
     return x;

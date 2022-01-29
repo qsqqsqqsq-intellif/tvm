@@ -42,7 +42,7 @@ def do_test_single_conv2d(
     if groups > 1:
         mod = relay.transform.DefuseOps()(mod)
         func_with_params = bind_params_by_name(mod["main"], relay_params)
-        mod, relay_params = ConvertDepthwiseConv2D(mod, relay_params)
+        mod, relay_params = ConvertDepthwiseConv2D()(mod, relay_params)
         mod = relay.transform.FoldConstant()(mod)
     mod = relay.transform.FuseOps(fuse_opt_level=0)(mod)
     check_edgex_relay_build(mod, params=relay_params, check_cpu=True, test_fused=True)

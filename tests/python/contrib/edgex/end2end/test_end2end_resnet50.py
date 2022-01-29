@@ -104,7 +104,7 @@ def get_resnet50():
             norm = np.maximum(np.minimum(norm, 2 ** 20), -(2 ** 20))
             params[k] = tvm.nd.array(norm)
 
-    mod, params = ConvertDepthwiseConv2D(mod, params)
+    mod, params = ConvertDepthwiseConv2D()(mod, params)
     return mod, params
 
 

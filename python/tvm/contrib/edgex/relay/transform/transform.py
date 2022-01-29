@@ -180,6 +180,10 @@ def replace_constants(expr):
     return new_expr
 
 
-def ConvertDepthwiseConv2D(mod, params=None):
+def ConvertDepthwiseConv2D():
     """Convert Depthwise Conv2d"""
-    return DepthwiseConv2DConvertor(params=params).run(mod)
+
+    def __run(mod, params=None):
+        return DepthwiseConv2DConvertor(params=params).run(mod)
+
+    return __run

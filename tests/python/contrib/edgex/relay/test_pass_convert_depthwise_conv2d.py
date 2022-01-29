@@ -26,7 +26,7 @@ import numpy as np
 def do_test(before, expected, params_before):
     mod_before = relay.transform.InferType()(IRModule.from_expr(before))
     mod_expect = relay.transform.InferType()(IRModule.from_expr(expected))
-    mod_after, params_after = ConvertDepthwiseConv2D(mod_before, params_before)
+    mod_after, params_after = ConvertDepthwiseConv2D()(mod_before, params_before)
     assert tvm.ir.structural_equal(mod_expect, mod_after)
     executor = relay.create_executor()
     result_before = executor.evaluate(bind_params_by_name(mod_before["main"], params_before))()
