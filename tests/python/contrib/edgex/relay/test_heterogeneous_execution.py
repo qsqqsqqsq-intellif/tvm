@@ -28,7 +28,7 @@ def test_heterogeneous_execution():
     mod = tvm.IRModule.from_expr(relay.Function([a, b], d))
     mod = relay.transform.InferType()(mod)
     mod = relay.transform.FuseOps(fuse_opt_level=0)(mod)
-    with TempOpStrategy(["multiply", "add"], "edgex"):
+    with TempOpStrategy(["multiply", "add"], ["edgex", "llvm"]):
         check_edgex_relay_build(mod, None, check_cpu=True, test_fused=True)
 
 

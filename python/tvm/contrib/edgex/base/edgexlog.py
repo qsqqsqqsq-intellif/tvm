@@ -59,6 +59,9 @@ logging._nameToLevel = {
     "C": _CRITICAL,
 }
 
+# Set te compiler logging to warning level, it's too long and useless generally
+logging.getLogger("te_compiler").setLevel(logging.WARNING)
+
 # Escape codes to get colored ouput
 # The format: \033[display mode;foreground color;background color m
 # The background is set with 40 plus the number of the color, and the foreground with 30

@@ -35,6 +35,12 @@ constexpr const char* nnp_dma_scope = "pragma_nnp_dma_scope";
 /*! \brief Tag for conv co info. */
 constexpr const char* nnp_num_co_scope = "pragma_nnp_num_co";
 
+/*! \brief Relay op name annotation on block */
+constexpr const char* relay_op_name = "relay_op_name";
+
+/*! \brief Relay op attrs annotation on block */
+constexpr const char* relay_op_attrs = "relay_op_attrs";
+
 }  // namespace attr
 }  // namespace tir
 }  // namespace tvm

@@ -32,6 +32,7 @@
 #include <functional>
 #include <vector>
 
+#include "../../../../relay/op/call/call.h"
 #include "../../../../relay/transforms/device_aware_visitors.h"
 #include "../../../../relay/transforms/expr_subst.h"
 #include "../backend/schedule_cache.h"
@@ -45,14 +46,105 @@ static const char* TARGET_BACKWARD_FUNCNAME = "backward";
 
 class PostScheduleArgumentRewriter : public transform::DeviceAwareExprMutator {
  public:
-  explicit PostScheduleArgumentRewriter(IRModule m)
-      : transform::DeviceAwareExprMutator(m), cache_(tec::ScheduleCache::Current()) {
-    ICHECK(cache_.defined()) << "Must specify external schedule cache for this pass";
+  PostScheduleArgumentRewriter(IRModule m, bool is_legacy)
+      : transform::DeviceAwareExprMutator(m),
+        module_(m),
+        cache_(tec::ScheduleCache::Current()),
+        is_legacy_(is_legacy) {
+    ICHECK(!is_legacy || cache_.defined()) << "Must specify external schedule cache for this pass";
+  }
+
+  IRModule MutateModule() {
+    GlobalVar main_gv = module_->GetGlobalVar("main");
+    Function main_func = Downcast<Function>(module_->Lookup(main_gv));
+    Function new_func = Downcast<Function>(Mutate(main_func));
+    auto new_module = module_.CopyOnWrite();
+    new_module->Update(main_gv, new_func);
+    return GetRef<IRModule>(new_module);
   }
 
  private:
+  Expr RewriteLowered(const Call& call_lowered, const Array<Expr>& call_lowered_args,
+                      const Target& target) {
+    auto gv = Downcast<GlobalVar>(call_lowered_args[0]);
+    const Array<Expr>& args = Downcast<Tuple>(call_lowered_args[1])->fields;
+    tir::PrimFunc prim_func = Downcast<tir::PrimFunc>(module_->Lookup(gv));
+    const auto* lower_attrs = call_lowered->attrs.as<CallLoweredAttrs>();
+    std::string name = gv->name_hint;
+
+    // schedule phase
+    tir::PrimFunc scheduled_func = prim_func;
+    if (Op::HasAttrMap("FEdgeXSchedule")) {
+      using FEdgeXSchedule = GenericFunc;
+      static auto edgex_sched_map_ = Op::GetAttrMap<FEdgeXSchedule>("FEdgeXSchedule");
+      auto opt_anchor_op = lower_attrs->metadata.Get("relay_anchor_op");
+      auto anchor_attrs =
+          lower_attrs->metadata.Get("relay_anchor_attrs").value_or(Map<String, ObjectRef>());
+      if (opt_anchor_op.defined()) {
+        Op op = Downcast<Op>(opt_anchor_op.value());
+        if (!edgex_sched_map_.count(op)) {
+          LOG(WARNING) << "FEdgeXSchedule is not registered for " << op->name;
+        } else {
+          auto fschedule = edgex_sched_map_[op];
+          With<Target> target_scope(target);
+          auto target_fschedule = fschedule.GetPacked();
+          if (target_fschedule != nullptr) {
+            scheduled_func = target_fschedule(anchor_attrs, scheduled_func, target);
+          } else {
+            LOG(WARNING) << "No generic function registered for " << fschedule->name_
+                         << " under target " << target->kind->name;
+          }
+        }
+      }
+    } else {
+      LOG(WARNING) << "FEdgeXSchedule is not registered";
+    }
+
+    // post schedule argument rewrite
+    GlobalVar new_gv = GlobalVar(name);
+    Call new_call_lowered;
+    if (scheduled_func->attrs.defined() &&
+        scheduled_func->attrs->dict.count(TARGET_PRIMFUNC_ATTR)) {
+      // detect relay arguments rewrite annotation
+      size_t output_num = FlattenTupleType(call_lowered->checked_type_).size();
+      Array<Expr> new_args = RewritePostScheduleArgs(scheduled_func, args, output_num);
+      // drop rewrite annotation
+      scheduled_func.CopyOnWrite()->attrs.CopyOnWrite()->dict.erase(TARGET_PRIMFUNC_ATTR);
+      Array<Type> new_arg_types;
+      for (const auto& e : new_args) {
+        ICHECK(e->checked_type_.defined()) << "Rewritten argument type is not inferred\n"
+                                           << AsText(e, false);
+        new_arg_types.push_back(e->checked_type_);
+      }
+      new_gv->checked_type_ = FuncType(new_arg_types, call_lowered->checked_type_, {}, {});
+      new_call_lowered = CallLowered(new_gv, new_args, *lower_attrs, call_lowered->span);
+    } else {
+      // do not need to update relay arguments
+      new_gv->checked_type_ = gv->checked_type_;
+      new_call_lowered = CallLowered(new_gv, args, *lower_attrs, call_lowered->span);
+    }
+    // type annotation is neccesary since it could not be inferred
+    new_call_lowered->checked_type_ = call_lowered->checked_type_;
+
+    // tir lowering phase, we get pass context from target-aware generic getter
+    // instead of current context, thus enable heterogeneous targets build.
+    using tvm::transform::PassContext;
+    auto get_tir_pass_context = GenericFunc::Get("tvm.edgex.get_tir_pass_context");
+    PassContext tir_pass_ctx = get_tir_pass_context();
+    tir::PrimFunc lowered_prim_func;
+    {
+      // tir lowering scope
+      With<PassContext> guard(tir_pass_ctx);
+      IRModule lowered = tvm::LowerPrimFunc(scheduled_func, name);
+      lowered_prim_func = Downcast<tvm::tir::PrimFunc>(lowered->Lookup(name));
+    }
+    module_->Remove(gv);  // we should assure single gv usage here
+    module_->Update(new_gv, lowered_prim_func);
+    return std::move(new_call_lowered);
+  }
+
   Expr DeviceAwareVisitExpr_(const CallNode* call) final {
-    std::vector<Expr> call_args;
+    Array<Expr> call_args;
     bool args_unchanged = true;
     for (const auto& arg : call->args) {
       Expr e = this->VisitExpr(arg);
@@ -64,6 +156,28 @@ class PostScheduleArgumentRewriter : public transform::DeviceAwareExprMutator {
                  ? GetRef<Call>(call)
                  : Call(op, call_args, call->attrs, call->type_args, call->span);
     };
+
+    // extract lower target
+    VirtualDevice virtual_device = GetVirtualDevice(GetRef<Call>(call));
+    ICHECK(!virtual_device->IsFullyUnconstrained())
+        << "Can not determine target, should run PlanDevices() first";
+    Target target = virtual_device->target;
+    ICHECK(target.defined());
+
+    // relay_to_tir code path
+    // TODO(bxq): remove legacy codes, always use this code path
+    if (!is_legacy_) {
+      if (!call->op.same_as(CallLoweredOp())) {
+        return default_result(call->op);
+      }
+      const auto* attrs = call->attrs.as<CallLoweredAttrs>();
+      ICHECK(attrs);
+      if (!attrs->metadata.count("EdgeXRelayToTIR")) {
+        return default_result(call->op);
+      }
+      return RewriteLowered(GetRef<Call>(call), call_args, target);
+    }
+
     if (!call->op->IsInstance<FunctionNode>()) {
       return default_result(call->op);
     }
@@ -71,12 +185,6 @@ class PostScheduleArgumentRewriter : public transform::DeviceAwareExprMutator {
 
     // execute tir schedule ahead and extract primfunc annotation
     // note that we should use rewritten function as key
-    VirtualDevice virtual_device = GetVirtualDevice(GetRef<Call>(call));
-    ICHECK(!virtual_device->IsFullyUnconstrained())
-        << "Can not determine target, should run PlanDevices() first";
-    Target target = virtual_device->target;
-    ICHECK(target.defined());
-
     auto pair = cache_.Lower(origin_function, target);
     int64_t cache_key = pair.first;
     origin_function = WithAttr(origin_function, "ScheduleCacheKey", Integer(cache_key));
@@ -182,6 +290,50 @@ class PostScheduleArgumentRewriter : public transform::DeviceAwareExprMutator {
     return std::move(Call(Function(new_func_node), new_args));
   }
 
+  /*! \brief return updated relay level arguments after tir schedule */
+  Array<Expr> RewritePostScheduleArgs(tir::PrimFunc prim_func, const Array<Expr>& origin_args,
+                                      size_t output_num) {
+    auto it = prim_func->attrs->dict.find(TARGET_PRIMFUNC_ATTR);
+    ICHECK(it != prim_func->attrs->dict.end());
+
+    // extract relay forward/backward transform function for arguments
+    ICHECK((*it).second->IsInstance<runtime::StringObj>());
+    std::string json = Downcast<runtime::String>((*it).second);
+    ObjectRef rewrite_spec = LoadJSON(json);
+    ICHECK(rewrite_spec->IsInstance<IRModuleNode>());
+    auto mod = Downcast<IRModule>(rewrite_spec);
+    Function forward_func = Downcast<Function>(mod->Lookup(TARGET_FORWARD_FUNCNAME));
+    Function backward_func = Downcast<Function>(mod->Lookup(TARGET_BACKWARD_FUNCNAME));
+
+    // extract updated argument types
+    auto tuple_type = forward_func->ret_type;
+    ICHECK(tuple_type.defined() && tuple_type->IsInstance<TupleTypeNode>());
+    Array<Type> new_arg_types = Downcast<TupleType>(tuple_type)->fields;
+
+    // transform functions take output buffer as a function param
+    // thus we should subtract the relay output num from the count
+    size_t origin_arg_num = origin_args.size();
+    size_t new_arg_num = new_arg_types.size() - output_num;
+    Array<Expr> new_args =
+        GetTransformedArgs(forward_func, origin_args, origin_arg_num, new_arg_num);
+    ICHECK_EQ(new_args.size(), new_arg_num);
+    for (size_t i = 0; i < new_args.size(); ++i) {
+      // ensure the rewritten expr is typed
+      new_args[i]->checked_type_ = new_arg_types[i];
+    }
+
+    // check we not rewrite non-leaf arguments
+    std::unordered_set<Expr, StructuralHash, StructuralEqual> new_arg_dict(new_args.begin(),
+                                                                           new_args.end());
+    for (const Expr& arg : origin_args) {
+      if (!arg->IsInstance<ConstantNode>() && !arg->IsInstance<VarNode>()) {
+        ICHECK(new_arg_dict.count(arg))
+            << "Non-leaf argument " << arg << " is rewritten by post schedule transform";
+      }
+    }
+    return new_args;
+  }
+
   /*! \brief do lambda beta reduction, note the function can take more than `n_before` params and
    * more than `n_after` return fields */
   Array<Expr> GetTransformedArgs(Function arg_transform_func, const Array<Expr>& args,
@@ -204,17 +356,21 @@ class PostScheduleArgumentRewriter : public transform::DeviceAwareExprMutator {
     return results;
   }
 
+  IRModule module_;
   tec::ScheduleCache cache_;
+  bool is_legacy_;  // TODO(bxq): remove legacy implementation after relay_to_tir ready
 };
 
 namespace transform {
 
-Pass PostScheduleArgumentRewrite() {
-  runtime::TypedPackedFunc<Function(Function, IRModule, PassContext)> pass_func =
-      [=](Function f, IRModule m, PassContext pc) {
-        return Downcast<Function>(relay::PostScheduleArgumentRewriter(m).Mutate(f));
+Pass PostScheduleArgumentRewrite(bool is_legacy) {
+  runtime::TypedPackedFunc<IRModule(IRModule, transform::PassContext)> pass_func =
+      [=](IRModule module, transform::PassContext ctx) {
+        relay::PostScheduleArgumentRewriter rewriter(module, is_legacy);
+        return rewriter.MutateModule();
       };
-  return CreateFunctionPass(pass_func, 3, "PostScheduleArgumentRewrite", {});
+
+  return tvm::transform::CreateModulePass(pass_func, 0, "PostScheduleArgumentRewrite", {});
 }
 
 TVM_REGISTER_GLOBAL("relay.edgex.transform.PostScheduleArgumentRewrite")

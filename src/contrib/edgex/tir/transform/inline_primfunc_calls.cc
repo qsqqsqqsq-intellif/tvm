@@ -378,10 +378,9 @@ class PrimFuncInliner : public StmtExprMutator {
     }
     if (primfunc->attrs.defined()) {
       for (const auto& p : primfunc->attrs->dict) {
-        inlined = AttrStmt(p.second, p.first, PrimExpr(), inlined);
+        inlined = AttrStmt(p.second, p.first, 1, inlined);
       }
     }
-
     return inlined;
   }
 
@@ -403,19 +402,27 @@ class PrimFuncInliner : public StmtExprMutator {
 
 namespace transform {
 
+PrimFunc InlinePrimFuncCalls(PrimFunc func, IRModule import_module,
+                             Map<String, PrimFunc> extern_prim_funcs) {
+  auto* n = func.CopyOnWrite();
+  PrimFuncInliner inliner(import_module, n, extern_prim_funcs);
+  IRModule new_mod = IRModule::FromExpr(inliner.Rewrite());
+
+  // use RemoveNoOp to flatten the seq stmts
+  return Downcast<PrimFunc>(transform::RemoveNoOp()(new_mod)->Lookup("main"));
+}
+
 Pass InlinePrimFuncCalls(Map<String, PrimFunc> extern_prim_funcs) {
   auto pass_func = [extern_prim_funcs](PrimFunc func, IRModule m, PassContext ctx) {
-    auto* n = func.CopyOnWrite();
-    PrimFuncInliner inliner(m, n, extern_prim_funcs);
-    IRModule new_mod = IRModule::FromExpr(inliner.Rewrite());
-
-    // use RemoveNoOp to flatten the seq stmts
-    return Downcast<PrimFunc>(RemoveNoOp()(new_mod)->Lookup("main"));
+    return InlinePrimFuncCalls(func, m, extern_prim_funcs);
   };
   return CreatePrimFuncPass(pass_func, 0, "tir.edgex.InlinePrimFuncCalls", {});
 }
 
-TVM_REGISTER_GLOBAL("tir.edgex.transform.InlinePrimFuncCalls").set_body_typed(InlinePrimFuncCalls);
+TVM_REGISTER_GLOBAL("tir.edgex.transform.InlinePrimFuncCalls")
+    .set_body_typed([](Map<String, PrimFunc> extern_prim_funcs) {
+      return InlinePrimFuncCalls(extern_prim_funcs);
+    });
 
 }  // namespace transform
 }  // namespace tir

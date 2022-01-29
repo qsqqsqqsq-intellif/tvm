@@ -62,6 +62,23 @@ TVM_DLL Pass InjectDmaIntrin();
 TVM_DLL Pass InjectCalculatedIsa();
 
 /*!
+ * \brief Inline all sub-primfunc calls
+ * \param extern_prim_funcs  External function dict that allow inline `call_externed`
+ * \return The pass
+ */
+TVM_DLL Pass InlinePrimFuncCalls(Map<String, PrimFunc> extern_prim_funcs = {});
+
+/*!
+ * \brief Inline all sub-primfunc calls
+ * \param func  Primfunc to conduct inline transformation
+ * \param import_module  Module to search sub functions
+ * \param extern_prim_funcs  External function dict that allow inline `call_externed`
+ * \return The inlined primfunc
+ */
+TVM_DLL PrimFunc InlinePrimFuncCalls(PrimFunc func, IRModule import_module,
+                                     Map<String, PrimFunc> extern_prim_funcs = {});
+
+/*!
  * \brief Handle the flat storage address or memory size according to the constraint.
  * \return The pass.
  */

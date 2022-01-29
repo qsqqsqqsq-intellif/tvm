@@ -19,6 +19,7 @@
 import os
 import tvm
 from tvm.contrib.edgex.tir.transform import *
+from tvm.ir.transform import PassContext
 
 
 def pass_debug_wrapper(passfunc):
@@ -93,3 +94,21 @@ def build_config_nnp(extra_config=None, extra_disabled_pass=None, opt_level=2):
     return tvm.transform.PassContext(
         config=config, disabled_pass=disabled_pass, opt_level=opt_level
     )
+
+
+@tvm.target.override_native_generic_func("tvm.edgex.get_tir_pass_context")
+def get_tir_pass_context():
+    """Generic func to get PassContext to use with tir lowering on current target."""
+    return PassContext.current()
+
+
+@get_tir_pass_context.register(["edgex"])
+def get_edgex_tir_pass_context():
+    """EdgeX specific PassContext to use with tir lowering."""
+    return build_config_nnp()
+
+
+@get_tir_pass_context.register(["llvm"])
+def get_cpu_tir_pass_context():
+    """EdgeX specific PassContext to use with tir lowering, for host cpu op."""
+    return PassContext()

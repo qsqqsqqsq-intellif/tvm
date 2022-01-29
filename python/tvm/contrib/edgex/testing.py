@@ -24,7 +24,6 @@ from tvm.ir.module import IRModule
 from tvm.contrib import graph_executor
 from tvm.contrib.edgex.relay.transform import PostScheduleArgumentRewrite
 from tvm.contrib.edgex.relay.backend import ScheduleCache
-from tvm.ir.transform import PassContext
 from tvm.relay.build_module import bind_params_by_name
 
 
@@ -312,6 +311,22 @@ def check_numpy_result(
     return CheckResult(ref_inputs, [result], [expect], actual_rmse, success)
 
 
+def get_edgex_plan_device_config(pass_ctx):
+    """Get [cpu + edgex] config for relay device plan pass"""
+    cpu = tvm.device("cpu")
+    cpu_target = tvm.target.Target("llvm")
+    edgex_dev = tvm.edgex()
+    edgex_target = tvm.target.edgex()
+    return tvm.target.make_compilation_config(
+        pass_ctx,
+        {
+            tvm.tir.IntImm("int32", cpu.device_type): cpu_target,
+            tvm.tir.IntImm("int32", edgex_dev.device_type): edgex_target,
+        },
+        cpu_target,
+    )
+
+
 def check_edgex_relay_build(
     function,
     params=None,
@@ -324,6 +339,7 @@ def check_edgex_relay_build(
     test_fused=False,
     rmse=None,
     nothrow=False,
+    legacy_lower=False,
 ):
     """build and check edgex from relay
     Parameters
@@ -361,6 +377,10 @@ def check_edgex_relay_build(
 
     nothrow : bool
         Do not raise error if check result failed.
+
+    legacy_lower : bool
+        legacy relay to tir lowering, the legacy behavior is reserved for debug purpose
+        until relay_to_tir functionality is totally checked.
     """
     arrs = {}
     if isinstance(function, IRModule):
@@ -444,6 +464,16 @@ def check_edgex_relay_build(
                 return self.visit(call.args[0])
             return super().visit_call(call)
 
+    class RelayToTIRAnnotator(relay.ExprMutator):
+        """Mark all fused functions with Compiler=edgex"""
+
+        def visit_call(self, call):
+            call = super().visit_call(call)
+            if isinstance(call.op, relay.Function) and "Primitive" in call.op.attrs:
+                func = call.op.with_attr("Compiler", "edgex")
+                return relay.Call(func, call.args, call.attrs, call.type_args, call.span)
+            return call
+
     # detect heterogeneous graph
     device_annotation_detector = OnDeviceDetector()
     device_annotation_detector.visit_function(function)
@@ -462,35 +492,40 @@ def check_edgex_relay_build(
             check_numpy_result(cpu_result.numpy(), expect, rmse=rmse)
 
     if check_edgex:
-        cpu = tvm.device("cpu")
-        cpu_target = tvm.target.Target("llvm")
-        edgex_dev = tvm.edgex()
+        pass_ctx = build_config_nnp()
         edgex_target = tvm.target.edgex()
+        cpu_target = tvm.target.Target("llvm")
+        plan_device_cfg = get_edgex_plan_device_config(pass_ctx)
         edgex_mod = IRModule.from_expr(function)
-        with ScheduleCache():
-            with build_config_nnp():
-                if test_fused:
-                    edgex_mod = relay.transform.InferType()(edgex_mod)
-                    plan_config = tvm.target.make_compilation_config(
-                        PassContext.current(),
-                        {
-                            tvm.tir.IntImm("int32", cpu.device_type): cpu_target,
-                            tvm.tir.IntImm("int32", edgex_dev.device_type): edgex_target,
-                        },
-                        cpu_target,
-                    )
-                    edgex_mod = relay.transform.PlanDevices(plan_config)(edgex_mod)
-                    edgex_mod = PostScheduleArgumentRewrite()(edgex_mod)
-                    if params is not None:
-                        func_with_params = bind_params_by_name(edgex_mod["main"], params)
-                        edgex_mod = tvm.ir.IRModule.from_expr(func_with_params)
-                    edgex_mod = relay.transform.FoldConstant()(edgex_mod)
+        edgex_mod = relay.transform.InferType()(edgex_mod)
+        edgex_mod = relay.transform.PlanDevices(plan_device_cfg)(edgex_mod)
+        if params is not None:
+            func_with_params = bind_params_by_name(edgex_mod["main"], params)
+            edgex_mod = tvm.ir.IRModule.from_expr(func_with_params)
+        if legacy_lower:
+            with ScheduleCache():
+                with pass_ctx:
+                    if test_fused:
+                        edgex_mod = PostScheduleArgumentRewrite()(edgex_mod)
+                        edgex_mod = relay.transform.FoldConstant()(edgex_mod)
+                    if device_annotation_detector.has_cpu:
+                        targets = {"edgex": edgex_target, "cpu": cpu_target}
+                        ctxs = [tvm.edgex(), tvm.cpu()]
+                        edgex_result = get_relay_output(edgex_mod, targets, ctxs)
+                    else:
+                        edgex_result = get_relay_output(edgex_mod, edgex_target, tvm.edgex())
+        else:
+            # annotate Compiler=edgex to all fused functions
+            if test_fused:
+                function = RelayToTIRAnnotator().visit(edgex_mod["main"])
+                edgex_mod = IRModule.from_expr(function)
+            with pass_ctx:
                 if device_annotation_detector.has_cpu:
                     targets = {"edgex": edgex_target, "cpu": cpu_target}
-                    ctxs = [edgex_dev, cpu]
+                    ctxs = [tvm.edgex(), tvm.cpu()]
                     edgex_result = get_relay_output(edgex_mod, targets, ctxs)
                 else:
-                    edgex_result = get_relay_output(edgex_mod, edgex_target, edgex_dev)
+                    edgex_result = get_relay_output(edgex_mod, edgex_target, tvm.edgex())
         if expect is not None:
             return check_numpy_result(edgex_result.numpy(), expect, rmse=rmse, nothrow=nothrow)
     return None

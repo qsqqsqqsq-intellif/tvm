@@ -16,24 +16,26 @@
 # under the License.
 # pylint: disable=invalid-name, unused-argument, missing-docstring, unused-import
 """edgex Relay pass transformations."""
-import numpy as np
 import pulp
-from tvm.ir.module import IRModule
 from tvm.relay import ExprMutator
 import tvm
 from tvm import relay
-from .convert_depthwise_conv2d import DepthwiseConv2DConvertor
 from . import _ffi_api
+from .convert_depthwise_conv2d import DepthwiseConv2DConvertor
 
 
-def PostScheduleArgumentRewrite():
+def PostScheduleArgumentRewrite(is_legacy=True):
     """Rewrite relay arguments by transformation specified by edgex schedule.
+    Parameters
+    ----------
+    is_legacy : bool
+        TODO(bxq): remove legacy implementation
 
     Returns
     -------
     ret: tvm.transform.Pass
     """
-    return _ffi_api.PostScheduleArgumentRewrite()
+    return _ffi_api.PostScheduleArgumentRewrite(is_legacy)
 
 
 def FusionStitch(fuse_opt_level=-1, device_type=16):
@@ -53,6 +55,33 @@ def FusionStitch(fuse_opt_level=-1, device_type=16):
         The registered pass for operator fusion.
     """
     return _ffi_api.FusionStitch(fuse_opt_level, device_type)
+
+
+def EdgeXRelayToTIR(
+    entry_name="main", renamer=None, post_schedule_rewrite=True, fold_constants=True
+):
+    """Relay to tir lowering pass
+
+    Parameters
+    ----------
+    entry_name : str
+        Entry relay function name, defautl to "main"
+
+    renamer : function
+        External renamer callback
+
+    post_schedule_rewrite : bool
+        Whether do schedule and rewrite, just for debug purpose
+
+    fold_constants : bool
+        Whether do a final constant folding, just for debug purpose
+
+    Returns
+    -------
+    ret : tvm.transform.Pass
+        The registered pass.
+    """
+    return _ffi_api.EdgeXRelayToTIR(entry_name, renamer, post_schedule_rewrite, fold_constants)
 
 
 @tvm.register_func("edgex.util.pulp_compute", override=True)

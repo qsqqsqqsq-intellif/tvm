@@ -143,11 +143,10 @@ def edgex_invoke_assembler(
 
     if start_pc < 0:
         start_pc = tvm.get_global_func("tvm.edgex.get_iss_start_pc")()
-    status = subprocess.call(
-        ["python3", ass_path, asm_name, "-cpp", "-start_pc", str(start_pc)], cwd=output_dir
-    )
+    ass_cmd_args = ["python3", ass_path, asm_name, "-cpp", "-start_pc", str(start_pc)]
+    status = subprocess.call(ass_cmd_args, cwd=output_dir)
     if status != 0:
-        raise RuntimeError("Invoke assembler failed")
+        raise RuntimeError(f"Invoke assembler failed: {ass_cmd_args}")
     hex_path = os.path.join(output_dir, "output", "%s.hex" % op_name)
     bin_path = os.path.join(output_dir, "output", "%s.bin" % op_name)
     status = subprocess.call(["python3", hex2bin_path, hex_path, bin_path])
