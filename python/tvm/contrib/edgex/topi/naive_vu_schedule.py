@@ -344,7 +344,7 @@ class NaiveVuSchedule:
         ) = self.analyse_compute_axes(s, main_block, block_stmt, self._axes)
         self._need_pack = self._axes[-1] != self._pack_axis
 
-    def cache_write_and_cache_read(
+    def cache_read_and_cache_write(
         self,
         s: EdgexSchedule,
         main_block,
@@ -665,7 +665,7 @@ class NaiveVuSchedule:
                         vidma_blocks,
                         eodma_blocks,
                         vodma_blocks,
-                    ) = self.cache_write_and_cache_read(s, main_block, block_info, write_bufs)
+                    ) = self.cache_read_and_cache_write(s, main_block, block_info, write_bufs)
 
                 # Phase3: tiling
                 self._pack_vf, inner_axes, outer_axes = self.naive_loop_tiling_and_packing(
@@ -719,7 +719,7 @@ class NaiveVuSchedule:
                     vidma_blocks,
                     eodma_blocks,
                     vodma_blocks,
-                ) = self.cache_write_and_cache_read(s, main_block, block_info, write_bufs)
+                ) = self.cache_read_and_cache_write(s, main_block, block_info, write_bufs)
 
             # Phase7 load/save cache in inner computation
             if outer_axes:

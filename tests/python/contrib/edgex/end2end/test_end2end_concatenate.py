@@ -118,10 +118,12 @@ def do_test_concat(shapes, use_auto_vu_strategy):
         }
     )
     if use_auto_vu_strategy:
-        s = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
+        edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
+        cpu_schedule = naive_vu_schedule(primfunc, is_cpu=True, allow_multi_block=True)
     else:
-        s = schedule_concat(primfunc, False)
-    check_edgex_tir_build("concat", s, check_cpu=True)
+        edgex_schedule = schedule_concat(primfunc, False)
+        cpu_schedule = schedule_concat(primfunc, True)
+    check_edgex_tir_build("concat", edgex_schedule, cpu_prim_func=cpu_schedule, check_cpu=True)
 
 
 def test_concat():
@@ -131,6 +133,7 @@ def test_concat():
 
     # c0 + c1 + c2 + c3 == c_out
     assert shapes[0][1] + shapes[1][1] + shapes[2][1] + shapes[3][1] == shapes[4][1]
+    do_test_concat(shapes, use_auto_vu_strategy=True)
     do_test_concat(shapes, use_auto_vu_strategy=False)
 
 

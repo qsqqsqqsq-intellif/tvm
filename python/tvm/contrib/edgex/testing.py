@@ -582,6 +582,7 @@ def check_edgex_relay_build(
 def check_edgex_tir_build(
     name,
     prim_func,
+    cpu_prim_func=None,
     numpy_func=None,
     edgex_fschedule=None,
     check_edgex=True,
@@ -600,6 +601,9 @@ def check_edgex_tir_build(
 
     primfunc : tir.PrimFunc
         The tir function to build and test.
+
+    cpu_prim_func : tir.PrimFunc
+        The cpu tir function to build and test.
 
     edgex_fschedule : func
         Schedule before lowering, can be used if it changes argument layouts on device.
@@ -662,7 +666,8 @@ def check_edgex_tir_build(
             arrs.append(np.random.uniform(data_range[0], data_range[1], size=shape).astype(dtype))
 
     # schedule on device differently if optional edgex_fschedule specified
-    cpu_prim_func = prim_func
+    if cpu_prim_func is None:
+        cpu_prim_func = prim_func
     cpu_arrs = arrs
     relay_arg_rewrite_mod = None
     if edgex_fschedule is not None:

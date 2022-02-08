@@ -213,7 +213,7 @@ def do_test_vu_elewise_after_pool2d(shape, use_auto_vu_strategy):
         s = schedule_elewise_after_pool2d_s2_p1_2_2(primfunc, False)
     else:
         s = schedule_elewise_after_pool2d_s2_p1_2_2_tiling(primfunc, False)
-    check_edgex_tir_build("elewise_after_pool2d", s, get_numpy_output, check_cpu=True)
+    check_edgex_tir_build("elewise_after_pool2d", s, numpy_func=get_numpy_output, check_cpu=True)
 
 
 @pytest.mark.edgex_slow
