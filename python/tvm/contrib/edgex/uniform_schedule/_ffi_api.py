@@ -14,8 +14,8 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""FFI APIs for tvm.tir.edgex.uniform_schedule"""
+"""FFI APIs for tvm.edgex.uniform_schedule"""
 import tvm._ffi
 
 
-tvm._ffi._init_api("tir.edgex.uniform_schedule", __name__)
+tvm._ffi._init_api("edgex.uniform_schedule", __name__)

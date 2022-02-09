@@ -458,8 +458,6 @@ class BlockGraph:
     @staticmethod
     def merge(*subgraphs: "BlockGraph") -> "BlockGraph":
         """Merge subgraphs of the same parent graph"""
-        if len(subgraphs) == 1:
-            return subgraphs[0]
         parent = subgraphs[0].parent
         if parent is None:
             raise ValueError("Can not merge root graphs")
@@ -500,7 +498,7 @@ class BlockGraph:
                 if dst:
                     dst.__reset_input(parent_edge.dst_idx, parent_edge)
 
-            if num_internal_edges == 0:
+            if num_internal_edges == 0 and len(subgraphs) > 1:
                 raise ValueError("Can not merge disjoint subgraphs")
         new_data = []
         insert = False
