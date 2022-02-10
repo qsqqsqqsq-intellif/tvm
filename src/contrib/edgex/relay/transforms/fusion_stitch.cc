@@ -423,7 +423,7 @@ class AtomicGraph {
     // - make long specs unique(less "") to reduce search space.
     // ATOMIC_CONV  + ATOMIC_ELTWISE
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_CONV,
-                        {{"nn.conv2d", "nn.conv2d_transpose"},
+                        {{"nn.conv2d", "nn.conv2d_transpose", "nn.conv3d"},
                          {"nn.bias_add"},
                          {"cast"},
                          {"multiply"},
@@ -433,29 +433,30 @@ class AtomicGraph {
                          {"nn.relu", ""}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_CONV,
                         {{"cast", ""},
-                         {"nn.conv2d", "nn.conv2d_transpose"},
+                         {"nn.conv2d", "nn.conv2d_transpose", "nn.conv3d"},
                          {"nn.bias_add", ""},
                          {"right_shift", "round_right_shift", ""},
                          {"clip", ""},
                          {"tuple", "tuple_get", ""},
                          {"nn.relu", "nn.prelu", "nn.leaky_relu"},
                          {"clip", ""}});
-    add_atomic_op_specs(&atomic_op_specs, ATOMIC_CONV, {{"nn.conv2d"}});
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_CONV,
+                        {{"nn.conv2d", "nn.conv2d_transpose", "nn.conv3d"}});
     // QAT: [cast-sum_pool2d-multiply]
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_POOL,
                         {{"cast"}, {"sum", ""}, {"nn.sum_pool2d"}, {"multiply"}});
     // ATOMIC_POOL + ATOMIC_ELTWISE
-    add_atomic_op_specs(
-        &atomic_op_specs, ATOMIC_POOL,
-        {{"nn.max_pool2d", "nn.global_max_pool2d", "nn.global_avg_pool2d", "nn.sum_pool2d"},
-         {"cast"},
-         {"multiply"},
-         {"round_right_shift"},
-         {"clip"},
-         {"cast"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_POOL,
-                        {{"nn.max_pool2d", "nn.global_max_pool2d", "nn.global_avg_pool2d",
-                          "nn.sum_pool2d", "nn.avg_pool2d"}});
+                        {{"nn.avg_pool2d", "nn.max_pool2d", "nn.sum_pool2d", "nn.global_avg_pool2d",
+                          "nn.global_max_pool2d", "nn.global_sum_pool2d"},
+                         {"cast"},
+                         {"multiply"},
+                         {"round_right_shift"},
+                         {"clip"},
+                         {"cast"}});
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_POOL,
+                        {{"nn.avg_pool2d", "nn.max_pool2d", "nn.sum_pool2d", "nn.global_avg_pool2d",
+                          "nn.global_max_pool2d", "nn.global_sum_pool2d"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_ADAPTIVEPOOL, {{"nn.adaptive_avg_pool2d"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_ELTWISE,
                         {{"cast"},
@@ -493,11 +494,23 @@ class AtomicGraph {
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_CONCAT, {{"tuple", "tuple_get"}, {"concatenate"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_CONCAT, {{"concatenate"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_TUPLE, {{"tuple", "tuple_get"}});
-    add_atomic_op_specs(&atomic_op_specs, ATOMIC_RESHAPE, {{"reshape"}});
-    add_atomic_op_specs(&atomic_op_specs, ATOMIC_RESHAPE, {{"expand_dims"}});
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_RESHAPE, {{"reshape", "expand_dims"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_DEVICECOPY, {{"device_copy"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_DENSE, {{"nn.dense"}, {"nn.bias_add", ""}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_PAD, {{"nn.pad"}});
+    // TODO(@yiheng): those specs are temporaily
+    add_atomic_op_specs(
+        &atomic_op_specs, ATOMIC_ANONYMOUS,
+        {{"image.resize", "image.resize2d", "nn.batch_matmul", "nn.layer_norm", "nn.upsampling",
+          "ones_like", "reverse", "slice_like", "sigmoid", "strided_slice", "split", "take", "tile",
+          "vision.yolo_reorg", "zeros_like"}});
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_CAST, {{"broadcast_to_like"}});
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_DEVICECOPY, {{"copy"}});
+    add_atomic_op_specs(
+        &atomic_op_specs, ATOMIC_ELTWISE,
+        {{"divide", "erf", "exp", "floor_mod", "log", "max", "maximum", "mean", "minimum",
+          "multiply", "mod", "negative", "nn.lrn", "power", "round", "sqrt", "tanh", "variance"}});
+
     return std::move(atomic_op_specs);
   }
 
