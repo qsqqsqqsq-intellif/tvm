@@ -389,6 +389,11 @@ class AvgPool3DAttrs(Attrs):
     """Attributes used in avg_pool3d operators"""
 
 
+@tvm._ffi.register_object("relay.attrs.SumPool3DAttrs")
+class SumPool3DAttrs(Attrs):
+    """Attributes used in sum_pool3d operators"""
+
+
 @tvm._ffi.register_object("relay.attrs.BitPackAttrs")
 class BitPackAttrs(Attrs):
     """Attributes used in bitpack operator"""
