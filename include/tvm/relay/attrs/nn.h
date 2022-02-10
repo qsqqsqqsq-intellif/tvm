@@ -1083,6 +1083,49 @@ struct AvgPool3DAttrs : public tvm::AttrsNode<AvgPool3DAttrs> {
   }
 };
 
+/*! \brief Attributes for 3D sum pool operator */
+struct SumPool3DAttrs : public tvm::AttrsNode<SumPool3DAttrs> {
+  Array<IndexExpr> pool_size;
+  Array<IndexExpr> strides;
+  Array<IndexExpr> dilation;
+  Array<IndexExpr> padding;
+  std::string layout;
+  tvm::String out_layout;
+  bool ceil_mode;
+
+  TVM_DECLARE_ATTRS(SumPool3DAttrs, "relay.attrs.SumPool3DAttrs") {
+    TVM_ATTR_FIELD(pool_size).describe("Size of the pooling windows.");
+    TVM_ATTR_FIELD(strides)
+        .set_default(Array<IndexExpr>({1, 1, 1}))
+        .describe("Specifies the strides of the convolution.");
+    TVM_ATTR_FIELD(dilation)
+        .set_default(Array<IndexExpr>({1, 1, 1}))
+        .describe("Specifies the dilation of the convolution.");
+    TVM_ATTR_FIELD(padding)
+        .set_default(Array<IndexExpr>({0, 0, 0}))
+        .describe(
+            "If padding is non-zero, then the input is implicitly zero-padded"
+            "Padding support both symmetric and asymmetric as"
+            "one int : same padding used on all sides"
+            "three int : back, bottom, right will use same padding as front, top, left"
+            "six int : padding width in the order of (front, top, left, back, bottom, right)");
+    TVM_ATTR_FIELD(layout).set_default("NCDHW").describe(
+        "Dimension ordering of input data. Can be 'NCDHW', 'NDHWC', etc."
+        "'N', 'C', 'D', 'H', 'W' stands for batch, channel, depth, height, and width"
+        "dimensions respectively. Pooling is applied on the 'D', 'H' and"
+        "'W' dimensions.");
+    TVM_ATTR_FIELD(out_layout)
+        .set_default("")
+        .describe(
+            "Dimension ordering of output data. Can be 'NCDHW', 'NDHWC', etc."
+            "'N', 'C', 'D', 'H', 'W' stands for batch, channel, depth, height, and width"
+            "dimensions respectively. Pooling is applied on the 'D', 'H' and"
+            "'W' dimensions.");
+    TVM_ATTR_FIELD(ceil_mode).set_default(false).describe(
+        "When true, will use ceil instead of floor to compute the output shape.");
+  }
+};
+
 /*! \brief Attributes for matmul operator */
 struct MatmulAttrs : public tvm::AttrsNode<MatmulAttrs> {
   IndexExpr units;

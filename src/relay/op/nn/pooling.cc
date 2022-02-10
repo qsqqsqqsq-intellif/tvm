@@ -259,10 +259,11 @@ Average pooling operation for one dimensional data.
     .set_attr<FTVMCompute>("FTVMCompute", Pool2DCompute<AvgPool2DAttrs, topi::nn::kAvgPool>);
 
 // SumPool2D
-inline Expr MakeSumPool2D(Expr data, Array<IndexExpr> pool_size, Array<IndexExpr> strides,
-                          Array<IndexExpr> dilation, Array<IndexExpr> padding, String layout,
-                          String out_layout, bool ceil_mode) {
-  auto attrs = make_object<SumPool2DAttrs>();
+template <typename T>
+inline Expr MakeSumPool(Expr data, Array<IndexExpr> pool_size, Array<IndexExpr> strides,
+                        Array<IndexExpr> dilation, Array<IndexExpr> padding, String layout,
+                        String out_layout, bool ceil_mode, String op_name) {
+  auto attrs = make_object<T>();
   attrs->pool_size = std::move(pool_size);
   attrs->strides = std::move(strides);
   attrs->dilation = std::move(dilation);
@@ -270,11 +271,17 @@ inline Expr MakeSumPool2D(Expr data, Array<IndexExpr> pool_size, Array<IndexExpr
   attrs->out_layout = std::move(out_layout);
   attrs->layout = std::move(layout);
   attrs->ceil_mode = ceil_mode;
-  static const Op& op = Op::Get("nn.sum_pool2d");
+  static const Op& op = Op::Get(op_name);
   return Call(op, {data}, Attrs(attrs), {});
 }
 
-TVM_REGISTER_GLOBAL("relay.op.nn._make.sum_pool2d").set_body_typed(MakeSumPool2D);
+TVM_REGISTER_GLOBAL("relay.op.nn._make.sum_pool2d")
+    .set_body_typed([](Expr data, Array<IndexExpr> pool_size, Array<IndexExpr> strides,
+                       Array<IndexExpr> dilation, Array<IndexExpr> padding, String layout,
+                       String out_layout, bool ceil_mode) {
+      return MakeSumPool<SumPool2DAttrs>(data, pool_size, strides, dilation, padding, layout,
+                                         out_layout, ceil_mode, "nn.sum_pool2d");
+    });
 
 RELAY_REGISTER_OP("nn.sum_pool2d")
     .describe(R"code(
@@ -1217,9 +1224,10 @@ Average pooling operation for one dimensional data.
     .set_attr<FInferCorrectLayout>("FInferCorrectLayout", PoolInferCorrectLayout<AvgPool1DAttrs>)
     .set_attr<FTVMCompute>("FTVMCompute", Pool1DCompute<AvgPool1DAttrs, topi::nn::kAvgPool>);
 
-// relay.nn.max_pool3d & relay.nn.avg_pool3d
+// relay.nn.max_pool3d & relay.nn.avg_pool3d & relay.nn.sum_pool3d
 TVM_REGISTER_NODE_TYPE(MaxPool3DAttrs);
 TVM_REGISTER_NODE_TYPE(AvgPool3DAttrs);
+TVM_REGISTER_NODE_TYPE(SumPool3DAttrs);
 
 template <typename AttrType>
 bool Pool3DRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
@@ -1409,6 +1417,46 @@ Average pooling operation for three dimensional data.
     .add_type_rel("AvgPool3D", Pool3DRel<AvgPool3DAttrs>)
     .set_attr<FInferCorrectLayout>("FInferCorrectLayout", PoolInferCorrectLayout<AvgPool3DAttrs>)
     .set_attr<FTVMCompute>("FTVMCompute", Pool3DCompute<AvgPool3DAttrs, topi::nn::kAvgPool>);
+
+// sum_pool3d
+TVM_REGISTER_GLOBAL("relay.op.nn._make.sum_pool3d")
+    .set_body_typed([](Expr data, Array<IndexExpr> pool_size, Array<IndexExpr> strides,
+                       Array<IndexExpr> dilation, Array<IndexExpr> padding, String layout,
+                       String out_layout, bool ceil_mode) {
+      return MakeSumPool<SumPool3DAttrs>(data, pool_size, strides, dilation, padding, layout,
+                                         out_layout, ceil_mode, "nn.sum_pool3d");
+    });
+
+RELAY_REGISTER_OP("nn.sum_pool3d")
+    .describe(R"code(
+Average pooling operation for three dimensional data.
+
+- **data**: This depends on the `layout` parameter. Input is 5D array of shape
+            (batch_size, channels, depth, height, width) if `layout` is `NCDHW`.
+- **out**: This depends on the `layout` parameter. Output is 5D array of shape
+           (batch_size, channels, out_depth, out_height, out_width)  if `layout` is `NCDHW`.
+           out_depth, out_height and out_width are calculated as::
+
+               out_depth = floor((depth+padding[0]+padding[3]-pool_size[0])/strides[0])+1
+               out_height = floor((height+padding[1]+padding[4]-pool_size[1])/strides[1])+1
+               out_width = floor((width+padding[2]+padding[5]-pool_size[2])/strides[2])+1
+
+           where padding will be an expanded array based on number of values passed as::
+               one int : all sides same padding used.
+               three int : front, bottom, right use same as back, top and left.
+               six int: padding width in the order of (front, top, left, back, bottom, right).
+
+           When `ceil_mode` is `True`, ceil will be used instead of floor in this
+           equation.
+
+)code" TVM_ADD_FILELINE)
+    .set_attrs_type<SumPool3DAttrs>()
+    .set_num_inputs(1)
+    .add_argument("data", "Tensor", "The input tensor.")
+    .set_support_level(2)
+    .add_type_rel("SumPool3D", Pool3DRel<SumPool3DAttrs>)
+    .set_attr<FInferCorrectLayout>("FInferCorrectLayout", PoolInferCorrectLayout<SumPool3DAttrs>)
+    .set_attr<FTVMCompute>("FTVMCompute", Pool3DCompute<SumPool3DAttrs, topi::nn::kSumPool>);
 
 }  // namespace relay
 }  // namespace tvm

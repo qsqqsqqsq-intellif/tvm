@@ -52,6 +52,7 @@ class FuseMultiplyToConv : public ExprMutator {
     static const Op& squeeze = Op::Get("squeeze");
     static const Op& multiply = Op::Get("multiply");
     static const Op& flatten = Op::Get("nn.batch_flatten");
+    static const Op& transpose = Op::Get("transpose");
 
     auto new_n = ExprMutator::VisitExpr_(n);
     if (n->op.same_as(conv2d)) {
@@ -91,9 +92,23 @@ class FuseMultiplyToConv : public ExprMutator {
         new_arg0 = new_n.as<CallNode>()->args[0];
       } else if (arg0->op.same_as(reshape) || arg0->op.same_as(squeeze) ||
                  arg0->op.same_as(flatten)) {
-        auto a = arg0->args[0].as<CallNode>();
-        if (a && a->op.same_as(multiply)) {
-          mul_w = a->args[1];
+        Expr arg0_expr = arg0->args[0];
+        const CallNode* a = arg0_expr.as<CallNode>();
+        if (a && a->op.same_as(transpose)) {
+          Expr tran_arg0 = a->args[0];
+          auto t_arg0 = tran_arg0.as<CallNode>();
+          if (t_arg0 && t_arg0->op.same_as(multiply)) {
+            auto transpose_attrs = a->attrs.as<TransposeAttrs>();
+            auto axes = transpose_attrs->axes;
+            Expr new_tran = MakeTranspose(t_arg0->args[0], axes);
+            arg0_expr = Multiply(new_tran, t_arg0->args[1]);
+          } else {
+            return new_n;
+          }
+        }
+        auto b = arg0_expr.as<CallNode>();
+        if (b && b->op.same_as(multiply)) {
+          mul_w = b->args[1];
           auto mul_const = mul_w.as<ConstantNode>();
           if (!mul_const) {
             return new_n;
@@ -102,7 +117,7 @@ class FuseMultiplyToConv : public ExprMutator {
             return new_n;
           }
 
-          auto arg = a->args[0];
+          auto arg = b->args[0];
           new_arg0 = Call(arg0->op, {arg}, arg0->attrs);
         } else {
           return new_n;

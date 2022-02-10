@@ -588,6 +588,9 @@ def convert_avg_pool2d(attrs, inputs, tinfos, desired_layouts):
 reg.register_schedule("nn.avg_pool3d", strategy.schedule_pool)
 reg.register_pattern("nn.avg_pool3d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
+# sum_pool3d
+reg.register_schedule("nn.sum_pool3d", strategy.schedule_pool)
+reg.register_pattern("nn.sum_pool3d", OpPattern.OUT_ELEMWISE_FUSABLE)
 
 # sum_pool2d
 reg.register_schedule("nn.sum_pool2d", strategy.schedule_pool)

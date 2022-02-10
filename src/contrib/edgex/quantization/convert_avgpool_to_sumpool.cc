@@ -38,8 +38,10 @@ class ConvertAvgToSumpool : public ExprMutator {
   ConvertAvgToSumpool()
       : avg_pool2d_(Op::Get("nn.avg_pool2d")),
         global_avg_pool2d_(Op::Get("nn.global_avg_pool2d")),
+        avg_pool3d_(Op::Get("nn.avg_pool3d")),
         sum_pool2d_(Op::Get("nn.sum_pool2d")),
-        global_sum_pool2d_(Op::Get("nn.global_sum_pool2d")) {}
+        global_sum_pool2d_(Op::Get("nn.global_sum_pool2d")),
+        sum_pool3d_(Op::Get("nn.sum_pool3d")) {}
 
   Expr VisitExpr_(const CallNode* n) {
     auto new_n = ExprMutator::VisitExpr_(n);
@@ -71,6 +73,35 @@ class ConvertAvgToSumpool : public ExprMutator {
       auto mul_weight = MakeConstantScalar(DataType::Float(32), kernel_coef);
       return Multiply(sumpool, mul_weight);
 
+    } else if (n->op == avg_pool3d_) {
+      auto pool_attrs = n->attrs.as<AvgPool3DAttrs>();
+      std::string layout = pool_attrs->layout;
+      std::string out_layout = pool_attrs->out_layout;
+      auto pool_size = pool_attrs->pool_size;
+      auto strides = pool_attrs->strides;
+      auto dilation = pool_attrs->dilation;
+      auto padding = pool_attrs->padding;
+      auto ceil_mode = pool_attrs->ceil_mode;
+      auto in_shape = n->args[0]->checked_type().as<TensorTypeNode>()->shape;
+      // ICHECK(in_shape.size() == 4);
+
+      auto attrs = make_object<SumPool3DAttrs>();
+      attrs->pool_size = std::move(pool_size);
+      attrs->strides = std::move(strides);
+      attrs->padding = std::move(padding);
+      attrs->layout = std::move(layout);
+      attrs->out_layout = std::move(out_layout);
+      attrs->ceil_mode = ceil_mode;
+      attrs->dilation = std::move(dilation);
+      Expr sumpool = Call(sum_pool3d_, {new_n.as<CallNode>()->args[0]}, Attrs(attrs));
+
+      int kd = attrs->pool_size[0].as<IntImmNode>()->value;
+      int kh = attrs->pool_size[1].as<IntImmNode>()->value;
+      int kw = attrs->pool_size[2].as<IntImmNode>()->value;
+      float kernel_coef = 1. / kh / kw / kd;
+      auto mul_weight = MakeConstantScalar(DataType::Float(32), kernel_coef);
+      return Multiply(sumpool, mul_weight);
+
     } else if (n->op == global_avg_pool2d_) {
       auto in_shape = n->args[0]->checked_type().as<TensorTypeNode>()->shape;
       auto pool_attrs = n->attrs.as<GlobalPool2DAttrs>();
@@ -95,8 +126,10 @@ class ConvertAvgToSumpool : public ExprMutator {
  private:
   const Op& avg_pool2d_;
   const Op& global_avg_pool2d_;
+  const Op& avg_pool3d_;
   const Op& sum_pool2d_;
   const Op& global_sum_pool2d_;
+  const Op& sum_pool3d_;
 };
 
 Expr ConvertAvgpool(const Expr& e) { return relay::ConvertAvgToSumpool().Mutate(e); }
