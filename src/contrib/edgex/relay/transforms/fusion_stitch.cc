@@ -501,15 +501,15 @@ class AtomicGraph {
     // TODO(@yiheng): those specs are temporaily
     add_atomic_op_specs(
         &atomic_op_specs, ATOMIC_ANONYMOUS,
-        {{"image.resize", "image.resize2d", "nn.batch_matmul", "nn.layer_norm", "nn.upsampling",
-          "ones_like", "reverse", "slice_like", "sigmoid", "strided_slice", "split", "take", "tile",
-          "vision.yolo_reorg", "zeros_like"}});
+        {{"image.resize1d", "image.resize2d", "image.resize3d", "nn.batch_matmul", "nn.layer_norm",
+          "nn.upsampling", "ones_like", "reverse", "slice_like", "sigmoid", "strided_slice",
+          "split", "take", "tile", "vision.yolo_reorg", "zeros_like"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_CAST, {{"broadcast_to_like"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_DEVICECOPY, {{"copy"}});
-    add_atomic_op_specs(
-        &atomic_op_specs, ATOMIC_ELTWISE,
-        {{"divide", "erf", "exp", "floor_mod", "log", "max", "maximum", "mean", "minimum",
-          "multiply", "mod", "negative", "nn.lrn", "power", "round", "sqrt", "tanh", "variance"}});
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_ELTWISE,
+                        {{"divide", "erf", "exp", "floor_mod", "log", "max", "maximum", "mean",
+                          "minimum", "multiply", "mod", "negative", "nn.lrn", "power", "round",
+                          "sqrt", "sum", "tanh", "variance"}});
 
     return std::move(atomic_op_specs);
   }
