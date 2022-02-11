@@ -14,12 +14,11 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements,unexpected-keyword-arg
+# pylint: disable=unused-argument,inconsistent-return-statements
 """op"""
 
 import logging
 from tvm import relay
-from tvm._ffi import runtime_ctypes
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
 from ..analyze import _conv_counter, oneargdeal
@@ -28,7 +27,7 @@ from ..realize import _realize_core
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("GlobalSumPool2D",)
+__all__ = ("MaxPool3D",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -49,24 +48,29 @@ DEFAULTCONFIG = {
 }
 
 
-class GlobalSumPool2D:
-    """global_sum_pool2d"""
+class MaxPool3D:
+    """max_pool3d"""
 
-    name = "nn.global_sum_pool2d"
+    name = "nn.max_pool3d"
     controlable = False
 
     def __init__(self, node, vertex_config, config):
         cnt = _conv_counter()
 
-        self.quantized = vertex_config[node.args[0]].quantized
-        if cnt - 1 in []:
+        self.quantized = True  # TODO whether
+        # nnp300 quantized first!
+        if (
+            not vertex_config[node.args[0]].quantized
+            and "target" in config
+            and config["target"].startswith("nnp400")
+        ) or ("skip_conv_layers" in config and cnt - 1 in config["skip_conv_layers"]):
             self.quantized = False
 
         ci0 = config["input0"]
 
         oneargdeal(self, node, vertex_config, ci0)
 
-        LOGGER.debug("[anaylze] global_sum_pool2d finish")
+        LOGGER.debug("[anaylze] max_pool3d finish")
 
     @classmethod
     def get_config(cls, config, call):
@@ -74,10 +78,11 @@ class GlobalSumPool2D:
 
     def quantize_params(self, node, vertex_config):
         """quantize_params"""
+        LOGGER.info("[calibrate] maxpool3d start")
         arg = node.args[0]
         input_config = self.input_config[arg]
 
-        y = _calibrate_core(arg, input_config, vertex_config, self.quantized)
+        y = _calibrate_core(arg, input_config, vertex_config)
 
         input_config.update(y)
 
@@ -85,22 +90,10 @@ class GlobalSumPool2D:
 
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
-        LOGGER.debug("[realize] global_sum_pool2d start")
         old_arg = old_node.args[0]
         new_arg = new_node.args[0]
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
-        if "ir_pass" not in relay.__dict__:
-            dtype = runtime_ctypes.DataType(self.input_config[old_arg]["dtype"])
-            if self.quantized:
-                if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
-                    new_arg = relay.cast(new_arg, vertex_config[old_node].output_config["dtype"])
 
-            new_node = relay.nn.global_sum_pool2d(new_arg)
-        else:
-            if self.quantized:
-                new_node = relay.nn.global_sum_pool2d(new_arg, "NCHW", out_dtype="int32")
-            else:
-                new_node = relay.nn.global_sum_pool2d(new_arg)
-
+        new_node = relay.nn.max_pool3d(new_arg, **dict(new_node.attrs))
         return new_node

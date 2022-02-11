@@ -23,7 +23,7 @@ from ..threshold import Threshold
 from ..method_dtype import Method, DataType, _get_dtype_info
 from ..realize import operate, pair_node
 
-__all__ = ("AvgPool2D",)
+__all__ = ("AdaptiveAvgPool3D",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -44,10 +44,10 @@ DEFAULTCONFIG = {
 }
 
 
-class AvgPool2D:
-    """avg_pool2d"""
+class AdaptiveAvgPool3D:
+    """adaptive_avg_pool3d"""
 
-    name = "nn.avg_pool2d"
+    name = "nn.adaptive_avg_pool3d"
     controlable = False
 
     def __init__(self, node, vertex_config, config):
@@ -127,7 +127,7 @@ class AvgPool2D:
                 new_arg = relay.cast(new_arg, input_config["dtype"])
 
         pair_node(old_arg, new_arg, output_config, input_config, n2o, self.quantized)
-        new_node = relay.nn.avg_pool2d(new_arg, **dict(new_node.attrs))
+        new_node = relay.nn.adaptive_avg_pool3d(new_arg, **dict(new_node.attrs))
 
         if self.quantized:
             if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:

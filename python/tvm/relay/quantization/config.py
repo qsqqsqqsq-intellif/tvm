@@ -258,7 +258,17 @@ class ConfigSpace(ExprVisitor):
                 )
                 or (
                     isinstance(arg, relay.Call)
-                    and (arg_name in ["add", "multiply", "nn.sum_pool2d", "nn.max_pool2d"])
+                    and (
+                        arg_name
+                        in [
+                            "add",
+                            "multiply",
+                            "nn.sum_pool2d",
+                            "nn.sum_pool3d",
+                            "nn.max_pool2d",
+                            "nn.max_pool3d",
+                        ]
+                    )
                 )
                 and arg_dict["default_config"][arg_key]["dtype"] == "int16"
             ):

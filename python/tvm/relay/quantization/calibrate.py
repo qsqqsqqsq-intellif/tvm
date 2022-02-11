@@ -23,7 +23,7 @@ from tvm import relay
 
 LOGGER = logging.getLogger("quantize")
 
-BACK_IDENTITYSCALE_OP_LIST = ["clip", "nn.relu", "nn.max_pool2d"]
+BACK_IDENTITYSCALE_OP_LIST = ["clip", "nn.relu", "nn.max_pool2d", "nn.max_pool3d"]
 
 
 def recursive_set(arg, vertex_config):

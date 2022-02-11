@@ -19,16 +19,32 @@
 
 from tvm import relay
 from tvm._ffi import runtime_ctypes
-from ..method_dtype import DataType, _get_dtype_info
+from ..threshold import Threshold
+from ..method_dtype import Method, DataType, _get_dtype_info
 from ..realize import operate, pair_node
 
-__all__ = ("AdaptiveAvgPool2d",)
+__all__ = ("AdaptiveAvgPool2D",)
 
-VALIDCONFIG = {}
-DEFAULTCONFIG = {}
+VALIDCONFIG = {
+    "threshold": (
+        Threshold.MinMax,
+        Threshold.Percentile,
+        Threshold.MovingAverageMinMax,
+        Threshold.L2Norm,
+        Threshold.RelativeEntropy,
+    ),
+    "method": (Method.Symmetry, Method.Asymmetry),
+    "dtype": (DataType.Int8, DataType.Int16),
+}
+
+DEFAULTCONFIG = {
+    "threshold": Threshold.L2Norm,
+    "method": Method.Symmetry,
+    "dtype": DataType.Int8,
+}
 
 
-class AdaptiveAvgPool2d:
+class AdaptiveAvgPool2D:
     """adaptive_avg_pool2d"""
 
     name = "nn.adaptive_avg_pool2d"

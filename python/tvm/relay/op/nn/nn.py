@@ -1268,6 +1268,80 @@ def sum_pool2d(
     )
 
 
+def sum_pool3d(
+    data,
+    pool_size=(1, 1, 1),
+    strides=(1, 1, 1),
+    dilation=(1, 1, 1),
+    padding=(0, 0, 0),
+    layout="NCDHW",
+    out_layout="",
+    ceil_mode=False,
+):
+    r"""3D sum pooling operator.
+
+    This operator takes data as input and does 3D sum value calculation
+    with in pool_size sized window by striding defined by stride
+
+
+    In the default case, where the data_layout is `NCDHW`
+    a data Tensor with shape `(batch_size, channels, depth, height, width)`,
+    to produce an output Tensor.
+
+    The ceil_mode is used to take ceil or floor while computing out shape.
+    count_include_pad indicates including or excluding padded input values in computation.
+    This operator accepts data layout specification.
+
+    Parameters
+    ----------
+    data : tvm.relay.Expr
+        The input data to the operator.
+
+    pool_size : int or tuple of int, optional
+        The size of window for pooling.
+
+    strides : tuple of int, optional
+        The strides of pooling.
+
+    dilation : int or tuple of int, optional
+        The dilation of pooling.
+
+    padding : tuple of int, optional
+        The padding for pooling.
+
+    layout : str, optional
+        Layout of the input.
+
+    out_layout : Optional[str]
+        Layout of the output
+
+    ceil_mode : bool, optional
+        To enable or disable ceil while pooling.
+
+    Returns
+    -------
+    result : tvm.relay.Expr
+        The computed result.
+    """
+    if isinstance(pool_size, int):
+        pool_size = (pool_size, pool_size, pool_size)
+    if isinstance(strides, int):
+        strides = (strides, strides, strides)
+    if isinstance(dilation, int):
+        dilation = (dilation, dilation, dilation)
+    padding = get_pad_tuple3d(padding)
+    return _make.sum_pool3d(
+        data,
+        pool_size,
+        strides,
+        dilation,
+        padding,
+        layout,
+        out_layout,
+        ceil_mode,
+    )
+
+
 def max_pool2d_grad(
     out_grad,
     data,

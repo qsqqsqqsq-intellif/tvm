@@ -45,7 +45,18 @@ model_name = "slowfast_r50"
 performance = {"float": None, "int8": None}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
-all_op = []
+all_op = [
+    "conv3d_bias_add",
+    "nn.relu",
+    "nn.max_pool3d",
+    "concatenate",
+    "add",
+    "nn.sum_pool3d",
+    "multiply",
+    "transpose",
+    "reshape",
+    "nn.dense",
+]
 
 
 def prepare_data_loaders(data_path, batch_size):

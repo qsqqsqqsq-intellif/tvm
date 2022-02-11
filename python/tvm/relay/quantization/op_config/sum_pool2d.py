@@ -28,7 +28,7 @@ from ..realize import _realize_core
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("SumPool2d",)
+__all__ = ("SumPool2D",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -49,7 +49,7 @@ DEFAULTCONFIG = {
 }
 
 
-class SumPool2d:
+class SumPool2D:
     """sum_pool2d"""
 
     name = "nn.sum_pool2d"

@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements,unexpected-keyword-arg
+# pylint: disable=unused-argument,inconsistent-return-statements
 """op"""
 
 import logging
@@ -28,7 +28,7 @@ from ..realize import _realize_core
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("GlobalSumPool2D",)
+__all__ = ("SumPool3D",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -49,10 +49,10 @@ DEFAULTCONFIG = {
 }
 
 
-class GlobalSumPool2D:
-    """global_sum_pool2d"""
+class SumPool3D:
+    """sum_pool3d"""
 
-    name = "nn.global_sum_pool2d"
+    name = "nn.sum_pool3d"
     controlable = False
 
     def __init__(self, node, vertex_config, config):
@@ -66,7 +66,7 @@ class GlobalSumPool2D:
 
         oneargdeal(self, node, vertex_config, ci0)
 
-        LOGGER.debug("[anaylze] global_sum_pool2d finish")
+        LOGGER.debug("[anaylze] sum_pool3d finish")
 
     @classmethod
     def get_config(cls, config, call):
@@ -85,7 +85,7 @@ class GlobalSumPool2D:
 
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
-        LOGGER.debug("[realize] global_sum_pool2d start")
+        LOGGER.debug("[realize] sum_pool3d start")
         old_arg = old_node.args[0]
         new_arg = new_node.args[0]
 
@@ -96,11 +96,16 @@ class GlobalSumPool2D:
                 if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
                     new_arg = relay.cast(new_arg, vertex_config[old_node].output_config["dtype"])
 
-            new_node = relay.nn.global_sum_pool2d(new_arg)
+            new_node = relay.nn.sum_pool3d(new_arg, **dict(new_node.attrs))
         else:
+            new_attr = {}
+            new_attr["pool_size"] = new_node.attrs.pool_size
+            new_attr["strides"] = new_node.attrs.strides
+            new_attr["padding"] = new_node.attrs.padding
+            new_attr["layout"] = new_node.attrs.layout
+            new_attr["ceil_mode"] = new_node.attrs.ceil_mode
             if self.quantized:
-                new_node = relay.nn.global_sum_pool2d(new_arg, "NCHW", out_dtype="int32")
-            else:
-                new_node = relay.nn.global_sum_pool2d(new_arg)
+                new_attr["out_dtype"] = "int32"
+            new_node = relay.nn.sum_pool3d(new_arg, **new_attr)
 
         return new_node

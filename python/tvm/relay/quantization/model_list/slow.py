@@ -42,10 +42,20 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 16
 model_name = "slow_r50"
-performance = {"float": 63.4735, "int8": None}
+performance = {"float": 63.4735, "int8": 63.3776}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
-all_op = []
+all_op = [
+    "conv3d_bias_add",
+    "nn.relu",
+    "nn.max_pool3d",
+    "add",
+    "nn.sum_pool3d",
+    "transpose",
+    "reshape",
+    "nn.dense",
+    "multiply",
+]
 
 
 def prepare_data_loaders(data_path, batch_size):

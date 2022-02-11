@@ -119,7 +119,7 @@ def eliminate_dequantize_quantize(node):
                 else:
                     name = ori_call.op.name
 
-                if name in ["nn.relu", "nn.max_pool2d", "concatenate"]:
+                if name in ["nn.relu", "nn.max_pool2d", "nn.max_pool3d", "concatenate"]:
                     r_datatype = node.attrs.out_dtype
                     q_max_min = _get_dtype_info(r_datatype)
                     return relay.clip(
