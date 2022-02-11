@@ -57,7 +57,7 @@ class EdgeXModuleNode : public runtime::ModuleNode {
   explicit EdgeXModuleNode(const std::unordered_map<std::string, std::string>& bin_map,
                            const std::unordered_map<std::string, std::string>& lst_map,
                            const std::string& fmt,
-                           const std::unordered_map<std::string, EdgeXFunctionInfo>& fmap,
+                           const std::unordered_map<std::string, FunctionInfo>& fmap,
                            const std::unordered_map<std::string, std::string>& asm_map)
       : bin_map_(bin_map), lst_map_(lst_map), fmt_(fmt), f_map_(fmap), asm_map_(asm_map) {
     debug_iss_ = dmlc::GetEnv("EDGEX_DEBUG_ISS", std::string("")) == "true";
@@ -82,8 +82,7 @@ class EdgeXModuleNode : public runtime::ModuleNode {
     CHECK(0) << "Unsupported function: SaveToFile (TODO:cww)";
     std::string fmt = GetFileFormat(file_name, format);
     std::string meta_file = GetMetaFilePath(file_name);
-    // TODO(@yiheng): edgex's fmt
-    if (fmt == "cu") {
+    if (fmt == "edgex") {
       // ICHECK_NE(edgex_source_.length(), 0);
       // SaveMetaDataToFile(meta_file, f_map_);
       // SaveBinaryToFile(file_name, edgex_source_);
@@ -95,10 +94,11 @@ class EdgeXModuleNode : public runtime::ModuleNode {
   }
 
   void SaveToBinary(dmlc::Stream* stream) final {
-    CHECK(0) << "Unsupported function: SaveToBinary (TODO:cww)";
-    // stream->Write(fmt_);
-    // stream->Write(f_map_);
-    // stream->Write(bin_data_);
+    stream->Write(fmt_);
+    stream->Write(f_map_);
+    stream->Write(bin_map_);
+    stream->Write(lst_map_);
+    stream->Write(asm_map_);
   }
 
   // TODO(@yiheng): edgex's fmt
@@ -176,16 +176,12 @@ class EdgeXModuleNode : public runtime::ModuleNode {
 
   // the binary bin data
   std::unordered_map<std::string, std::string> bin_map_;
-
   // the lst data
   std::unordered_map<std::string, std::string> lst_map_;
-
   // The format
   std::string fmt_;
-
   // function information table.
-  std::unordered_map<std::string, EdgeXFunctionInfo> f_map_;
-
+  std::unordered_map<std::string, FunctionInfo> f_map_;
   // The edgex source.
   std::unordered_map<std::string, std::string> asm_map_;
 
@@ -238,12 +234,6 @@ PackedFunc EdgeXModuleNode::GetFunction(const std::string& name,
                                         const ObjectPtr<Object>& sptr_to_self) {
   ICHECK_EQ(sptr_to_self.get(), this);
   ICHECK_NE(name, symbol::tvm_module_main) << "Device function do not have main";
-  // auto it = fmap_.find(name);
-  // if (it == fmap_.end()) return PackedFunc();
-  // const EdgeXFunctionInfo& info = it->second;
-  // EdgeXWrappedFunc f;
-  // f.Init(this, sptr_to_self, name, info.arg_types.size(), info.thread_axis_tags);
-  // return PackFuncPackedArg(f, info.arg_types);
   if (f_map_.find(name) == f_map_.end()) {
     return PackedFunc();
   }
@@ -276,13 +266,13 @@ PackedFunc EdgeXModuleNode::GetFunction(const std::string& name,
   });
 }
 
-Module EdgeXModuleCreate(const std::string& bin_data, const std::string& lst_data,
+Module EdgeXModuleCreate(const std::unordered_map<std::string, std::string>& bin_map,
+                         const std::unordered_map<std::string, std::string>& lst_map,
                          const std::string& fmt,
-                         const std::unordered_map<std::string, EdgeXFunctionInfo>& fmap,
-                         const std::string& edgex_source) {
-  CHECK(0) << "Unsupported function: EdgeXModuleCreate (TODO:cww)";
-  // auto n = make_object<EdgeXModuleNode>(bin_data, lst_data, fmt, fmap, edgex_source);
-  return Module();
+                         const std::unordered_map<std::string, FunctionInfo>& fmap,
+                         const std::unordered_map<std::string, std::string>& asm_map) {
+  auto n = make_object<EdgeXModuleNode>(bin_map, lst_map, fmt, fmap, asm_map);
+  return Module(n);
 }
 
 Module EdgeXModuleCreateFromAsm(tvm::IRModule mod,
@@ -290,13 +280,12 @@ Module EdgeXModuleCreateFromAsm(tvm::IRModule mod,
                                 const std::string& working_dir) {
   // try extract op info from ir module
   // use function name as op name
-  // ICHECK_EQ(mod->functions.size(), 1) << "Currently we only support single func module";
   const std::string ass_funcname = "tvm.edgex.invoke_assembler";
   auto* ass_func = tvm::runtime::Registry::Get(ass_funcname);
   CHECK(ass_func) << "Cannot find " << ass_funcname;
   const int start_pc = GetIssStartPC();
 
-  std::unordered_map<std::string, EdgeXFunctionInfo> f_map;
+  std::unordered_map<std::string, FunctionInfo> f_map;
   std::unordered_map<std::string, std::string> bin_map;
   std::unordered_map<std::string, std::string> lst_map;
 
@@ -318,7 +307,7 @@ Module EdgeXModuleCreateFromAsm(tvm::IRModule mod,
     lst_buffer << lst_file.rdbuf();
 
     // fill function info map, currently only single op function exists
-    EdgeXFunctionInfo& finfo = f_map[kernel_name];
+    FunctionInfo& finfo = f_map[kernel_name];
     finfo.name = kernel_name;
 
     bin_map[kernel_name] = bin_buffer.str();
@@ -335,27 +324,23 @@ Module EdgeXModuleCreateFromAsm(tvm::IRModule mod,
 
 // Load module from module.
 Module EdgeXModuleLoadFile(const std::string& file_name, const std::string& format) {
-  std::string bin_data;
-  std::string lst_data;
-  std::unordered_map<std::string, EdgeXFunctionInfo> fmap;
-  std::string fmt = GetFileFormat(file_name, format);
-  std::string meta_file = GetMetaFilePath(file_name);
-  LoadBinaryFromFile(file_name, &bin_data);
-  // LoadMetaDataFromFile(meta_file, &fmap);
-  return EdgeXModuleCreate(bin_data, lst_data, fmt, fmap, std::string());
+  CHECK(0) << "Unsupported function: EdgeXModuleLoadFile";
+  return Module();
 }
 
 Module EdgeXModuleLoadBinary(void* strm) {
   dmlc::Stream* stream = static_cast<dmlc::Stream*>(strm);
-  std::string bin_data;
-  std::string lst_data;
-  std::unordered_map<std::string, EdgeXFunctionInfo> fmap;
+  std::unordered_map<std::string, std::string> bin_map;
+  std::unordered_map<std::string, std::string> lst_map;
+  std::unordered_map<std::string, FunctionInfo> fmap;
+  std::unordered_map<std::string, std::string> asm_map;
   std::string fmt;
   stream->Read(&fmt);
   stream->Read(&fmap);
-  stream->Read(&bin_data);
-  stream->Read(&lst_data);
-  return EdgeXModuleCreate(bin_data, lst_data, fmt, fmap, std::string());
+  stream->Read(&bin_map);
+  stream->Read(&lst_map);
+  stream->Read(&asm_map);
+  return EdgeXModuleCreate(bin_map, lst_map, fmt, fmap, asm_map);
 }
 
 TVM_REGISTER_GLOBAL("runtime.module.loadfile_exbin").set_body_typed(EdgeXModuleLoadFile);

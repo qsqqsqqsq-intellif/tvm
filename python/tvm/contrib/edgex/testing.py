@@ -16,15 +16,62 @@
 # under the License.
 """Edgex testing utilities"""
 import inspect
+import json
+import os
 import numpy as np
 import tvm
 from tvm import relay
 from tvm.contrib.edgex import build_config_nnp
 from tvm.ir.module import IRModule
 from tvm.contrib import graph_executor
-from tvm.contrib.edgex.relay.transform import PostScheduleArgumentRewrite
+from tvm.contrib.edgex.relay.transform import ConvertDepthwiseConv2D, PostScheduleArgumentRewrite
 from tvm.contrib.edgex.relay.backend import ScheduleCache
 from tvm.relay.build_module import bind_params_by_name
+
+
+class UnsupportedDetector(relay.ExprVisitor):
+    """Detect fused op currently not supported"""
+
+    def __init__(self):
+        super().__init__()
+        self.has_conv = False
+
+    def __call__(self, func):
+        self.match = False
+        self.visit_function(func)
+        return self.match
+
+    def visit_call(self, call):
+        if isinstance(call.op, tvm.ir.Op):
+            if (
+                call.op.name == "cast"
+                and isinstance(call.args[0], relay.Var)
+                and call.args[0].type_annotation.dtype == "int32"
+            ):
+                self.match = True
+        if isinstance(call.attrs, relay.op.op_attrs.Conv2DAttrs) and call.attrs.groups > 1:
+            self.match = True
+        super().visit_call(call)
+
+
+class OffloadUnsupported(relay.ExprMutator):
+    """Offload unsupported ops to cpu"""
+
+    def __init__(self):
+        super().__init__()
+        self.offload_cpu = False
+        self.detector = UnsupportedDetector()
+
+    def visit_call(self, call):
+        if isinstance(call.op, relay.Function):
+            args = [self.visit(x) for x in call.args]
+            if self.detector(call.op):
+                new_f = relay.Function(call.op.params, call.op.body, call.op.ret_type)
+                new_f = new_f.with_attr("Primitive", 1)
+                new_f = new_f.with_attr("DeviceType", 1)
+                return relay.annotation.on_device(relay.Call(new_f, args), "cpu")
+            return relay.annotation.on_device(relay.Call(call.op, args), "edgex")
+        return super().visit_call(call)
 
 
 class EdgexFallbackOpStrategy:
@@ -257,6 +304,17 @@ class CheckResult:
         self.success = success
 
 
+class RelayToTIRAnnotator(relay.ExprMutator):
+    """Mark all fused functions with Compiler=edgex"""
+
+    def visit_call(self, call):
+        call = super().visit_call(call)
+        if isinstance(call.op, relay.Function) and "Primitive" in call.op.attrs:
+            func = call.op.with_attr("Compiler", "edgex")
+            return relay.Call(func, call.args, call.attrs, call.type_args, call.span)
+        return call
+
+
 def check_numpy_result(
     result, expect, nothrow=False, ref_inputs=None, rmse=None, rtol=1e-5, atol=1e-5
 ):
@@ -464,16 +522,6 @@ def check_edgex_relay_build(
                 return self.visit(call.args[0])
             return super().visit_call(call)
 
-    class RelayToTIRAnnotator(relay.ExprMutator):
-        """Mark all fused functions with Compiler=edgex"""
-
-        def visit_call(self, call):
-            call = super().visit_call(call)
-            if isinstance(call.op, relay.Function) and "Primitive" in call.op.attrs:
-                func = call.op.with_attr("Compiler", "edgex")
-                return relay.Call(func, call.args, call.attrs, call.type_args, call.span)
-            return call
-
     # detect heterogeneous graph
     device_annotation_detector = OnDeviceDetector()
     device_annotation_detector.visit_function(function)
@@ -680,8 +728,41 @@ def check_edgex_tir_build(
                 check_numpy_result(res, expect, rmse=rmse)
 
 
-def get_graph_runtime_output(lib, data, ctx=tvm.device("cpu", 0)):
-    m = graph_executor.GraphModule(lib["default"](ctx))
+def get_fs_fused_workload(net, fix_norm=False):
+    """helper to get network"""
+    model_dir = os.getenv("EDGEX_MODELS_DIR", "/tmp")
+    mod_file = model_dir + "/pytorch/%s/quantized/%s.json" % (net, net)
+    params_file = model_dir + "/pytorch/%s/quantized/%s.params" % (net, net)
+    assert os.path.exists(mod_file) and os.path.exists(params_file)
+    with open(mod_file, "r") as file:
+        mod = tvm.ir.load_json(json.load(file))
+    with open(params_file, "rb") as file:
+        params = relay.load_param_dict(file.read())
+
+    if fix_norm:
+        # fix norm value range temporarily
+        params = dict(params.items())
+        for k in params:
+            if k.find("round_right_shift") >= 0:
+                norm = params[k].asnumpy()
+                norm = np.minimum(norm, 24)
+                norm = np.maximum(norm, 1)
+                params[k] = tvm.nd.array(norm)
+            elif k.find("multiply") >= 0:
+                norm = params[k].asnumpy()
+                norm = np.minimum(norm, 127)
+                params[k] = tvm.nd.array(norm)
+            elif k.find("bias_add") >= 0:
+                norm = params[k].asnumpy()
+                norm = np.maximum(np.minimum(norm, 2 ** 20), -(2 ** 20))
+                params[k] = tvm.nd.array(norm)
+        mod, params = ConvertDepthwiseConv2D()(mod, params)
+
+    return mod, params
+
+
+def get_graph_runtime_output(lib, data, ctx):
+    m = graph_executor.GraphModule(lib["default"](*ctx))
     m.set_input("input", data)
     m.run()
-    return m.get_output(0)
+    return m.get_output(0).numpy()

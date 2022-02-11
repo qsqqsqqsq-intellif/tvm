@@ -20,7 +20,7 @@ import pytest
 import json
 from tvm import testing
 from tvm import relay
-from tvm.contrib.edgex.testing import get_graph_runtime_output
+from tvm.contrib.edgex.testing import get_fs_fused_workload, get_graph_runtime_output
 from tvm.contrib.debugger import debug_runtime
 import numpy as np
 
@@ -74,20 +74,8 @@ def test_get_layers_output():
 @pytest.mark.parametrize("net", ["resnet50", "mobilenet_v2"])
 def test_networks(net):
     """test network from quantized mode and fusion stitching pass to tir expression"""
-    # get quant mod and params
-    mod_file = os.getenv("EDGEX_MODELS_DIR", "/tmp") + "/pytorch/%s/quantized/%s.json" % (
-        net,
-        net,
-    )
-    params_file = os.getenv("EDGEX_MODELS_DIR", "/tmp") + "/pytorch/%s/quantized/%s.params" % (
-        net,
-        net,
-    )
-    assert os.path.exists(mod_file) and os.path.exists(params_file)
-    with open(mod_file, "r") as fi:
-        mod = tvm.ir.load_json(json.load(fi))
-    with open(params_file, "rb") as fi:
-        params = relay.load_param_dict(fi.read())
+    # get fs fused quant mod and params
+    mod, params = get_fs_fused_workload(net)
 
     # build and run and compare
     print(mod["main"])
@@ -98,10 +86,11 @@ def test_networks(net):
     else:
         data = np.random.uniform(-128, 127, size=input_shape).astype(input_dtype)
     lib_std = relay.build(mod, target="llvm", params=params)
-    out_std = get_graph_runtime_output(lib_std, data).numpy()
+    ctx = [tvm.cpu()]
+    out_std = get_graph_runtime_output(lib_std, data, ctx)
     with tvm.transform.PassContext(config={"relay.backend.use_meta_schedule": True}):
         lib_stg = relay.build(mod, target="llvm", params=params)
-    out_stg = get_graph_runtime_output(lib_stg, data).numpy()
+    out_stg = get_graph_runtime_output(lib_stg, data, ctx)
     np.testing.assert_allclose(out_stg, out_std, rtol=1e-4, atol=1e-4)
 
 
