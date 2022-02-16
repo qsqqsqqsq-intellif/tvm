@@ -20,10 +20,10 @@
 from .pre_processes import leaky_relu, origin_pass, pattern_match, divide_to_multiply
 
 
-def pre_process(cls, mean=None, scale=None):
+def pre_process(cls, norm):
     mod = cls.origin_mod
     mod = leaky_relu(mod)
-    mod = origin_pass(mod, mean, scale)
+    mod = origin_pass(mod, norm)
     mod = pattern_match(mod)
     mod = divide_to_multiply(mod)
     cls.pre_processed_mod = mod

@@ -107,8 +107,13 @@ def test_run():
         ctx=ctx,
         target=target,
         root_path=root_path,
-        mean=[0.485 * 255, 0.456 * 255, 0.406 * 255],
-        scale=[0.229 * 255, 0.224 * 255, 0.225 * 255],
+        norm={
+            "input": {
+                "mean": [0.485 * 255, 0.456 * 255, 0.406 * 255],
+                "std": [0.229 * 255, 0.224 * 255, 0.225 * 255],
+                "axis": 1,
+            },
+        },
         opt_level=2,
         compare_statistics=True,
     )

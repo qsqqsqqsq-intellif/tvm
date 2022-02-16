@@ -119,10 +119,13 @@ quantize_search = relay.quantization.QuantizeSearch(
     root_path=root_path,
     mean=mean,
     scale=scale,
+    norm={
+        "input": {"mean": mean, "std": scale, "axis": 3},
+    },
     compare_statistics=False,
 )
 
 config = quantize_search.get_default_config()
-quantize_search.quantize(config)
+# quantize_search.quantize(config)
 # quantize_search.visualize("post_process", config)
-quantize_search.evaluate("post_process", config)
+quantize_search.evaluate("pre_process", config)

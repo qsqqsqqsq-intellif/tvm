@@ -24,6 +24,9 @@ import tvm
 from tvm import relay
 import tvm.relay.quantization
 
+
+from tvm.relay.expr_functor import ExprMutator
+
 torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -34,6 +37,9 @@ if tvm.runtime.enabled("gpu"):
 else:
     ctx = tvm.cpu()
     target = "llvm"
+
+ctx = tvm.cpu()
+target = "llvm"
 
 
 batch_size = 1
@@ -150,4 +156,100 @@ quantize_search.quantize(config)
 # from tvm.relay.quantization.post_process import extract_module
 
 # extract_module(quantize_search.results[0]["mod"], "/home/wangjiuyang/", "mobilenet_v3", next(yield_calibrate_data()))
+
+mod = quantize_search.results[-1]["mod"]
+
+print(mod["main"])
+
+
+class Xxxxx(ExprMutator):
+    def __init__(self):
+        super().__init__()
+        self.out = []
+        self.cnt = 0
+
+    def visit_call(self, call):
+        visited = super().visit_call(call)
+        if isinstance(visited.op, relay.Function):
+            name = getattr(visited.op.attrs, "Composite")
+        else:
+            name = visited.op.name
+
+        # if self.cnt > 1:
+        #     return visited
+
+        if name == "nn.relu":
+            self.out.append(visited)
+            self.cnt = self.cnt + 1
+        # else:
+        #     if len(self.out) > 0:
+        #         self.out.append(visited)
+
+        return visited
+
+    def visit_function(self, fn):
+        super().visit_function(fn)
+
+        params = fn.params
+
+        return relay.Function(params, relay.Tuple(self.out))
+
+    def run(self, mod):
+        mod["main"] = self.visit(mod["main"])
+        return relay.transform.InferType()(mod)
+
+
+# mod = Xxxxx().run(mod)
+# print(mod)
+
+# with tvm.transform.PassContext(opt_level=3):
+#     graph, lib, params = relay.build(mod, "llvm")
+#     runtime = tvm.contrib.graph_executor.create(graph, lib, tvm.cpu())
+#     runtime.set_input(**params)
+
+# dataset = yield_calibrate_data()
+
+# while True:
+#     try:
+#         batch = next(dataset)
+
+#         runtime.set_input("input", batch["input"])
+#         runtime.run()
+#         outputs = []
+#         output = runtime.get_output(1).asnumpy()
+#         max_v = numpy.max(output)
+#         min_v = numpy.min(output)
+#         print("max:",max_v,"min:", min_v)
+
+#         output = runtime.get_output(2).asnumpy()
+#         max_v = numpy.max(output)
+#         min_v = numpy.min(output)
+#         print("max:",max_v,"min:", min_v)
+
+#         output = runtime.get_output(3).asnumpy()
+#         max_v = numpy.max(output)
+#         min_v = numpy.min(output)
+#         print("max:",max_v,"min:", min_v)
+
+#         output = runtime.get_output(4).asnumpy()
+#         max_v = numpy.max(output)
+#         min_v = numpy.min(output)
+#         print("max:",max_v,"min:", min_v)
+
+#         output = runtime.get_output(5).asnumpy()
+#         max_v = numpy.max(output)
+#         min_v = numpy.min(output)
+#         print("max:",max_v,"min:", min_v)
+
+#         output = runtime.get_output(6).asnumpy()
+#         max_v = numpy.max(output)
+#         min_v = numpy.min(output)
+#         print("max:",max_v,"min:", min_v)
+
+#     except StopIteration:
+#         break
+
+# exit()
+
+
 quantize_search.evaluate("post_process", config)

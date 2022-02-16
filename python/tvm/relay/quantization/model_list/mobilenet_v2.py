@@ -140,8 +140,13 @@ quantize_search = relay.quantization.QuantizeSearch(
     ctx=ctx,
     target=target,
     root_path=root_path,
-    mean=[0.485 * 255, 0.456 * 255, 0.406 * 255],
-    scale=[0.229 * 255, 0.224 * 255, 0.225 * 255],
+    norm={
+        "input": {
+            "mean": [0.485 * 255, 0.456 * 255, 0.406 * 255],
+            "std": [0.229 * 255, 0.224 * 255, 0.225 * 255],
+            "axis": 1,
+        },
+    },
     quantize_config=quantize_config,
     compare_statistics=False,
     # net_in_dtype="int16",

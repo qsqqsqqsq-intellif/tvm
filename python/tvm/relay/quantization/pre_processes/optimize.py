@@ -21,8 +21,8 @@ import tvm
 from tvm.relay import transform
 
 from .convert_multiply_to_conv import ConvertMultiplyToConv
+from .insert_norm import InsertNorm
 from ..relay_transforms import (
-    InsertNorm,
     FuseAdd,
     ConvertAdaptivepoolToNormpool,
     FuseReshapeSqueeze,
@@ -31,14 +31,13 @@ from ..relay_transforms import (
 )
 
 
-def origin_pass(mod, mean, std):
+def origin_pass(mod, norm):
     """Prerequisite optimization passes for quantization."""
     mod = tvm.IRModule.from_expr(mod["main"])
     optimize_pass = []
     optimize_pass.append(transform.InferType())
     optimize_pass.append(transform.FoldConstant())
-    if mean is not None and std is not None:
-        optimize_pass.append(InsertNorm(mean, std))
+    optimize_pass.append(InsertNorm(norm))
     optimize_pass.append(transform.SimplifyInference())
     optimize_pass.append(transform.FoldConstant())
     optimize_pass.append(transform.BackwardFoldScaleAxis())

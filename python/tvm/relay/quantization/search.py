@@ -54,6 +54,7 @@ class QuantizeSearch:
         root_path=None,
         mean=None,
         scale=None,
+        norm=None,
         image_path=None,
         image_size=None,
         channel_last=True,
@@ -135,7 +136,7 @@ class QuantizeSearch:
             with open(self.pre_path, "r") as f:
                 self.pre_processed_mod = tvm.ir.load_json(json.load(f))
         elif "optimize" not in tvm.relay.quantize.__dict__:
-            pre_process(self, mean, scale)
+            pre_process(self, norm)
             if self.pre_path is not None:
                 with open(self.pre_path, "w") as f:
                     json.dump(tvm.ir.save_json(self.pre_processed_mod), f)
