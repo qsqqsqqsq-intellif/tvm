@@ -623,6 +623,8 @@ def parse_args(cmd, extra_args, use_cache=True, require_relay_mod=False, require
         elif require_main_arg:
             if args.input is None:
                 args.input = main_arg
+            if args.workspace is None and cmd == "workspace":
+                args.workspace = main_arg
     if args.workspace is None:
         if cached_workspace_dir is not None:
             args.workspace = cached_workspace_dir
@@ -708,7 +710,7 @@ def dispatch_cmd(cmd, extra_args):
     args = parse_args(
         cmd,
         extra_args,
-        use_cache=handler.is_debugger_cmd,
+        use_cache=handler.is_debugger_cmd or cmd == "workspace",
         require_relay_mod=handler.require_relay_mod,
         require_main_arg=handler.require_main_arg,
     )
@@ -797,6 +799,13 @@ def init_debug_status(args, debugger):
 
 
 @register_cmd(
+    "workspace", is_debugger_cmd=False, require_main_arg=True, doc="Change debug workspace"
+)
+def change_workspace(args):  # pylint: disable=unused-argument
+    pass
+
+
+@register_cmd(
     "run",
     is_debugger_cmd=True,
     require_main_arg=True,
@@ -862,7 +871,9 @@ def quantize(args):
     if args.output is None:
         raise ValueError("Must specify an output directory")
     mod, params = RelayGraphDebugger.load_module(args.json, args.params)
-    model_name = os.path.basename(args.json).rstrip(".json")
+    model_name = os.path.basename(args.json)
+    if model_name.endswith(".json"):
+        model_name = model_name[:-5]
     quant_mod, quant_params = relay.quantization.run_quantization(
         model_name, mod, params, fast_mode=True, config=None
     )
@@ -880,7 +891,9 @@ Run edgex fusion stitching pass on input relay module, dump result json and para
 )
 def run_fusion_stitch(args):
     mod, params = RelayGraphDebugger.load_module(args.json, args.params)
-    model_name = os.path.basename(args.json).rstrip(".json")
+    model_name = os.path.basename(args.json)
+    if model_name.endswith(".json"):
+        model_name = model_name[:-5]
     if args.output is None:
         raise ValueError("Must specify an output directory")
     mod = tvm.contrib.edgex.relay.transform.FusionStitch()(mod)
@@ -898,7 +911,9 @@ Run specified transform pass on input relay module, dump result json and params 
 )
 def run_relay_passes(args):
     mod, params = RelayGraphDebugger.load_module(args.json, args.params)
-    model_name = os.path.basename(args.json).rstrip(".json")
+    model_name = os.path.basename(args.json)
+    if model_name.endswith(".json"):
+        model_name = model_name[:-5]
     if not isinstance(args.passes, list):
         raise ValueError("Require --passes argument")
     for pass_name in args.passes:
