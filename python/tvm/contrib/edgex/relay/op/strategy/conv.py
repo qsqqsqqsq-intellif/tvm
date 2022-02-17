@@ -17,10 +17,12 @@
 # pylint: disable=unused-argument
 """Edgex relay op strategies."""
 
+import re
 from tvm.relay.op.strategy.generic import (
     wrap_compute_conv2d,
     wrap_topi_schedule,
     conv2d_strategy,
+    conv2d_NCHWc_strategy,
 )
 from tvm.relay import op as _op
 from tvm import topi
@@ -33,6 +35,7 @@ def conv2d_fschedule_edgex(attrs, prim_func, target):
     return conv2d_nchw_tir_schedule(attrs, prim_func, target)
 
 
+@conv2d_NCHWc_strategy.register("edgex")
 @conv2d_strategy.register("edgex")
 def conv2d_strategy_edgex(attrs, inputs, out_type, target):
     """conv2d edgex strategy"""
@@ -43,20 +46,28 @@ def conv2d_strategy_edgex(attrs, inputs, out_type, target):
     kernel_layout = attrs.kernel_layout
     if dilation_h < 1 or dilation_w < 1:
         raise ValueError("dilation should be positive value")
-    assert (
-        layout == "NCHW" and kernel_layout == "OIHW"
-    ), "Only support 'NCHW' layout and 'OIHW' kernel_layout."
+    assert layout.startswith("NCHW") and kernel_layout.startswith(
+        "OIHW"
+    ), r"Only support 'NCHW(\d*c)?' and 'OIHW(\d*i\d*o)?' layout."
     if groups == 1:
-        strategy.add_implementation(
-            wrap_compute_conv2d(topi.nn.conv2d_nchw),
-            wrap_topi_schedule(topi.generic.schedule_conv2d_nchw),
-            name="tir_conv2d_nchw.edgex",
-        )
-        # strategy.add_tir_implementation(
-        #    wrap_compute_conv2d(topi.nn.conv2d_nchw),
-        #    conv2d_nchw_tir_schedule,
-        #    name="tir_conv2d_nchw.edgex",
-        # )
+        if layout == "NCHW":
+            strategy.add_implementation(
+                wrap_compute_conv2d(topi.nn.conv2d_nchw),
+                wrap_topi_schedule(topi.generic.schedule_conv2d_nchw),
+                name="tir_conv2d_nchw.edgex",
+            )
+            # strategy.add_tir_implementation(
+            #    wrap_compute_conv2d(topi.nn.conv2d_nchw),
+            #    conv2d_nchw_tir_schedule,
+            #    name="tir_conv2d_nchw.edgex",
+            # )
+        elif re.match(r"NCHW(\d*)c", layout):
+            assert re.match(r"OIHW(\d*i\d*o)", kernel_layout)
+            strategy.add_implementation(
+                wrap_compute_conv2d(topi.nn.conv2d_NCHWc, True, True),
+                wrap_topi_schedule(topi.generic.schedule_conv2d_NCHWc),
+                name="tir_conv2d_NCHWc.edgex",
+            )
     else:
         strategy.add_implementation(
             wrap_compute_conv2d(topi.nn.group_conv2d_nchw, has_groups=True),

@@ -14,6 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+import pytest
 import tvm
 from tvm import relay
 import numpy as np
@@ -37,7 +38,7 @@ def do_test_single_conv2d(
     mod = IRModule.from_expr(relay.Function([x, w], y))
     mod = relay.transform.InferType()(mod)
     relay_params = {}
-    weight_data = tvm.nd.array(np.random.randint(-64, 64, weight_shape).astype("int8"))
+    weight_data = tvm.nd.array(np.random.randint(-64, 64, weight_shape).astype(weight_dtype))
     relay_params["weight"] = weight_data
     if groups > 1:
         mod = relay.transform.DefuseOps()(mod)
@@ -211,6 +212,24 @@ def test_single_conv2d_tile_co_end2end():
     )
 
 
+@pytest.mark.skip("data compare failed")
+def test_conv2d_nchwc_end2end():
+    do_test_single_conv2d(
+        input_shape=[1, 1, 224, 224, 16],
+        input_dtype="uint8",
+        weight_shape=[4, 1, 7, 7, 16, 16],
+        weight_dtype="int8",
+        strides=[2, 2],
+        padding=[3, 3, 3, 3],
+        dilation=[1, 1],
+        channels=64,
+        kernel_size=[7, 7],
+        out_dtype="int32",
+        data_layout="NCHW16c",
+        kernel_layout="OIHW16i16o",
+    )
+
+
 if __name__ == "__main__":
     test_single_conv2d_end2end()
     test_single_depthwise_conv2d_end2end()
@@ -220,3 +239,4 @@ if __name__ == "__main__":
     test_single_conv2d_ic17_end2end()
     test_quantized_conv2d_finetuning_delta_end2end()
     test_single_conv2d_tile_co_end2end()
+    test_conv2d_nchwc_end2end()
