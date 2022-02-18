@@ -160,7 +160,16 @@ class Conv2DTranspose:
 
             realized_args.append(new_arg)
 
-        attrs = dict(old_node.attrs)
+        attrs = {}
+        attrs["strides"] = old_node.attrs.strides
+        attrs["padding"] = old_node.attrs.padding
+        attrs["dilation"] = old_node.attrs.dilation
+        attrs["groups"] = old_node.attrs.groups
+        attrs["channels"] = old_node.attrs.channels
+        attrs["kernel_size"] = old_node.attrs.kernel_size
+        attrs["data_layout"] = old_node.attrs.data_layout
+        attrs["kernel_layout"] = old_node.attrs.kernel_layout
+        attrs["output_padding"] = old_node.attrs.output_padding
         attrs["out_dtype"] = self.output_config["dtype"]
         if self.quantized:
             new_node = relay.nn.conv2d_transpose(realized_args[0], realized_args[1], **attrs)

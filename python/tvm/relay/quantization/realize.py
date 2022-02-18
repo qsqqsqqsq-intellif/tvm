@@ -94,12 +94,13 @@ def eliminate_dequantize_quantize(node):
 
         if quantize.match(node):
             pre_arg = node.args[0]
-            cond1 = pre_arg.attrs.axis == node.attrs.axis
+            # cond1 = pre_arg.attrs.axis == node.attrs.axis
             cond2 = pre_arg.args[1].data.asnumpy() == node.args[1].data.asnumpy()
             cond3 = pre_arg.args[2].data.asnumpy() == node.args[2].data.asnumpy()
-            if cond1 and cond2.all() and cond3.all():
+            if cond2.all() and cond3.all():
                 return pre_arg.args[0]
     else:
+        # 300 need clip after op
         if (
             isinstance(node, relay.Call)
             and node.op.name == "qnn.quantize"
@@ -107,19 +108,28 @@ def eliminate_dequantize_quantize(node):
             and node.args[0].op.name == "qnn.dequantize"
         ):
             pre_arg = node.args[0]
-            cond1 = pre_arg.attrs.axis == node.attrs.axis
+            # cond1 = pre_arg.attrs.axis == node.attrs.axis
             cond2 = pre_arg.args[1].data.asnumpy() == node.args[1].data.asnumpy()
             cond3 = pre_arg.args[2].data.asnumpy() == node.args[2].data.asnumpy()
-            if cond1 and cond2.all() and cond3.all():
+            if cond2.all() and cond3.all():
                 ori_call = node.args[0].args[0]
-                if isinstance(ori_call.op, relay.Function):
+
+                name = "Constant"
+                if isinstance(ori_call, relay.Call) and isinstance(ori_call.op, relay.Function):
                     name = getattr(ori_call.op.attrs, "Composite")
                     if not isinstance(name, str):
                         name = name.value
-                else:
+                elif isinstance(ori_call, relay.Call):
                     name = ori_call.op.name
 
-                if name in ["nn.relu", "nn.max_pool2d", "nn.max_pool3d", "concatenate"]:
+                if name in [
+                    "nn.relu",
+                    "nn.max_pool2d",
+                    "nn.max_pool3d",
+                    "concatenate",
+                    "add",
+                    "nn.sum_pool2d",
+                ]:
                     r_datatype = node.attrs.out_dtype
                     q_max_min = _get_dtype_info(r_datatype)
                     return relay.clip(
@@ -283,11 +293,12 @@ def _quantize_shift(node):
                     data = data.astype("float32") * (1.0 / scale.astype("float32")).astype(
                         "float32"
                     ) + zero_point.astype("float32")
-                data = data.astype("float64")
-                plus_mask = numpy.where(data > 0)
-                data[plus_mask] += 0.00000001
-                minus_mask = numpy.where(data < 0)
-                data[minus_mask] -= 0.00000001
+                if data.size > 1:
+                    data = data.astype("float64")
+                    plus_mask = numpy.where(data > 0)
+                    data[plus_mask] += 0.00000001
+                    minus_mask = numpy.where(data < 0)
+                    data[minus_mask] -= 0.00000001
             # simulate end
 
             data = data.round()
@@ -328,12 +339,30 @@ def _dequantize_shift(node):
     return data
 
 
+def print_name_help(node, multiplier):
+    "just print helper"
+    ori_call = node.args[0].args[0]
+    name = "Constant"
+    if isinstance(ori_call, relay.Call) and isinstance(ori_call.op, relay.Function):
+        name = getattr(ori_call.op.attrs, "Composite")
+        if not isinstance(name, str):
+            name = name.value
+    elif isinstance(ori_call, relay.Call):
+        name = ori_call.op.name
+
+    if multiplier == 0:
+        print("multiplier: ", multiplier)
+        print("quantize input is ", name)
+
+
 def _requantize_shift(node, multiplier):
     """_requantize_shift"""
     # multiplier 0: accumulator->int8
     #            1:int8-requantize default:0
     dequantize = node.args[0]
     data = dequantize.args[0]
+
+    # print_name_help(node, multiplier)
 
     d_scale = dequantize.args[1].data.asnumpy()
     d_zero = dequantize.args[2].data.asnumpy()
@@ -400,7 +429,11 @@ def _requantize_shift(node, multiplier):
     if (d_zero == 0).all() and (q_zero == 0).all():
         scale = d_scale / q_scale
 
-        # yhh protect, no effect accuracy 10.26
+        # if multiplier == 0:
+        #     print("before scale size: ", d_scale.flatten().size)
+        #     print("before scale:", d_scale.flatten())
+        #     print("after scale:", q_scale.flatten())
+
         if scale.size > 1:
             scale[numpy.where(scale < 1e-10)] = 1e-10
 
@@ -506,8 +539,9 @@ def _requantize_shift(node, multiplier):
         elif "ir_pass" not in relay.__dict__ and TARGET_NNP.startswith("nnp3"):
             assert 0, "new tvm no support detvm requantize"
 
-        # print("new_scale:", new_scale.data.asnumpy().flatten()[:])
-        # print("new_b:", all_new_b.data.asnumpy().flatten()[:])
+        # if multiplier == 0:
+        #     print("new_scale:", new_scale.data.asnumpy().flatten()[:])
+        #     print("new_b:", all_new_b.data.asnumpy().flatten()[:])
 
     else:
         raise NotImplementedError
@@ -615,7 +649,7 @@ class Realize(ExprMutator):
             for old_arg, new_arg in zip(tup.fields, realized_args):
                 tmp = relay.frontend.common.infer_type(new_arg)
                 if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
-                    new_arg = relay.const(new_arg.data.asnumpy(), "float16")
+                    new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
                 elif tmp.checked_type.dtype in ["int8", "int16"]:
                     new_arg = operate("dequantize", new_arg, config.input_config[old_arg], {}, True)
                 elif tmp.checked_type.dtype != "float16" and config.output_config["ref_count"] > 0:
@@ -680,13 +714,17 @@ class Realize(ExprMutator):
 
                 tup_new_fields.append(new_arg)
 
-            new_body = relay.Tuple(tup_new_fields, fn.body.span)
-            # todo
+            if "ir_pass" not in relay.__dict__:
+                new_body = relay.Tuple(tup_new_fields, fn.body.span)
+            else:
+                new_body = relay.Tuple(tup_new_fields)
+
             pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
         else:
-            # todo tuple
+
             new_body = new_fn.body
-            pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
+            # todo tuple uncomment this, yolov5 run similarity assert
+            # pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
 
         new_body = relay.frontend.common.infer_type(new_body)
 

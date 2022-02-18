@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements
+# pylint: disable=unused-argument,inconsistent-return-statements,unexpected-keyword-arg
 """op"""
 
 import logging
@@ -112,13 +112,28 @@ class LeakyRelu:
             alpha = old_node.attrs.alpha
             param, shift = calrightshift(alpha)
             # todo condisder int16!
-            new_node_plus = relay.maximum(new_arg, relay.const(0, "int8"))
-            new_node_minus = relay.minimum(new_arg, relay.const(0, "int8"))
-            new_node_minus = relay.cast(new_node_minus, "int32")
-            new_node_minus = relay.multiply(new_node_minus, relay.const(param, "int32"))
-            new_node_minus = round_right_shift(new_node_minus, relay.const(shift, "int32"))
-            new_node_minus = relay.cast(new_node_minus, "int8")
-            new_node = relay.add(new_node_plus, new_node_minus)
+            if "ir_pass" in relay.__dict__:
+                new_node_plus = relay.maximum(new_arg, relay.const(0, "int8"))
+                new_node_minus = relay.minimum(new_arg, relay.const(0, "int8"))
+                new_node_minus = relay.multiply(
+                    new_node_minus, relay.const(param, "int32"), out_dtype="int32"
+                )
+                if "round_right_shift" in relay.__dict__:
+                    new_node_minus = relay.round_right_shift(
+                        new_node_minus, relay.const(shift, "int32"), out_dtype="int32"
+                    )
+                else:
+                    assert 0
+                new_node = relay.add(new_node_plus, new_node_minus)
+                new_node = relay.clip(new_node, -128, 127, out_dtype="int8")
+            else:
+                new_node_plus = relay.maximum(new_arg, relay.const(0, "int8"))
+                new_node_minus = relay.minimum(new_arg, relay.const(0, "int8"))
+                new_node_minus = relay.cast(new_node_minus, "int32")
+                new_node_minus = relay.multiply(new_node_minus, relay.const(param, "int32"))
+                new_node_minus = round_right_shift(new_node_minus, relay.const(shift, "int32"))
+                new_node_minus = relay.cast(new_node_minus, "int8")
+                new_node = relay.add(new_node_plus, new_node_minus)
         else:
             tmp = relay.frontend.common.infer_type(new_arg)
             # todo support int16

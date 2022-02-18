@@ -69,6 +69,10 @@ class Multiply:
         if "target" in config:
             self.target = config["target"]
 
+        # 300 only support float-point
+        if self.target.startswith("nnp3"):
+            self.quantized = False
+
         ci0 = config["input0"]
         ci1 = config["input1"]
 
@@ -152,7 +156,7 @@ class Multiply:
             for old_arg, new_arg in zip(old_node.args, realized_args):
                 tmp = relay.frontend.common.infer_type(new_arg)
                 if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
-                    new_arg = relay.const(new_arg.data.asnumpy(), "float16")
+                    new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
                 elif tmp.checked_type.dtype.startswith("int"):
                     new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
                 elif tmp.checked_type.dtype != "float16":

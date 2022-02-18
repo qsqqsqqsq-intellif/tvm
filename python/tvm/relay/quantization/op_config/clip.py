@@ -18,13 +18,12 @@
 """op"""
 
 import logging
-import numpy
 from tvm import relay
 from ..threshold import Threshold
-from ..method_dtype import Method, DataType, _get_dtype_info
+from ..method_dtype import Method, DataType
 from ..analyze import _conv_counter, oneargdeal
 from ..calibrate import _calibrate_core
-from ..realize import operate, pair_node
+from ..realize import operate, _realize_core
 
 LOGGER = logging.getLogger("quantize")
 
@@ -81,24 +80,9 @@ class Clip:
 
         y = _calibrate_core(node.args[0], input_config, vertex_config, self.quantized)
 
-        # convert to relu
-        a_max = node.attrs.a_max
-        q_min_max = _get_dtype_info(self.input_config[node.args[0]]["dtype"])
-        valid_bits_range = q_min_max["qmax"]
-        # in fact, the scale can be reset by output_cofig['quantized_axis']
-        if y["scale"].size > 1:
-            y["scale"][numpy.where(y["scale"] > a_max / valid_bits_range)] = (
-                a_max / valid_bits_range
-            )
-        elif y["scale"] > a_max / valid_bits_range:
-            y["scale"] = a_max / valid_bits_range
-        tmp = {"quantized_scale": y["scale"], "quantized_zero_point": y["zero_point"]}
-        LOGGER.debug("[calibrate]--clip arg quantized_scale is:")
-        LOGGER.debug(y["scale"])
-        vertex_config[node.args[0]].output_config.update(tmp)
-
         self.input_config[node.args[0]].update(y)
         self.output_config.update(y)
+
         LOGGER.debug("[calibrate]clip calibrate over")
 
     def realize(self, old_node, new_node, vertex_config, n2o):
@@ -107,14 +91,7 @@ class Clip:
         old_arg = old_node.args[0]
         new_arg = new_node.args[0]
 
-        output_config = vertex_config[old_arg].output_config
-        if "quantized_scale" in vertex_config[old_arg].output_config:
-            LOGGER.debug("[realize]clip's input output_config['quantized_scale'] is:")
-            LOGGER.debug(vertex_config[old_arg].output_config["quantized_scale"])
-        input_config = self.input_config[old_arg]
-
-        new_arg = operate(input_config["operate"], new_arg, output_config, input_config, True)
-        pair_node(old_arg, new_arg, output_config, input_config, n2o, self.quantized)
+        new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
         if not self.quantized:
             tmp = relay.frontend.common.infer_type(new_arg)
@@ -125,5 +102,27 @@ class Clip:
                 )
             new_node = relay.clip(new_arg, **dict(old_node.attrs))
         else:
+
+            # case: batch_flatten + clip(0, 6)
+            adjust_input_config = {
+                "zero_point": self.output_config["quantized_zero_point"],
+                "axis": self.output_config["quantized_axis"],
+                "scale": self.output_config["quantized_scale"],
+                "dtype": self.input_config[old_node.args[0]]["dtype"],
+                "operate": "requantize",
+            }
+            new_arg = operate(
+                "requantize",
+                new_arg,
+                self.input_config[old_arg],
+                adjust_input_config,
+                True,
+                multiplier=1,
+            )
+
+            self.output_config["scale"] = self.output_config["quantized_scale"]
+            self.output_config["zero_point"] = self.output_config["quantized_zero_point"]
+            self.output_config["axis"] = self.output_config["quantized_axis"]
+
             new_node = relay.nn.relu(new_arg)
         return new_node

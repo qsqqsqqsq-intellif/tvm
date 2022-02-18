@@ -67,10 +67,20 @@ class FloatOp:
         self.input_config = {}
         for i, one_arg in enumerate(node.args):
             tmp = "input" + str(i)
-            # todo optimize per_channel
-            # if vertex_config[one_arg].quantized:
-            #     input_axis = vertex_config[one_arg].output_config["axis"]
+
             input_axis = -1
+            if vertex_config[one_arg].quantized:
+                input_axis = vertex_config[one_arg].output_config["axis"]
+
+            # about avgpool, support perchannel
+            if (
+                self.name.split("_")[-1].startswith("pool")
+                and node.attrs is not None
+                and "layout" in node.attrs.keys()
+                and node.attrs.layout in ["NCHW", "NHWC"]
+            ):
+                input_axis = node.attrs.layout.find("C")
+
             input_config = _quantized_judge(
                 vertex_config, one_arg, input_axis, self.quantized, config[tmp]
             )
@@ -127,9 +137,7 @@ class FloatOp:
 
             realized_args.append(new_arg)
 
-        use_fp16 = False
-        use_fp32 = False
-        use_i32 = False
+        use_fp16, use_fp32, use_i32 = False, False, False
 
         for arg_ in realized_args:
             tmp = relay.frontend.common.infer_type(arg_)
@@ -168,12 +176,19 @@ class FloatOp:
         if use_fp32 and use_i32:
             use_i32 = False
 
+        if self.name in ["vision.non_max_suppression"]:
+            assert isinstance(realized_args[2], relay.Constant), "vision.nms arg2 should be const"
+            realized_args[2] = relay.const(realized_args[2].data.asnumpy().astype("int16"))
+            new_node = relay.Call(old_node.op, realized_args, old_node.attrs)
+            LOGGER.debug("[realize] %s finish", self.name)
+            return new_node
+
         new_realized_args = []
         if use_fp16:
             for old_arg, new_arg in zip(old_node.args, realized_args):
                 tmp = relay.frontend.common.infer_type(new_arg)
                 if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
-                    new_arg = relay.const(new_arg.data.asnumpy(), "float16")
+                    new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
                 elif tmp.checked_type.dtype.startswith("int"):
                     new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
                 elif tmp.checked_type.dtype != "float16":

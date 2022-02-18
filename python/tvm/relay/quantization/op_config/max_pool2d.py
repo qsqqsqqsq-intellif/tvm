@@ -96,4 +96,6 @@ class MaxPool2D:
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
         new_node = relay.nn.max_pool2d(new_arg, **dict(new_node.attrs))
+        if isinstance(new_node, relay.TupleWrapper):
+            new_node = new_node.tuple_value
         return new_node

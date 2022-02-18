@@ -28,7 +28,7 @@ from ..realize import _realize_core, operate
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("Conv2DBiasAdd",)
+__all__ = ("Conv2DTransposeBiasAdd",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -49,10 +49,10 @@ DEFAULTCONFIG = {
 }
 
 
-class Conv2DBiasAdd:
+class Conv2DTransposeBiasAdd:
     """conv2d_bias_add"""
 
-    name = "conv2d_bias_add"
+    name = "conv2d_transpose_bias_add"
     controlable = True
 
     def __init__(self, node, vertex_config, config):
@@ -83,29 +83,16 @@ class Conv2DBiasAdd:
             relay.analysis.post_order_visit(node.op, fvisit)
         else:
             relay.ir_pass.post_order_visit(node.op, fvisit)
-        conv2d = temp[0]
+
+        conv2d_transpose = temp[0]
         bias_add = temp[1]
         self._inner_config = {}
 
         """input0-config"""
-        # conv2d input0_axis
-        conv2d_groups = conv2d.attrs.groups
-        weight_co_axis = conv2d.attrs.kernel_layout.find("O")
-        weigh_co = node.args[1].data.shape[weight_co_axis]
-        if conv2d_groups == weigh_co:
-            input0_axis = conv2d.attrs.data_layout.find("C")
-
-            # input is global sumpool, do pertensor
-            arg_call = node.args[0]
-            name = "var"
-            if isinstance(arg_call, relay.Call) and isinstance(arg_call.op, relay.Function):
-                name = getattr(arg_call.op.attrs, "Composite")
-                if not isinstance(name, str):
-                    name = name.value
-            elif isinstance(arg_call, relay.Call):
-                name = arg_call.op.name
-            if name in ["nn.global_sum_pool2d"]:
-                input0_axis = -1
+        conv2d_transpose_groups = conv2d_transpose.attrs.groups
+        weigh_ci = node.args[1].data.shape[0]
+        if conv2d_transpose_groups == weigh_ci and node.args[1].data.shape[1] == 1:
+            input0_axis = node.attrs.data_layout.find("C")
         else:
             input0_axis = -1
 
@@ -115,41 +102,50 @@ class Conv2DBiasAdd:
         ):
             input0_axis = vertex_config[node.args[0]].output_config["axis"]
 
+        # todo
+        # if not self.quantized:
+        #     input0_axis = -1
+
         # get input0_config
         input0_config = _quantized_judge(
             vertex_config, node.args[0], input0_axis, self.quantized, ci0
         )
         # todo add logger information here
-        LOGGER.debug("[analyze] conv2d at first axis is %d", input0_config["axis"])
+        LOGGER.debug("[analyze] conv2d_transpose at first axis is %d", input0_config["axis"])
 
         # get input1-config
-        input1_axis = conv2d.attrs.kernel_layout.find("O")
+        input1_axis = 10 + conv2d_transpose_groups
         input1_config = _quantized_judge(
             vertex_config, node.args[1], input1_axis, self.quantized, ci1
         )
 
-        conv2d_input_config = {conv2d.args[0]: input0_config, conv2d.args[1]: input1_config}
-
-        conv_out_layout = (
-            conv2d.attrs.out_layout if conv2d.attrs.out_layout != "" else conv2d.attrs.data_layout
-        )
-
-        conv2d_out_axis = conv_out_layout.find("C")
-
-        # todo int16 support int64!!!
-        conv2d_output_config = {
-            "dtype": DataType.Int32 if self.quantized else DataType.Float16,
-            "axis": conv2d_out_axis,
+        conv2d_transpose_input_config = {
+            conv2d_transpose.args[0]: input0_config,
+            conv2d_transpose.args[1]: input1_config,
         }
 
-        self._inner_config[conv2d] = {
-            "input_config": conv2d_input_config,
-            "output_config": conv2d_output_config,
+        conv_out_layout = (
+            conv2d_transpose.attrs.out_layout
+            if conv2d_transpose.attrs.out_layout != ""
+            else conv2d_transpose.attrs.data_layout
+        )
+
+        conv2d_transpose_out_axis = conv_out_layout.find("C")
+
+        # todo int16 support int64!!!
+        conv2d_transpose_output_config = {
+            "dtype": DataType.Int32 if self.quantized else DataType.Float16,
+            "axis": conv2d_transpose_out_axis,
+        }
+
+        self._inner_config[conv2d_transpose] = {
+            "input_config": conv2d_transpose_input_config,
+            "output_config": conv2d_transpose_output_config,
         }
 
         input2_config = {
-            "dtype": conv2d_output_config["dtype"],
-            "axis": conv2d_output_config["axis"],
+            "dtype": conv2d_transpose_output_config["dtype"],
+            "axis": conv2d_transpose_output_config["axis"],
             "method": None,
             "threshold": None,
             "operate": "none",
@@ -207,7 +203,7 @@ class Conv2DBiasAdd:
             self.input_config[arg].update(tmp1)
 
         # get output_config
-        output0_axis = conv2d_out_axis
+        output0_axis = conv2d_transpose_out_axis
         output0_config = {
             "dtype": DataType.Int32 if self.quantized else DataType.Float16,
             "axis": output0_axis,
@@ -218,7 +214,7 @@ class Conv2DBiasAdd:
             output0_config.update(_get_dtype_info(output0_config["dtype"]))
 
         self.output_config = output0_config
-        LOGGER.debug("[analyze] conv2d_%d finish", cnt)
+        LOGGER.debug("[analyze] conv2d_transpose_%d finish", cnt)
 
     @classmethod
     def get_config(cls, call, config):
@@ -227,20 +223,19 @@ class Conv2DBiasAdd:
     def quantize_params(self, node, vertex_config):
         """quantize_params"""
         conv_scale = []
-        LOGGER.debug("[calibrate]conv2d_biasadd start and quantized is %d", self.quantized)
+        LOGGER.debug(
+            "[calibrate]conv2d_transpose_biasadd start and quantized is %d", self.quantized
+        )
 
         # todo add fp16 no need to
         for arg in node.args[0:2]:
             input_config = self.input_config[arg]
             y = _calibrate_core(arg, input_config, vertex_config, self.quantized)
-            LOGGER.debug("[calibrate]--conv2d arg quantized_scale is:")
+            LOGGER.debug("[calibrate]--conv2d_transpose arg quantized_scale is:")
             if "scale" in y:
                 LOGGER.debug(y["scale"])
                 input_config.update(y)
                 conv_scale.append(y["scale"])
-
-        # self.d_scale = conv_scale[0]
-        # self.w_scale = conv_scale[1]
 
         if self.quantized:
             scale = conv_scale[0] * conv_scale[1]
@@ -252,21 +247,19 @@ class Conv2DBiasAdd:
 
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
-        LOGGER.debug("[realize]conv2d_bias_add start...")
+        LOGGER.debug("[realize]conv2d_transpose_bias_add start...")
 
         realized_args = []
+        # print("conv2d_transpose scale")
+        # print("left scale is", self.input_config[old_node.args[0]]["scale"])
+        # print("right scale is", self.input_config[old_node.args[1]]["scale"])
         for old_arg, new_arg in zip(old_node.args, new_node.args):
-
             new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
             realized_args.append(new_arg)
 
-        # print("conv2d scale: ")
-        # print("left scale: ", self.d_scale)
-        # print("right scale: ", self.w_scale)
-        # print("weight sum is ", realized_args[1].data.asnumpy().flatten().sum())
-        # print("bias is ", realized_args[2].data)
-
         tmp = []
+        print("weight sum is ", realized_args[1].data.asnumpy().flatten().sum())
+        print("bias is ", realized_args[2].data)
 
         def fvisit(expr):
             if isinstance(expr, relay.Call) and expr != old_node:
@@ -277,23 +270,40 @@ class Conv2DBiasAdd:
         else:
             relay.ir_pass.post_order_visit(old_node.op, fvisit)
 
+        conv2d_transpose_attrs = {}
+        conv2d_transpose_attrs["strides"] = tmp[0].attrs.strides
+        conv2d_transpose_attrs["padding"] = tmp[0].attrs.padding
+        conv2d_transpose_attrs["dilation"] = tmp[0].attrs.dilation
+        conv2d_transpose_attrs["groups"] = tmp[0].attrs.groups
+        conv2d_transpose_attrs["channels"] = tmp[0].attrs.channels
+        conv2d_transpose_attrs["kernel_size"] = tmp[0].attrs.kernel_size
+        conv2d_transpose_attrs["data_layout"] = tmp[0].attrs.data_layout
+        conv2d_transpose_attrs["kernel_layout"] = tmp[0].attrs.kernel_layout
+        conv2d_transpose_attrs["output_padding"] = tmp[0].attrs.output_padding
+
         if self.quantized:
-            conv2d_attrs = dict(tmp[0].attrs)
-            conv2d_attrs["out_dtype"] = self._inner_config[tmp[0]]["output_config"]["dtype"]
+            conv2d_transpose_attrs["out_dtype"] = self._inner_config[tmp[0]]["output_config"][
+                "dtype"
+            ]
             if self.input_config[old_node.args[0]]["dtype"] == "int16":
-                conv2d_attrs["out_dtype"] = "int64"
-            conv2d_node = relay.nn.conv2d(realized_args[0], realized_args[1], **conv2d_attrs)
+                conv2d_transpose_attrs["out_dtype"] = "int64"
+            conv2d_transpose_node = relay.nn.conv2d_transpose(
+                realized_args[0], realized_args[1], **conv2d_transpose_attrs
+            )
+
             bias_attrs = dict(tmp[1].attrs)
             if "ir_pass" in relay.__dict__:
-                bias_attrs["out_dtype"] = conv2d_attrs["out_dtype"]
-            bias_node = relay.nn.bias_add(conv2d_node, realized_args[2], **bias_attrs)
+                bias_attrs["out_dtype"] = conv2d_transpose_attrs["out_dtype"]
+            bias_node = relay.nn.bias_add(conv2d_transpose_node, realized_args[2], **bias_attrs)
 
             if self.input_config[old_node.args[0]]["dtype"] == "int16":
                 # for conv cpu no support data-kernel dtype diff
-                weight_int16 = relay.const(conv2d_node.args[1].data.asnumpy(), "int16")
+                weight_int16 = relay.const(conv2d_transpose_node.args[1].data.asnumpy(), "int16")
                 bias_int64 = relay.const(bias_node.args[1].data.asnumpy(), "int64")
-                conv2d_node = relay.nn.conv2d(realized_args[0], weight_int16, **conv2d_attrs)
-                bias_node = relay.nn.bias_add(conv2d_node, bias_int64)
+                conv2d_transpose_node = relay.nn.conv2d_transpose(
+                    realized_args[0], weight_int16, **conv2d_transpose_attrs
+                )
+                bias_node = relay.nn.bias_add(conv2d_transpose_node, bias_int64)
                 bias_node = relay.clip(bias_node, -(2 ** 31), 2 ** 31 - 1)
                 bias_node = relay.cast(bias_node, "int32")
 
@@ -310,10 +320,11 @@ class Conv2DBiasAdd:
                 new_arg = relay.cast(new_arg, "float16")
             realized_args_n.append(new_arg)
 
-        conv2d_attrs = dict(tmp[0].attrs)
-        conv2d_attrs["out_dtype"] = self._inner_config[tmp[0]]["output_config"]["dtype"]
-        conv2d_node = relay.nn.conv2d(realized_args_n[0], realized_args_n[1], **conv2d_attrs)
+        conv2d_transpose_attrs["out_dtype"] = self._inner_config[tmp[0]]["output_config"]["dtype"]
+        conv2d_transpose_node = relay.nn.conv2d_transpose(
+            realized_args_n[0], realized_args_n[1], **conv2d_transpose_attrs
+        )
         bias_attrs = dict(tmp[1].attrs)
-        bias_node = relay.nn.bias_add(conv2d_node, realized_args_n[2], **bias_attrs)
+        bias_node = relay.nn.bias_add(conv2d_transpose_node, realized_args_n[2], **bias_attrs)
 
         return bias_node

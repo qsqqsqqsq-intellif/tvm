@@ -19,16 +19,15 @@
 
 import logging
 from tvm import relay
-from tvm._ffi import runtime_ctypes
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
-from ..analyze import _conv_counter, oneargdeal
+from ..analyze import _conv_counter, _quantized_judge
 from ..calibrate import _calibrate_core
 from ..realize import _realize_core
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("SumPool3D",)
+__all__ = ("UnmaxpoolUpsamle",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -49,24 +48,53 @@ DEFAULTCONFIG = {
 }
 
 
-class SumPool3D:
-    """sum_pool3d"""
+class UnmaxpoolUpsamle:
+    """Take"""
 
-    name = "nn.sum_pool3d"
+    name = "nn.unmaxpool_upsample"
     controlable = False
 
     def __init__(self, node, vertex_config, config):
         cnt = _conv_counter()
 
+        arg = node.args[0]
         self.quantized = True
-        if cnt - 1 in []:
+        if not vertex_config[arg].quantized or cnt - 1 in []:
             self.quantized = False
 
         ci0 = config["input0"]
 
-        oneargdeal(self, node, vertex_config, ci0)
+        LOGGER.debug("[analyze] nn.unmaxpool_upsample start...")
+        # get input0_config
+        input_axis = -1
 
-        LOGGER.debug("[anaylze] sum_pool3d finish")
+        input0_config = _quantized_judge(
+            vertex_config, node.args[0], input_axis, self.quantized, ci0
+        )
+
+        input1_config = {
+            "dtype": DataType.Int32,
+            "axis": -1,
+            "method": None,
+            "threshold": None,
+            "operate": "none",
+        }
+        self.input_config = {
+            node.args[0]: input0_config,
+            node.args[1]: input1_config,
+        }
+
+        # get output0_config
+        output0_config = {
+            "dtype": input0_config["dtype"],
+            "axis": input_axis,
+            "quantized_axis": "none",
+            "ref_count": 0,
+        }
+
+        self.output_config = output0_config
+
+        LOGGER.debug("[analyze] nn.unmaxpool_upsample finish")
 
     @classmethod
     def get_config(cls, config, call):
@@ -85,27 +113,11 @@ class SumPool3D:
 
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
-        LOGGER.debug("[realize] sum_pool3d start")
+        LOGGER.debug("[realize]slice like start...")
         old_arg = old_node.args[0]
         new_arg = new_node.args[0]
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
-        if "ir_pass" not in relay.__dict__:
-            dtype = runtime_ctypes.DataType(self.input_config[old_arg]["dtype"])
-            if self.quantized:
-                if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
-                    new_arg = relay.cast(new_arg, vertex_config[old_node].output_config["dtype"])
 
-            new_node = relay.nn.sum_pool3d(new_arg, **dict(new_node.attrs))
-        else:
-            new_attr = {}
-            new_attr["pool_size"] = new_node.attrs.pool_size
-            new_attr["strides"] = new_node.attrs.strides
-            new_attr["padding"] = new_node.attrs.padding
-            new_attr["layout"] = new_node.attrs.layout
-            new_attr["ceil_mode"] = new_node.attrs.ceil_mode
-            if self.quantized:
-                new_attr["out_dtype"] = "int32"
-            new_node = relay.nn.sum_pool3d(new_arg, **new_attr)
-
+        new_node = relay.nn.unmaxpool_upsample(new_arg, new_node.args[1], **dict(new_node.attrs))
         return new_node

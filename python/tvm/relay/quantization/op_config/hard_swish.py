@@ -18,12 +18,29 @@
 """op"""
 
 from tvm import relay
+from ..threshold import Threshold
+from ..method_dtype import Method, DataType
 from ..realize import operate, pair_node
 
 __all__ = ("HardSwish",)
 
-VALIDCONFIG = {}
-DEFAULTCONFIG = {}
+VALIDCONFIG = {
+    "threshold": (
+        Threshold.MinMax,
+        Threshold.Percentile,
+        Threshold.MovingAverageMinMax,
+        Threshold.L2Norm,
+        Threshold.RelativeEntropy,
+    ),
+    "method": (Method.Symmetry, Method.Asymmetry),
+    "dtype": (DataType.Int8, DataType.Int16),
+}
+
+DEFAULTCONFIG = {
+    "threshold": Threshold.L2Norm,
+    "method": Method.Symmetry,
+    "dtype": DataType.Int8,
+}
 
 
 class HardSwish:

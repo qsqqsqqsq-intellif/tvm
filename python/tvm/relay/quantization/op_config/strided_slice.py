@@ -20,7 +20,7 @@
 import logging
 from tvm import relay
 from ..threshold import Threshold
-from ..method_dtype import Method, DataType
+from ..method_dtype import Method, DataType, _get_dtype_info
 from ..analyze import _conv_counter, oneargdeal
 from ..calibrate import _calibrate_core
 from ..realize import _realize_core
@@ -91,4 +91,7 @@ class StridedSlice:
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
         new_node = relay.strided_slice(new_arg, **dict(new_node.attrs))
+        if self.quantized:
+            clip_attr = _get_dtype_info(self.input_config[old_arg]["dtype"])
+            new_node = relay.clip(new_node, clip_attr["qmin"], clip_attr["qmax"])
         return new_node

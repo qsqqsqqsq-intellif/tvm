@@ -19,16 +19,15 @@
 
 import logging
 from tvm import relay
-from tvm._ffi import runtime_ctypes
 from ..threshold import Threshold
-from ..method_dtype import Method, DataType
+from ..method_dtype import Method, DataType, _get_dtype_info
 from ..analyze import _conv_counter, oneargdeal
+from ..realize import _realize_core, operate
 from ..calibrate import _calibrate_core
-from ..realize import _realize_core
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("SumPool3D",)
+__all__ = ("UpSampling",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -49,24 +48,27 @@ DEFAULTCONFIG = {
 }
 
 
-class SumPool3D:
-    """sum_pool3d"""
+class UpSampling:
+    """UpSampling"""
 
-    name = "nn.sum_pool3d"
+    name = "nn.upsampling"
     controlable = False
 
     def __init__(self, node, vertex_config, config):
         cnt = _conv_counter()
 
+        arg = node.args[0]
         self.quantized = True
-        if cnt - 1 in []:
+        if not vertex_config[arg].quantized or (
+            "skip_conv_layers" in config and cnt - 1 in config["skip_conv_layers"]
+        ):
             self.quantized = False
 
         ci0 = config["input0"]
 
         oneargdeal(self, node, vertex_config, ci0)
 
-        LOGGER.debug("[anaylze] sum_pool3d finish")
+        LOGGER.debug("[anaylze] upsampling finish")
 
     @classmethod
     def get_config(cls, config, call):
@@ -74,38 +76,35 @@ class SumPool3D:
 
     def quantize_params(self, node, vertex_config):
         """quantize_params"""
+        LOGGER.debug("[calibrate]upsampling start and quantized is %d", self.quantized)
         arg = node.args[0]
         input_config = self.input_config[arg]
 
-        y = _calibrate_core(arg, input_config, vertex_config, self.quantized)
+        y = _calibrate_core(arg, input_config, vertex_config)
 
+        # print("upsampling scale:", y)
         input_config.update(y)
 
         self.output_config.update(y)
 
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
-        LOGGER.debug("[realize] sum_pool3d start")
+        LOGGER.debug("[realize]upsampling start...")
         old_arg = old_node.args[0]
         new_arg = new_node.args[0]
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
-        if "ir_pass" not in relay.__dict__:
-            dtype = runtime_ctypes.DataType(self.input_config[old_arg]["dtype"])
-            if self.quantized:
-                if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
-                    new_arg = relay.cast(new_arg, vertex_config[old_node].output_config["dtype"])
 
-            new_node = relay.nn.sum_pool3d(new_arg, **dict(new_node.attrs))
+        if self.quantized:
+            new_node = relay.nn.upsampling(new_arg, **dict(new_node.attrs))
+            clip_attr = _get_dtype_info(self.input_config[old_arg]["dtype"])
+            new_node = relay.clip(new_node, clip_attr["qmin"], clip_attr["qmax"])
         else:
-            new_attr = {}
-            new_attr["pool_size"] = new_node.attrs.pool_size
-            new_attr["strides"] = new_node.attrs.strides
-            new_attr["padding"] = new_node.attrs.padding
-            new_attr["layout"] = new_node.attrs.layout
-            new_attr["ceil_mode"] = new_node.attrs.ceil_mode
-            if self.quantized:
-                new_attr["out_dtype"] = "int32"
-            new_node = relay.nn.sum_pool3d(new_arg, **new_attr)
-
+            tmp = relay.frontend.common.infer_type(new_arg)
+            # todo support int16
+            if tmp.checked_type.dtype.startswith("int"):
+                new_arg = operate(
+                    "dequantize", new_arg, self.input_config[old_node.args[0]], {}, True
+                )
+            new_node = relay.nn.upsampling(new_arg, **dict(new_node.attrs))
         return new_node

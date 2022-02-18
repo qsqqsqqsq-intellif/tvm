@@ -31,6 +31,7 @@ LOGGER = logging.getLogger("quantize")
 
 
 CONV_COUNTER = 0
+REF_CNT_G = {}
 
 
 def _conv_counter():
@@ -48,12 +49,13 @@ def _set_conv_counter(n):
 # only support per-tensor
 DISABLE_PERCHANNEL_OP = [
     "identity_op",
+    "strided_slice",
     "expand_dims",
     "reshape",
     "squeeze",
     "transpose",
     "nn.batch_flatten",
-    "yolo_reorg",
+    "vision.yolo_reorg",
     "tile",
     "split",
     "reverse",
@@ -62,32 +64,53 @@ DISABLE_PERCHANNEL_OP = [
 
 # the input and output same dtype
 IDENTITY_INPUT_DTYPE_OP = [
+    "identity_op",
+    "strided_slice",
     "expand_dims",
     "reshape",
     "squeeze",
     "transpose",
     "nn.batch_flatten",
-    "yolo_reorg",
+    "vision.yolo_reorg",
     "tile",
-    "split",
     "reverse",
+    "zeros_like",
+    "ones_like",
     "take",
+    "slice_like",
+    "nn.pad",
+    "image.resize",
+    "nn.leaky_relu",
+    "nn.prelu",
+    "nn.upsampling",
+    "nn.unmaxpool_upsample",
+    "split",
+]
+
+# the in-out axis should be same and nodo requantize
+IDENTITY_AXIS_OP = [
+    "nn.leaky_relu",
+    "nn.relu",
+    "nn.prelu",
+    "clip",
+    "nn.upsampling",
+    "nn.unmaxpool_upsample",
+    "strided_slice",
     "nn.pad",
     "image.resize",
     "image.resize2d",
-    "nn.leaky_relu",
-    "nn.prelu",
-    "zeros_like",
-    "ones_like",
+    "contrib.adaptive_max_pool2d",
+    "contrib.adaptive_avg_pool2d",
 ]
 
+# only shape change
 IDENTITY_OP_LIST = [
     "expand_dims",
     "reshape",
     "squeeze",
     "transpose",
     "nn.batch_flatten",
-    "yolo_reorg",
+    "vision.yolo_reorg",
     "tile",
     "reverse",
     "zeros_like",
@@ -113,13 +136,37 @@ FLOAT_OP_LIST = [
     "power",
 ]
 
-# fixed-point, two inputs identity scale
+# if fixed-point, two inputs identity scale
 FIXED_OP_TWOARGS_LIST = [
     "add",
     "subtract",
     "maximum",
     "minimum",
 ]
+
+
+def recursive_identity_axis(input_axis, node, vertex_config):
+    """recursive_identity_axis"""
+
+    if (
+        isinstance(node, relay.Call)
+        and not isinstance(node.op, relay.Function)
+        and vertex_config[node].quantized
+    ):
+
+        if (
+            node.op.name == "nn.max_pool2d" and REF_CNT_G[node.args[0]] == 1
+        ) or node.op.name in IDENTITY_AXIS_OP:
+            if vertex_config[node].output_config["axis"] not in [input_axis, -1]:
+                vertex_config[node].output_config["axis"] = input_axis
+                vertex_config[node].input_config[node.args[0]]["axis"] = input_axis
+
+                if vertex_config[node.args[0]].quantized and vertex_config[
+                    node.args[0]
+                ].output_config["quantized_axis"] not in ["none", input_axis]:
+                    vertex_config[node.args[0]].output_config["quantized_axis"] = input_axis
+
+                recursive_identity_axis(input_axis, node.args[0], vertex_config)
 
 
 def _quantized_judge(vertex_config, node, input_axis, quantized, config):
@@ -129,7 +176,7 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
         vertex_config[node].output_config["ref_count"] + 1
     )
 
-    # todo consider more!!
+    # dtype set
     # arg not quantized and self not quantized: dtype:float16
     if vertex_config[node].quantized or not vertex_config[node].quantized and quantized:
         dtype = config["dtype"]
@@ -137,9 +184,7 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
         dtype = DataType.Float16
 
     input_config = {
-        # "in_dtype": vertex_config[node].output_config["dtype"],  # TODO can del?
-        # "in_axis": vertex_config[node].output_config["axis"],
-        "dtype": dtype,  # todo quantized 'dtype' according to bits-info
+        "dtype": dtype,
         "axis": input_axis,
         "method": None,
         "threshold": None,
@@ -152,35 +197,13 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
     ]:
         input_config.update({"dtype": vertex_config[node].output_config["net_in_dtype"]})
 
-    # make sure the identity dtype op can deal
-    if (
-        input_axis == -1
-        and isinstance(node, relay.Call)
-        and not isinstance(node.op, relay.Function)
-        and node.op.name in IDENTITY_INPUT_DTYPE_OP
-        and vertex_config[node.args[0]].output_config["quantized_axis"] != "none"
-        and vertex_config[node.args[0]].output_config["quantized_axis"] > -1
-    ):
-        vertex_config[node.args[0]].output_config["quantized_axis"] = -1
-
     # three coditions do quantize
     # ----1, int32 input and quantized. some int32 case no need to do, ex cast.
     # ----2, fp16 to int8(as int8 to fp16, int8 must have his own scale)
-    # ----3, perchannel != pertensor and not identity_dtype
-    # then update the quantized_axis
     if (
-        (
-            vertex_config[node].output_config["dtype"] == DataType.Int32
-            and vertex_config[node].quantized
-        )
-        or (not vertex_config[node].quantized and quantized)
-        or (
-            vertex_config[node].quantized
-            and quantized
-            and vertex_config[node].output_config["axis"] != input_axis
-            and node.op.name not in IDENTITY_INPUT_DTYPE_OP
-        )
-    ):
+        vertex_config[node].output_config["dtype"] == DataType.Int32
+        and vertex_config[node].quantized
+    ) or (not vertex_config[node].quantized and quantized):
         # check if input is already quantized(split-node may quantized already)
         # --the quantized_axis should be the smallest to all-possible axis
         # --notice! when do 'threshold' the input_axis is not really use axis,
@@ -207,6 +230,8 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
         # --then modify quantized_axis to input_axis(-1)
         elif vertex_config[node].output_config["quantized_axis"] > input_axis:
             vertex_config[node].output_config["quantized_axis"] = input_axis
+
+    recursive_identity_axis(input_axis, node, vertex_config)
 
     if "DataType" in runtime_ctypes.__dict__:
         tvm_dtype = runtime_ctypes.DataType(input_config["dtype"])
@@ -235,6 +260,8 @@ def oneargdeal(cls, node, vertex_config, ci0):
     # todo consider if arg.quantize and not cls.quantized, axis set to -1
     if vertex_config[arg].quantized:
         input0_axis = vertex_config[arg].output_config["axis"]
+
+    # pool can use prechannel
     if (
         node.attrs is not None
         and name != "gather_nd"
@@ -354,18 +381,22 @@ class Tuple:
 
         if all(_quantized):
             self.quantized = True
-        # elif all(i is False for i in _quantized):
-        #     self.quantized = False
         else:
             self.quantized = False
 
         output_axis = max(_axis)
 
-        # todo need more consider!
-        # tuple alse need to consider split node
         len_arg = len(node.fields)
         self.input_config = {}
         for arg_dix in range(len_arg):
+
+            # for case concat(%1, %1, %1, %1)
+            if node.fields[arg_dix] in self.input_config:
+                vertex_config[node.fields[arg_dix]].output_config["ref_count"] = (
+                    vertex_config[node.fields[arg_dix]].output_config["ref_count"] + 1
+                )
+                continue
+
             input_config = _quantized_judge(
                 vertex_config,
                 node.fields[arg_dix],
@@ -383,7 +414,7 @@ class Tuple:
             "quantized_axis": "none",
         }
 
-        if output0_config["dtype"] not in [DataType.Float16]:
+        if output0_config["dtype"].startswith("int"):
             output0_config.update(_get_dtype_info(output0_config["dtype"]))  # todo modify this
         self.output_config = output0_config
         LOGGER.debug("[analyze] Tuplenode end")
@@ -404,7 +435,12 @@ class TupleGetitem:
         )
 
         # todo consider more!!
-        if isinstance(arg, relay.Call) and arg.op.name not in ["split", "topk"]:
+        if isinstance(arg, relay.Call) and arg.op.name not in [
+            "split",
+            "topk",
+            "vision.multibox_transform_loc",
+            "nn.max_pool2d",
+        ]:
             assert 0, "meet tupleGetitem no support, call yhh"
         if self.quantized:
             dtype = DataType.Int8
@@ -412,8 +448,6 @@ class TupleGetitem:
             dtype = DataType.Float16
 
         input_config = {
-            # "in_dtype": vertex_config[arg].output_config["dtype"],
-            # "in_axis": vertex_config[arg].output_config["axis"],
             "dtype": dtype,
             "bits": 8,
             "axis": input_axis,
@@ -423,9 +457,13 @@ class TupleGetitem:
         }
         self.input_config = {arg: input_config}
 
+        out_dtype = dtype
+        if arg.op.name in ["nn.max_pool2d"] and self.quantized:
+            out_dtype = "int32"
+
         # get output0_config
         output0_config = {
-            "dtype": dtype,
+            "dtype": out_dtype,
             "axis": input_axis,
             "quantized_axis": "none",
             "ref_count": 0,
@@ -556,7 +594,46 @@ class AnalyzeGraph(ExprVisitor):
             # assert 0, "no support f.body is tuple, please call yhh!!!"
 
 
+class GetExprRefCount(ExprVisitor):
+    """GetExprRefCount"""
+
+    def __init__(self, mod):
+        super().__init__()
+        self.ret_ref_cnt = {}
+        if isinstance(mod, relay.Function):
+            self.visit(mod)
+        else:
+            self.visit(mod["main"])
+
+    def visit_call(self, call):
+        for arg in call.args:
+            if arg in self.ret_ref_cnt:
+                self.ret_ref_cnt[arg] = self.ret_ref_cnt[arg] + 1
+            else:
+                self.ret_ref_cnt[arg] = 1
+            self.visit(arg)
+
+    def visit_tuple(self, tup):
+        for x in tup.fields:
+            if x in self.ret_ref_cnt:
+                self.ret_ref_cnt[x] = self.ret_ref_cnt[x] + 1
+            else:
+                self.ret_ref_cnt[x] = 1
+            self.visit(x)
+
+    def visit_tuple_getitem(self, t):
+        if t in self.ret_ref_cnt:
+            self.ret_ref_cnt[t] = self.ret_ref_cnt[t] + 1
+        else:
+            self.ret_ref_cnt[t] = 1
+        self.visit(t.tuple_value)
+
+
 def analyze_graph(cls):
+    ref_cnt = GetExprRefCount(cls.pre_processed_mod)
+    global REF_CNT_G
+    REF_CNT_G = ref_cnt.ret_ref_cnt
+
     tmp = AnalyzeGraph(cls.pre_processed_mod, cls.config, cls.node_id, cls.net_in_dtype)
     cls.vertex_config = tmp.vertex_config
     cls.collect_node = tmp.collect_node

@@ -58,7 +58,8 @@ class GlobalSumPool2D:
     def __init__(self, node, vertex_config, config):
         cnt = _conv_counter()
 
-        self.quantized = vertex_config[node.args[0]].quantized
+        # support fixed first
+        self.quantized = True
         if cnt - 1 in []:
             self.quantized = False
 

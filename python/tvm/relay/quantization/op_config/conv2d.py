@@ -79,6 +79,18 @@ class Conv2D:
         weigh_co = node.args[1].data.shape[weight_co_axis]
         if conv2d_groups == weigh_co:
             input0_axis = node.attrs.data_layout.find("C")
+
+            # input is global sumpool, do pertensor
+            arg_call = node.args[0]
+            name = "var"
+            if isinstance(arg_call, relay.Call) and isinstance(arg_call.op, relay.Function):
+                name = getattr(arg_call.op.attrs, "Composite")
+                if not isinstance(name, str):
+                    name = name.value
+            elif isinstance(arg_call, relay.Call):
+                name = arg_call.op.name
+            if name in ["nn.global_sum_pool2d"]:
+                input0_axis = -1
         else:
             input0_axis = -1
 

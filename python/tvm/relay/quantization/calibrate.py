@@ -42,6 +42,7 @@ def recursive_set(arg, vertex_config):
         if (
             arg.op.name in BACK_IDENTITYSCALE_OP_LIST
             and vertex_config[arg.args[0]].output_config["ref_count"] == 1
+            and "quantized_scale" in vertex_config[arg.args[0]].output_config
         ):
 
             quantized_scale = arg_config.output_config["quantized_scale"]
@@ -225,7 +226,7 @@ def calibrate_params(cls):
                 ):
                     y = config.output_config["method"](config.output_config)
                     if y["scale"].size > 1:
-                        y["scale"][numpy.where(y["scale"] == 0)] = 0.001
+                        y["scale"][numpy.where(y["scale"] == 0)] = 0.01 / 127
                     tmp = {
                         "quantized_scale": y["scale"],
                         "quantized_zero_point": y["zero_point"],

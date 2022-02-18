@@ -72,7 +72,10 @@ class Pad:
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
-        new_attrs = new_node.attrs
+        new_attrs = {}
+        new_attrs["pad_width"] = new_node.attrs.pad_width
+        new_attrs["pad_mode"] = new_node.attrs.pad_mode
+        new_attrs["pad_value"] = new_node.attrs.pad_value
         if (
             self.quantized
             and old_node.attrs.pad_mode == "constant"
@@ -85,7 +88,10 @@ class Pad:
             pad_value = int(pad_value / self.input_config[old_arg]["scale"])
             if pad_value > 127:
                 pad_value = 127
+            elif pad_value < -128:
+                pad_value = -128
+            new_attrs["pad_value"] = pad_value
             new_attrs.pad_value = pad_value
 
-        new_node = relay.nn.pad(new_arg, **dict(new_attrs))
+        new_node = relay.nn.pad(new_arg, **new_attrs)
         return new_node

@@ -58,7 +58,8 @@ class SumPool2D:
     def __init__(self, node, vertex_config, config):
         cnt = _conv_counter()
 
-        self.quantized = vertex_config[node.args[0]].quantized
+        # sumpool use fixed to make sure efficiency
+        self.quantized = True
         if cnt - 1 in []:
             self.quantized = False
 
@@ -90,7 +91,9 @@ class SumPool2D:
         new_arg = new_node.args[0]
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
+
         if "ir_pass" not in relay.__dict__:
+            # 400 TVM no support out_dtype
             dtype = runtime_ctypes.DataType(self.input_config[old_arg]["dtype"])
             if self.quantized:
                 if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:

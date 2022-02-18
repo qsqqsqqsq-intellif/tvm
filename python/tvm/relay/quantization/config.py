@@ -242,7 +242,8 @@ class ConfigSpace(ExprVisitor):
             elif isinstance(arg, relay.Call):
                 arg_name = arg.op.name
             if (
-                (
+                arg_dict["default_config"][arg_key]["dtype"] == "int16"
+                and (
                     name
                     not in [
                         "conv2d_bias_add",
@@ -270,7 +271,6 @@ class ConfigSpace(ExprVisitor):
                         ]
                     )
                 )
-                and arg_dict["default_config"][arg_key]["dtype"] == "int16"
             ):
 
                 arg_dict["default_config"][arg_key]["dtype"] = "int8"

@@ -78,7 +78,19 @@ class FixedOpTwoArgs:
         input0_axis = vertex_config[node.args[0]].output_config["axis"]
         input1_axis = vertex_config[node.args[1]].output_config["axis"]
 
-        """input_config"""
+        # add arg1 is constant, 3-dims/4-dims support perch
+        if (
+            isinstance(node.args[1], relay.Constant)
+            and len(node.args[1].data.shape) == 3
+            and input0_axis > -1
+        ):
+            input1_axis = input0_axis - 1
+        elif isinstance(node.args[1], relay.Constant) and len(node.args[1].data.shape) == 4:
+            input1_axis = input0_axis
+        elif isinstance(node.args[1], relay.Constant) and node.args[1].data.asnumpy().size == 1:
+            input0_axis, input1_axis = -1, -1
+
+        # set input config
         input0_config = _quantized_judge(
             vertex_config, node.args[0], input0_axis, self.quantized, ci0
         )
@@ -87,9 +99,10 @@ class FixedOpTwoArgs:
         )
         self.input_config = {node.args[0]: input0_config, node.args[1]: input1_config}
 
+        self.axis = max(input0_axis, input1_axis)
         output0_config = {
             "dtype": DataType.Int32 if self.quantized else DataType.Float16,
-            "axis": max(input0_axis, input1_axis),
+            "axis": self.axis,
             "quantized_axis": "none",
             "ref_count": 0,
         }
@@ -117,68 +130,87 @@ class FixedOpTwoArgs:
                 LOGGER.debug("[calibrate]-- %s arg quantized_scale is:", self.name.upper())
                 LOGGER.debug(y["scale"])
 
-        # ---TODO also can use other strategy
-        # consider for fp16
         if self.quantized:
             scale_left_np = tmp[0]["scale"]
             scale_right_np = tmp[1]["scale"]
 
-            if scale_left_np.size != scale_right_np.size:
-                if scale_right_np.size == 1:
-                    scale_max = numpy.max([scale_right_np, numpy.max(scale_left_np)])
-                    scale_right_np = scale_max
-                    scale_left_np = scale_max * numpy.ones(scale_left_np.size)
+            # only with "quantized_scale", can adjust scale
+            if (
+                "quantized_scale" in vertex_config[node.args[0]].output_config
+                and "quantized_scale" in vertex_config[node.args[1]].output_config
+            ):
+
+                if scale_left_np.size != scale_right_np.size:
+                    if scale_right_np.size == 1:
+                        scale_max = numpy.max([scale_right_np, numpy.max(scale_left_np)])
+                        scale_right_np = scale_max
+                        scale_left_np = scale_max * numpy.ones(scale_left_np.size)
+                    else:
+                        assert scale_left_np.size == 1, "args1 size should be 1"
+                        scale_max = numpy.max([scale_left_np, numpy.max(scale_right_np)])
+                        scale_left_np = scale_max
+                        scale_right_np = scale_max * numpy.ones(scale_right_np.size)
                 else:
-                    assert scale_left_np.size == 1, "args1 size should be 1"
-                    scale_max = numpy.max([scale_left_np, numpy.max(scale_right_np)])
-                    scale_left_np = scale_max
-                    scale_right_np = scale_max * numpy.ones(scale_right_np.size)
-            else:
-                scale_right_np = numpy.amax([scale_right_np, scale_left_np], axis=0)
-                scale_left_np = scale_right_np
+                    scale_right_np = numpy.amax([scale_right_np, scale_left_np], axis=0)
+                    scale_left_np = scale_right_np
 
-            scale = numpy.maximum(scale_left_np, scale_right_np)
-            self.max_scale = scale
-            zero_point = numpy.zeros_like(scale, dtype=numpy.int32)
-            axis = max(
-                self.input_config[node.args[0]]["axis"], self.input_config[node.args[1]]["axis"]
-            )
-            new_y = {"scale": scale, "zero_point": zero_point, "axis": axis}
+                # reset the output_config['quantized_scale']
+                if vertex_config[node.args[0]].output_config["ref_count"] == 1 and not numpy.all(
+                    tmp[0]["scale"] - scale_left_np == 0
+                ):
+                    vertex_config[node.args[0]].output_config["quantized_scale"] = scale_left_np
 
-            # reset the output_config['quantized_scale']
-            if vertex_config[node.args[0]].output_config["ref_count"] == 1 and not numpy.all(
-                tmp[0]["scale"] - scale_left_np == 0
-            ):
-                vertex_config[node.args[0]].output_config["quantized_scale"] = scale_left_np
-                # no need to recusive set, do it always calibrate.py
+                if vertex_config[node.args[1]].output_config["ref_count"] == 1 and not numpy.all(
+                    tmp[1]["scale"] - scale_right_np == 0
+                ):
+                    vertex_config[node.args[1]].output_config["quantized_scale"] = scale_right_np
 
-            if vertex_config[node.args[1]].output_config["ref_count"] == 1 and not numpy.all(
-                tmp[1]["scale"] - scale_right_np == 0
-            ):
-                vertex_config[node.args[1]].output_config["quantized_scale"] = scale_right_np
-                # no need to recusive set, do it always calibrate.py
-
-            # reset the input_config[scale]
+            # reset left input_config[scale]
             input_config = self.input_config[node.args[0]]
             input_config.update(
                 {
-                    "scale": vertex_config[node.args[0]].output_config["quantized_scale"],
+                    "scale": vertex_config[node.args[0]].output_config["quantized_scale"]
+                    if "quantized_scale" in vertex_config[node.args[0]].output_config
+                    else vertex_config[node.args[0]].output_config["scale"],
                     "zero_point": numpy.zeros_like(scale_left_np, dtype=numpy.int32),
                 }
             )
+            # print("left", input_config["scale"])
+            scale_left = input_config["scale"]
             LOGGER.debug("[calibrate]-- %s after adjust left_scale is:", self.name.upper())
             LOGGER.debug(input_config["scale"])
 
+            # reset right input_config[scale]
             input_config = self.input_config[node.args[1]]
             input_config.update(
                 {
-                    "scale": vertex_config[node.args[1]].output_config["quantized_scale"],
+                    "scale": vertex_config[node.args[1]].output_config["quantized_scale"]
+                    if "quantized_scale" in vertex_config[node.args[1]].output_config
+                    else vertex_config[node.args[1]].output_config["scale"],
                     "zero_point": numpy.zeros_like(scale_right_np, dtype=numpy.int32),
                 }
             )
+            # print("right", input_config["scale"])
+            scale_right = input_config["scale"]
             LOGGER.debug("[calibrate]-- %s after adjust right_scale is:", self.name.upper())
             LOGGER.debug(input_config["scale"])
 
+            # set the final output_config scale
+            max_size = scale_left.size if scale_left.size > scale_right.size else scale_right.size
+            scale_max = numpy.zeros([max_size])
+
+            for i in range(max_size):
+                left_scale = scale_left if scale_left.size == 1 else scale_left[i]
+                right_scale = scale_right if scale_right.size == 1 else scale_right[i]
+                scale_max[i] = left_scale if left_scale > right_scale else right_scale
+            zero_point = numpy.zeros_like(scale_max, dtype=numpy.int32)
+
+            new_y = {}
+            new_y["scale"] = scale_max
+            new_y["zero_point"] = zero_point
+            new_y["axis"] = max(
+                self.input_config[node.args[0]]["axis"], self.input_config[node.args[1]]["axis"]
+            )
             self.output_config.update(new_y)
 
     def realize(self, old_node, new_node, vertex_config, n2o):
@@ -212,10 +244,6 @@ class FixedOpTwoArgs:
             ):
                 n2o[old_arg] = new_arg
 
-            # if self.quantized:
-            #     if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
-            #         new_arg = relay.cast(new_arg, DataType.Int32)
-
             # the pair_node can do after scale judegment! so no need here
             # pair_node(old_arg, new_arg, output_config, input_config, n2o, self.quantized)
             realized_args.append(new_arg)
@@ -226,7 +254,7 @@ class FixedOpTwoArgs:
             for old_arg, new_arg in zip(old_node.args, realized_args):
                 tmp = relay.frontend.common.infer_type(new_arg)
                 if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
-                    new_arg = relay.const(new_arg.data.asnumpy(), "float16")
+                    new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
                 elif tmp.checked_type.dtype.startswith("int"):
                     new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
                 elif tmp.checked_type.dtype != "float16":
@@ -241,9 +269,14 @@ class FixedOpTwoArgs:
         # adjust add scale!!
         scale_left = self.input_config[old_node.args[0]]["scale"]
         scale_right = self.input_config[old_node.args[1]]["scale"]
-        scale_max = self.max_scale
+        max_size = scale_left.size if scale_left.size > scale_right.size else scale_right.size
+        scale_max = numpy.zeros([max_size])
 
-        # print(len(numpy.where((scale_left == scale_right) == False)[0]))
+        for i in range(max_size):
+            left_scale = scale_left if scale_left.size == 1 else scale_left[i]
+            right_scale = scale_right if scale_right.size == 1 else scale_right[i]
+            scale_max[i] = left_scale if left_scale > right_scale else right_scale
+        zero_point = numpy.zeros_like(scale_max, dtype=numpy.int32)
 
         LOGGER.debug("[realize] %s before adjust, left scale is:", self.name.upper())
         LOGGER.debug(scale_left)
@@ -252,6 +285,7 @@ class FixedOpTwoArgs:
         LOGGER.debug("[realize] %s final max scale is:", self.name.upper())
         LOGGER.debug(scale_max)
 
+        # print(len(numpy.where((scale_left == scale_right) == False)[0]))
         # print("add left scale is")
         # numpy.set_printoptions(precision=9, suppress=False)
         # print(scale_left)
@@ -260,46 +294,29 @@ class FixedOpTwoArgs:
         # print(scale_right)
 
         # get the final adjust scale
-        self.adjust_input_config = {}
-        self.adjust_input_config[old_node.args[0]] = {
-            "zero_point": self.input_config[old_node.args[0]]["zero_point"],
-            "axis": self.input_config[old_node.args[0]]["axis"],
+        adjust_input_config = {
+            "zero_point": zero_point,
+            "axis": self.axis,
+            "scale": scale_max,
             "dtype": self.input_config[old_node.args[0]]["dtype"],
             "operate": "requantize",
         }
 
-        self.adjust_input_config[old_node.args[1]] = {
-            "zero_point": self.input_config[old_node.args[1]]["zero_point"],
-            "axis": self.input_config[old_node.args[1]]["axis"],
-            "dtype": self.input_config[old_node.args[1]]["dtype"],
-            "operate": "requantize",
-        }
-
-        if scale_left.size != scale_right.size:
-            if scale_left.size == 1:
-                self.adjust_input_config[old_node.args[0]].update({"scale": scale_max[0]})
-                self.adjust_input_config[old_node.args[1]].update({"scale": scale_max})
-            else:
-                assert scale_right.size == 1, "cur scale size must be 1"
-                self.adjust_input_config[old_node.args[0]].update({"scale": scale_max})
-                self.adjust_input_config[old_node.args[1]].update({"scale": scale_max[0]})
-
-        else:
-            self.adjust_input_config[old_node.args[0]].update({"scale": scale_max})
-            self.adjust_input_config[old_node.args[1]].update({"scale": scale_max})
-
         adjust_realized_args = []
         for old_arg, new_arg in zip(old_node.args, realized_args):
+            # constant 3-dims axis = 0
+            if isinstance(old_arg, relay.Constant) and self.input_config[old_arg]["axis"] > -1:
+                adjust_input_config["axis"] = self.input_config[old_arg]["axis"]
             new_arg = operate(
                 "requantize",
                 new_arg,
                 self.input_config[old_arg],
-                self.adjust_input_config[old_arg],
+                adjust_input_config,
                 True,
                 multiplier=1,
             )
 
-            # compatible with nnp300
+            # 400 no support output_dtype
             if (
                 self.quantized
                 and self.name in ["add", "subtract"]
@@ -307,17 +324,20 @@ class FixedOpTwoArgs:
             ):
                 if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
                     new_arg = relay.cast(new_arg, DataType.Int32)
-            # todo confirm self.quantized
-            pair_node(
-                old_arg,
-                new_arg,
-                self.input_config[old_arg],
-                self.adjust_input_config[old_arg],
-                n2o,
-                self.quantized,
-            )
+
+            # todo no judge when add([1,c,h,h] + [1]) optimie to [1, c, h, w] + [c, 1, 1]
+            # mobilenetv3 add( , 3f)
+            if not isinstance(old_arg, relay.Constant):
+                pair_node(
+                    old_arg,
+                    new_arg,
+                    self.input_config[old_arg],
+                    adjust_input_config,
+                    n2o,
+                    self.quantized,
+                )
             adjust_realized_args.append(new_arg)
-        # new_node = relay.add(adjust_realized_args[0], adjust_realized_args[1])
+
         if self.name == "add" and "ir_pass" in relay.__dict__:
             new_node = relay.add(
                 adjust_realized_args[0], adjust_realized_args[1], out_dtype="int32"

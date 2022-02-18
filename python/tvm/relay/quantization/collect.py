@@ -75,18 +75,13 @@ def _get_statistics_min_max(quantize, run):
             for arg in node.fields:
                 # use the quantized_axis and update the input_config['axis']
                 quantized_axis = quantize.vertex_config[arg].output_config["quantized_axis"]
-                update_threshold = False
-                if quantized_axis not in ("none", vertex_config.input_config[arg]["axis"]):
-                    update_threshold = True
 
                 if quantized_axis != "none":
                     vertex_config.input_config[arg]["axis"] = quantized_axis
 
                 if vertex_config.input_config[arg]["threshold"] is not None:
                     input_config = vertex_config.input_config[arg]
-                    # update: if the axis change, some parameters like histogram may change
-                    if update_threshold:
-                        input_config["threshold"].update_axis(quantized_axis)
+                    input_config["threshold"].update_axis(quantized_axis)
                     tmp(arg, input_config)
 
         elif isinstance(node, relay.TupleGetItem):
@@ -95,13 +90,9 @@ def _get_statistics_min_max(quantize, run):
             tmp(arg, input_config)
 
         elif isinstance(node, relay.Call):
-            # use the quantized_axis and update the input_config['axis']
             for arg in node.args:
                 # use the quantized_axis and update the input_config['axis']
                 quantized_axis = quantize.vertex_config[arg].output_config["quantized_axis"]
-                update_threshold = False
-                if quantized_axis not in ("none", vertex_config.input_config[arg]["axis"]):
-                    update_threshold = True
 
                 if quantized_axis != "none":
                     vertex_config.input_config[arg]["axis"] = quantized_axis
@@ -109,8 +100,7 @@ def _get_statistics_min_max(quantize, run):
                 if vertex_config.input_config[arg]["threshold"] is not None:
                     input_config = vertex_config.input_config[arg]
                     # LOGGER.debug("[collect] output_config quantized_axis is %d", quantized_axis)
-                    if update_threshold:
-                        input_config["threshold"].update_axis(quantized_axis)
+                    input_config["threshold"].update_axis(quantized_axis)
 
                     tmp(arg, input_config)
 
@@ -150,9 +140,9 @@ def _get_threshold_dynamic(quantize, run):
 
         elif isinstance(node, relay.TupleGetItem):
             arg = node.tuple_value
-            # todo
             input_config = vertex_config.input_config[arg]
             tmp(arg, input_config)
+
         elif isinstance(node, relay.Call):
             if not isinstance(node.op, relay.Function):
                 pass  # LOGGER.debug("[collect] {} do kld step2".format(node.op.name))

@@ -101,58 +101,6 @@ class Concatenate:
     def quantize_params(self, node, vertex_config):
         """quantize_params"""
         LOGGER.info("[calibrate] concatenate start")
-        arg_tuple = node.args[0]
-
-        tuple_config = vertex_config[arg_tuple]
-        input_config = tuple_config.input_config
-
-        scale_all_scalar = 1  # 0: all scalar
-        axis = -1
-        for arg in arg_tuple.fields:
-            scale_arg = input_config[arg]["scale"]
-            if scale_arg.size > 1:
-                scale_all_scalar = 0
-                axis = input_config[arg]["axis"]
-                LOGGER.debug("[calibrate] axis is %d", axis)
-                break
-
-        if scale_all_scalar == 1:
-            scale_max = numpy.array(1.0, "float32")
-            LOGGER.debug("[calibrate] concat input scale is all scalar, value is:")
-            for arg in arg_tuple:
-                scale_arg = input_config[arg]["scale"]
-                scale_max = numpy.max([scale_max, scale_arg])
-                LOGGER.debug(scale_arg)
-
-            for arg in arg_tuple:
-                # no need to do quantized/requantize, so may no have "quantized_scale"
-                if (
-                    vertex_config[arg].output_config["ref_count"] == 1
-                    and "quantized_scale" in vertex_config[arg].output_config
-                ):
-                    vertex_config[arg].output_config["quantized_scale"] = scale_max
-                    # output_config[quantized_scale] modify, input_config['scale'] modify same time
-                    input_config[arg]["scale"] = scale_max
-
-            concat_scale = scale_max
-        else:
-            concat_scale = numpy.array([])
-            for arg in arg_tuple:
-                scale_arg = input_config[arg]["scale"]
-                arg_shape = relay.frontend.common.infer_type(arg).checked_type.shape
-                if scale_arg.size > 1:
-                    concat_scale = numpy.append(concat_scale, scale_arg)
-                else:
-                    # use axis, because of nhwc
-                    concat_scale = numpy.append(
-                        concat_scale, (scale_arg * numpy.ones(arg_shape[axis].value))
-                    )
-
-        zero_point = numpy.zeros_like(concat_scale, dtype=numpy.int32)
-        y = {"scale": concat_scale, "zero_point": zero_point}
-        self.input_config[arg_tuple].update(y)
-
-        self.output_config.update(y)
 
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
@@ -165,57 +113,95 @@ class Concatenate:
 
         tuple_config = vertex_config[old_arg]
         input_config = tuple_config.input_config
-        # todo  add more judge strategy here
+
+        # for arg in old_arg.fields:
+        #     scale_arg = input_config[arg]["scale"]
+        #     print("concat arg scale")
+        #     print(scale_arg)
+
         scale_all_scalar = 1  # 0: all scalar
+        axis_list = []
         for arg in old_arg.fields:
-            scale_arg = input_config[arg]["scale"]
-            if scale_arg.size > 1:
+            axis_list.append(input_config[arg]["axis"])
+            if input_config[arg]["axis"] > -1:
                 scale_all_scalar = 0
-                break
+        axis = max(axis_list)
 
-        if scale_all_scalar:
-            scale_new = input_config[old_arg.fields[0]]["scale"]
-            for arg_ in old_arg.fields[1:]:
-                scale_new = max(scale_new, input_config[arg_]["scale"])
-
-            self.adjust_input_config = {}
-            self.adjust_input_config = {
-                "zero_point": self.input_config[old_arg]["zero_point"],
-                "axis": self.input_config[old_arg]["axis"],
-                "dtype": self.input_config[old_arg]["dtype"],
-                "scale": scale_new,
-            }
-
-            new_tuple_node = []
-            for old_arg_, new_arg_ in zip(old_arg.fields, new_arg.fields):
-                new_arg_ = operate(
-                    "requantize",
-                    new_arg_,
-                    input_config[old_arg_],
-                    self.adjust_input_config,
-                    True,
-                    multiplier=1,
-                )
-                new_tuple_node.append(new_arg_)
-
-            if "ir_pass" not in relay.__dict__:
-                new_tup = relay.Tuple(new_tuple_node, old_arg.span)
+        if scale_all_scalar == 1:
+            concat_scale = numpy.array([])
+            arg_shape = relay.frontend.common.infer_type(old_arg.fields[0]).checked_type.shape
+            if len(arg_shape) == 4:
+                # axis use perchannel
+                axis = old_node.attrs.axis
+                for arg in old_arg:
+                    temp_scale = input_config[arg]["scale"]
+                    arg_shape = relay.frontend.common.infer_type(arg).checked_type.shape
+                    arg_len = arg_shape[axis].value
+                    temp_scale = numpy.ones([arg_len]) * temp_scale
+                    concat_scale = numpy.append(concat_scale, temp_scale)
             else:
-                new_tup = relay.Tuple(new_tuple_node)
+                scale_new = input_config[old_arg.fields[0]]["scale"]
+                for arg_ in old_arg.fields[1:]:
+                    scale_new = max(scale_new, input_config[arg_]["scale"])
 
-            self.input_config[old_arg]["scale"] = scale_new
+                axis = -1
+                adjust_input_config = {
+                    "zero_point": input_config[old_arg.fields[0]]["zero_point"],
+                    "axis": axis,
+                    "dtype": input_config[old_arg.fields[0]]["dtype"],
+                    "scale": scale_new,
+                }
 
-            self.output_config["scale"] = scale_new
+                new_tuple_node = []
+                for old_arg_, new_arg_ in zip(old_arg.fields, new_arg.fields):
+                    new_arg_ = operate(
+                        "requantize",
+                        new_arg_,
+                        input_config[old_arg_],
+                        adjust_input_config,
+                        True,
+                        multiplier=1,
+                    )
+                    new_tuple_node.append(new_arg_)
 
-            if "ir_pass" not in relay.__dict__:
-                new_node = relay.Call(
-                    old_node.op, [new_tup], new_node.attrs, new_node.type_args, new_node.span
-                )
-            else:
-                new_node = relay.Call(old_node.op, [new_tup], new_node.attrs, new_node.type_args)
-            return new_node
+                if "ir_pass" not in relay.__dict__:
+                    new_tup = relay.Tuple(new_tuple_node, old_arg.span)
+                else:
+                    new_tup = relay.Tuple(new_tuple_node)
 
-        # TODO ADD MORE CODE DEAL vector scale!!!
+                self.input_config[old_arg].update(adjust_input_config)
+                self.output_config.update(adjust_input_config)
+
+                if "ir_pass" not in relay.__dict__:
+                    new_node = relay.Call(
+                        old_node.op, [new_tup], new_node.attrs, new_node.type_args, new_node.span
+                    )
+                else:
+                    new_node = relay.Call(
+                        old_node.op, [new_tup], new_node.attrs, new_node.type_args
+                    )
+                return new_node
+
+        elif scale_all_scalar == 0:
+            concat_scale = numpy.array([])
+            for arg in old_arg:
+                scale_arg = input_config[arg]["scale"]
+                arg_shape = relay.frontend.common.infer_type(arg).checked_type.shape
+                if scale_arg.size > 1:
+                    concat_scale = numpy.append(concat_scale, scale_arg)
+                else:
+                    # use axis, because of nhwc
+                    concat_scale = numpy.append(
+                        concat_scale, (scale_arg * numpy.ones(arg_shape[axis].value))
+                    )
+
+        zero_point = numpy.zeros_like(concat_scale, dtype=numpy.int32)
+        y = {"scale": concat_scale, "zero_point": zero_point, "axis": axis}
+        self.input_config[old_arg].update(y)
+
+        self.output_config.update(y)
+
+        # 300 no support node.span
         if "ir_pass" not in relay.__dict__:
             new_node = relay.Call(
                 old_node.op, [new_arg], new_node.attrs, new_node.type_args, new_node.span
