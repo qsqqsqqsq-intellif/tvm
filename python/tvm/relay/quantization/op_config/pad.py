@@ -91,7 +91,6 @@ class Pad:
             elif pad_value < -128:
                 pad_value = -128
             new_attrs["pad_value"] = pad_value
-            new_attrs.pad_value = pad_value
 
         new_node = relay.nn.pad(new_arg, **new_attrs)
         return new_node
