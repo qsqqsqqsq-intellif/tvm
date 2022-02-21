@@ -191,7 +191,9 @@ class FloatOp:
                     new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
                 elif tmp.checked_type.dtype.startswith("int"):
                     new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
-                elif tmp.checked_type.dtype != "float16":
+                elif tmp.checked_type.dtype != "float16" and not (
+                    isinstance(old_arg, relay.Var) and old_arg.name_hint == "im_info"
+                ):
                     new_arg = relay.cast(new_arg, "float16")
 
                 pair_node(old_arg, new_arg, {}, {"operate": "none"}, n2o, self.quantized)

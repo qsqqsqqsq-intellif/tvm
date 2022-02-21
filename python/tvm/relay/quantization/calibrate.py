@@ -144,6 +144,65 @@ def recursive_set(arg, vertex_config):
 
                         recursive_set(arg_, vertex_config)
 
+    elif (
+        isinstance(arg, relay.TupleGetItem)
+        and isinstance(arg.tuple_value, relay.Call)
+        and not isinstance(arg.tuple_value.op, relay.Function)
+        and arg_config.quantized
+        and arg.tuple_value.op.name in ["nn.max_pool2d"]
+        and vertex_config[arg.tuple_value.args[0]].output_config["ref_count"] == 1
+        and "quantized_scale" in vertex_config[arg.tuple_value.args[0]].output_config
+    ):
+        quantized_scale = arg_config.output_config["quantized_scale"]
+        quantized_axis = arg_config.output_config["quantized_axis"]
+
+        LOGGER.debug("[calibrate]<recursive_set> scale start and the op is maxpool index is true")
+        LOGGER.debug("[calibrate]<recursive_set> quantized scale is:")
+        LOGGER.debug(quantized_scale)
+        LOGGER.debug(
+            "[calibrate]<recursive_set> quantized axis is %d",
+            arg_config.output_config["quantized_axis"],
+        )
+
+        # setp1 tupleGetItemNode
+        vertex_config[arg].output_config["scale"] = quantized_scale
+        vertex_config[arg].output_config["zero_point"] = numpy.zeros_like(
+            quantized_scale, dtype=numpy.int32
+        )
+        vertex_config[arg].output_config["axis"] = quantized_axis
+
+        vertex_config[arg].input_config[arg.tuple_value]["scale"] = quantized_scale
+        vertex_config[arg].input_config[arg.tuple_value]["zero_point"] = numpy.zeros_like(
+            quantized_scale, dtype=numpy.int32
+        )
+        vertex_config[arg].input_config[arg.tuple_value]["axis"] = quantized_axis
+
+        # step2 arg.tuple_value
+        vertex_config[arg.tuple_value].input_config[arg.tuple_value.args[0]][
+            "scale"
+        ] = quantized_scale
+        vertex_config[arg.tuple_value].input_config[arg.tuple_value.args[0]][
+            "zero_point"
+        ] = numpy.zeros_like(quantized_scale, dtype=numpy.int32)
+        vertex_config[arg.tuple_value].input_config[arg.tuple_value.args[0]][
+            "axis"
+        ] = quantized_axis
+
+        vertex_config[arg.tuple_value].output_config["scale"] = quantized_scale
+        vertex_config[arg.tuple_value].output_config["zero_point"] = numpy.zeros_like(
+            quantized_scale, dtype=numpy.int32
+        )
+        vertex_config[arg.tuple_value].output_config["axis"] = quantized_axis
+
+        # step3 arg.tuple_value.args[0]
+        vertex_config[arg.tuple_value.args[0]].output_config["quantized_scale"] = quantized_scale
+        vertex_config[arg.tuple_value.args[0]].output_config[
+            "quantized_zero_point"
+        ] = numpy.zeros_like(quantized_scale, dtype=numpy.int32)
+        vertex_config[arg.tuple_value.args[0]].output_config["quantized_axis"] = quantized_axis
+
+        recursive_set(arg.tuple_value.args[0], vertex_config)
+
 
 def _calibrate_core(arg, input_config, vertex_config, quantized=True):
     """calibrate core"""
@@ -208,14 +267,16 @@ def calibrate_params(cls):
                 config.quantize_params(call, vertex_config)
 
                 # recursive scale optimize
-                if isinstance(call.args[0], relay.Call):
+                if isinstance(call.args[0], (relay.Call, relay.TupleGetItem)):
                     recursive_set(call.args[0], vertex_config)
 
                 if (
                     isinstance(call, relay.Call)
                     and not isinstance(call.op, relay.Function)
                     and len(call.args) == 2
+                    and not isinstance(call.args[1], relay.TupleGetItem)
                 ):
+                    # TupleGetItem for maxpool idx1
                     recursive_set(call.args[1], vertex_config)
 
                 # support final node int to float

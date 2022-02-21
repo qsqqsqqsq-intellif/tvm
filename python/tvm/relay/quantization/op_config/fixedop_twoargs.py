@@ -338,8 +338,15 @@ class FixedOpTwoArgs:
                 )
             adjust_realized_args.append(new_arg)
 
-        if self.name == "add" and "ir_pass" in relay.__dict__:
-            new_node = relay.add(
+        if "ir_pass" in relay.__dict__:
+            op_dict = {
+                "add": relay.add,
+                "subtract": relay.subtract,
+                "minimum": relay.minimum,
+                "maximum": relay.maximum,
+            }
+
+            new_node = op_dict[self.name](
                 adjust_realized_args[0], adjust_realized_args[1], out_dtype="int32"
             )
         else:

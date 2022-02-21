@@ -22,7 +22,6 @@ import logging
 import numpy as np
 import tvm
 from tvm import relay
-from tvm.ir.module import IRModule
 from .analyze import analyze_graph
 from .collect import collect_stats
 from .calibrate import calibrate_params
@@ -78,7 +77,7 @@ class Quantize:
 
 
 def run_quantization(
-    model_name: str, mod: IRModule, params=None, config=None, fast_mode=True, use_gpu=False
+    model_name: str, mod=None, params=None, config=None, fast_mode=True, use_gpu=False
 ):
     """Module to module quantization interface
 
@@ -154,5 +153,5 @@ def run_quantization(
 
     func, quantized_params = ExtractParamsPass().run(quantized_mod["main"])
     func = relay.frontend.common.infer_type(func)
-    quantized_mod = IRModule.from_expr(func)
+    quantized_mod = tvm.ir.module.IRModule.from_expr(func)
     return quantized_mod, quantized_params

@@ -44,7 +44,11 @@ class RemoveInputQuantize(ExprMutator):
             self.new_mod = relay.transform.InferType()(mod)
 
     def visit_var(self, var):
-        if var in self.ori_params and self.net_in_dtype in ["uint8", "int16"]:
+        if (
+            var in self.ori_params
+            and self.net_in_dtype in ["uint8", "int16"]
+            and len(var.checked_type.shape) >= 4
+        ):
             new_var = relay.var(
                 var.name_hint, shape=var.type_annotation.shape, dtype=self.net_in_dtype
             )

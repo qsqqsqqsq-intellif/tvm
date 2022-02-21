@@ -147,6 +147,9 @@ FIXED_OP_TWOARGS_LIST = [
 
 def recursive_identity_axis(input_axis, node, vertex_config):
     """recursive_identity_axis"""
+    # for maxpool index is true
+    if isinstance(node, relay.TupleGetItem):
+        node = node.tuple_value
 
     if (
         isinstance(node, relay.Call)
@@ -349,7 +352,9 @@ class Var:
             "axis": -1,
             "quantized_axis": "none",
             "ref_count": 0,
-            "net_in_dtype": net_in_dtype,
+            "net_in_dtype": net_in_dtype
+            if len(node.checked_type.shape) >= 4
+            else node.checked_type.dtype,
         }
 
 
@@ -449,7 +454,6 @@ class TupleGetitem:
 
         input_config = {
             "dtype": dtype,
-            "bits": 8,
             "axis": input_axis,
             "method": None,
             "threshold": None,

@@ -57,9 +57,8 @@ class Relu:
     def __init__(self, node, vertex_config, config):
         cnt = _conv_counter()
 
-        arg = node.args[0]
         self.quantized = True
-        if not vertex_config[arg].quantized or cnt - 1 in []:
+        if cnt - 1 in []:
             self.quantized = False
 
         # todo ci0 can get outside

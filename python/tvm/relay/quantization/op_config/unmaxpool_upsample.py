@@ -119,5 +119,15 @@ class UnmaxpoolUpsamle:
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
-        new_node = relay.nn.unmaxpool_upsample(new_arg, new_node.args[1], **dict(new_node.attrs))
+        attrs = {}
+        attrs["scale"] = new_node.attrs.scale
+        attrs["pad_out_h"] = new_node.attrs.pad_out_h
+        attrs["pad_out_w"] = new_node.attrs.pad_out_w
+        attrs["layout"] = new_node.attrs.layout
+        attrs["scale_h"] = new_node.attrs.scale_h
+        attrs["scale_w"] = new_node.attrs.scale_w
+        attrs["upsample_h"] = new_node.attrs.upsample_h
+        attrs["upsample_w"] = new_node.attrs.upsample_w
+
+        new_node = relay.nn.unmaxpool_upsample(new_arg, new_node.args[1], **attrs)
         return new_node
