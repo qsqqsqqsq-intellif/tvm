@@ -135,6 +135,16 @@ TVM_DLL const Op& nnp_cuid();
 TVM_DLL const Op& nnp_iss_bind_input_buffer();
 
 /*!
+ * \brief tvm intrinsic for nnp vcu resource locking.
+ */
+TVM_DLL const Op& nnp_lock_vcu();
+
+/*!
+ * \brief tvm intrinsic for nnp vcu resource unlocking.
+ */
+TVM_DLL const Op& nnp_unlock_vcu();
+
+/*!
  * \brief tvm intrinsic for nnp veltadd intrinsic.
  */
 TVM_DLL const Op& nnp_veltadd();

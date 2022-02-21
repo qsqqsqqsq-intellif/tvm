@@ -92,6 +92,14 @@ TIR_DEFINE_BUILTIN_FUNC(nnp_cube)
 TIR_DEFINE_BUILTIN_FUNC(nnp_cuid).set_attr<TCallEffectKind>("TCallEffectKind",
                                                             Integer(CallEffectKind::kOpaque));
 
+TIR_DEFINE_BUILTIN_FUNC(nnp_lock_vcu)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::CU));
+
+TIR_DEFINE_BUILTIN_FUNC(nnp_unlock_vcu)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::CU));
+
 TIR_DEFINE_BUILTIN_FUNC(nnp_iss_bind_input_buffer)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
     .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::CU));

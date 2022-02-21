@@ -45,7 +45,7 @@ extern "C" {
 namespace tvm {
 namespace runtime {
 
-const int DEFAULT_ISS_START_PC = 0x318;
+const int DEFAULT_ISS_START_PC = 0x640;
 
 /*! \brief Get iss start pc constant */
 static int GetIssStartPC() { return dmlc::GetEnv<int>("EDGEX_ISS_START_PC", DEFAULT_ISS_START_PC); }

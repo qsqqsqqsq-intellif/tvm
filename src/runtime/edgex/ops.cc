@@ -99,7 +99,7 @@ TVM_REGISTER_GLOBAL("tvm.contrib.edgex.matmul.forward")
       EDGEX_CALL(dclrtSynchronizeStream(stream));
     });
 
-TVM_REGISTER_GLOBAL("tvm.contrib.edgex.add.forward").set_body([](TVMArgs args, TVMRetValue* ret) {
+TVM_REGISTER_GLOBAL("tvm.contrib.edgex.add_example").set_body([](TVMArgs args, TVMRetValue* ret) {
   // edgex routine
   EDGEX_CALL(dclrtSetDevice(0));
   dclrtStream stream;
@@ -111,7 +111,7 @@ TVM_REGISTER_GLOBAL("tvm.contrib.edgex.add.forward").set_body([](TVMArgs args, T
 
   // bin/lst should come from compiler
   std::string base_dir = std::getenv("EDGEX_ROOT_DIR");
-  std::string bin_dir = base_dir + "/tests/add_case/drv_case0.bin";
+  std::string bin_dir = base_dir + "/tests/drv_case0_ncore_vcore0/drv_case0_ncore_vcore0.bin";
   std::FILE* bin_file = fopen(bin_dir.c_str(), "r");
   std::fseek(bin_file, 0, SEEK_END);
   size_t bin_size = ftell(bin_file);
@@ -120,7 +120,7 @@ TVM_REGISTER_GLOBAL("tvm.contrib.edgex.add.forward").set_body([](TVMArgs args, T
   ICHECK(std::fread(bin_buffer, 1, bin_size, bin_file) == bin_size) << "fread error";
   std::fclose(bin_file);
 
-  std::string lst_dir = base_dir + "/tests/add_case/drv_case0_cpp.lst";
+  std::string lst_dir = base_dir + "/tests/drv_case0_ncore_vcore0/drv_case0_ncore_vcore0_cpp.lst";
   std::FILE* lst_file = fopen(lst_dir.c_str(), "r");
   std::fseek(lst_file, 0, SEEK_END);
   size_t lst_size = ftell(lst_file);
@@ -130,7 +130,7 @@ TVM_REGISTER_GLOBAL("tvm.contrib.edgex.add.forward").set_body([](TVMArgs args, T
   std::fclose(lst_file);
 
   // in EdgeXModuleNode
-  const char* op_type = "drv_case0";
+  const char* op_type = "drv_case0_ncore_vcore0";
   dclError e = dclopUnloadByName(op_type);
   ICHECK(e == DCL_ERROR_NONE || e == DCL_ERROR_OP_NOT_FOUND)
       << "EdgeX Error: " << dclGetErrorString(e);

@@ -26,6 +26,7 @@
 #include <llvm/IR/IntrinsicsNNP.h>
 #include <llvm/Support/CommandLine.h>
 
+#include "../../contrib/edgex/tir/attrs.h"
 #include "../../contrib/edgex/tir/edgex_ir_utils.h"
 #include "../../contrib/edgex/tir/op/builtin.h"
 #include "../../runtime/edgex/edgex_common.h"
@@ -189,6 +190,13 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     }
   }
 
+  void VisitStmt_(const AttrStmtNode* attr) {
+    if (attr->attr_key == tvm::tir::attr::nnp_vcore_resource) {
+      this->vcore_resource_ = attr->value;
+    }
+    return CodeGenLLVM::VisitStmt_(attr);
+  }
+
   llvm::Value* CreateDMAOp(const std::vector<llvm::Intrinsic::ID> intrs, const CallNode* op) {
     return CreateDMAOp(intrs, {}, {}, op);
   }
@@ -297,11 +305,12 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
 
   llvm::Value* CreateCube(const CallNode* op) {
     std::map<std::string, llvm::Value*> bind_keys;
-    return CreateDMAOp({llvm::Intrinsic::nnp_cube_loop_times, llvm::Intrinsic::nnp_cube_loop0,
-                        llvm::Intrinsic::nnp_cube_loop1, llvm::Intrinsic::nnp_cube_last_loop,
-                        llvm::Intrinsic::nnp_cube_k_size, llvm::Intrinsic::nnp_cube_bias_value,
-                        llvm::Intrinsic::nnp_cube_layer_burst},
-                       {}, bind_keys, op);
+    return CreateDMAOp(
+        {llvm::Intrinsic::nnp_cube_loop_times, llvm::Intrinsic::nnp_cube_loop0,
+         llvm::Intrinsic::nnp_cube_loop1, llvm::Intrinsic::nnp_cube_last_loop,
+         llvm::Intrinsic::nnp_cube_k_size, llvm::Intrinsic::nnp_cube_bias_value,
+         llvm::Intrinsic::nnp_cube_layer_burst, llvm::Intrinsic::nnp_cube_burst_size},
+        {}, bind_keys, op);
   }
 
   llvm::Value* CreateEidmaLoad(const CallNode* op) {
@@ -644,6 +653,28 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     return builder_->CreateExtractValue(builder_->CreateCall(val, {vs0, vs1, vs2}), {0});
   }
 
+  llvm::Value* CreateLockVcu(const CallNode* op) {
+    auto ftype_get_resource = llvm::FunctionType::get(t_void_, {}, false);
+    const char* GET_RESOURCE_FUNCNAME = "GET_MBX_LOCK_ASM__GET_RESOURCE";
+    auto f_get_resource = module_->getOrInsertFunction(GET_RESOURCE_FUNCNAME, ftype_get_resource);
+    builder_->CreateCall(f_get_resource, {});
+
+    const char* CFG_VU_DESP_FUNCNAME = "CFG_VU_DESP_ASM__MAIN";
+    auto ftype_cfg_vux = llvm::FunctionType::get(t_void_, {t_int32_, t_int32_}, false);
+    auto f_cfg_vux = module_->getOrInsertFunction(CFG_VU_DESP_FUNCNAME, ftype_cfg_vux);
+    llvm::Value* blx_pc_en = builder_->getInt32(0);
+    llvm::Value* blx_pc = builder_->getInt32(0);
+    return builder_->CreateCall(f_cfg_vux, {blx_pc_en, blx_pc});
+  }
+
+  llvm::Value* CreateUnlockVcu(const CallNode* op) {
+    auto ftype_release_resource = llvm::FunctionType::get(t_void_, {}, false);
+    const char* RELEASE_RESOURCE_FUNCNAME = "GET_MBX_LOCK_ASM__RELEASE_RESOURCE";
+    auto f_release_resource =
+        module_->getOrInsertFunction(RELEASE_RESOURCE_FUNCNAME, ftype_release_resource);
+    return builder_->CreateCall(f_release_resource, {});
+  }
+
   llvm::Value* VisitExpr_(const CallNode* op) {
     Op op_ref = Downcast<Op>(op->op);
     if (op_ref.defined()) {
@@ -718,6 +749,10 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     return tensor_desc_addr;
   }
 
+  bool RequireVcoreResource() const {
+    return vcore_resource_.defined() && arith::Analyzer().CanProveGreaterEqual(vcore_resource_, 1);
+  }
+
  protected:
   void InitTarget(llvm::TargetMachine* tm) final {
     // Maximum vector lane = float4
@@ -758,6 +793,8 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     RegisterNNPIntrinsic(edgex::builtin::nnp_vodma_store(), &CodeGenNNP400LLVM::CreateVodmaStore);
     RegisterNNPIntrinsic(edgex::builtin::nnp_wdma_load(), &CodeGenNNP400LLVM::CreateWdmaLoad);
     RegisterNNPIntrinsic(edgex::builtin::nnp_bdma_load(), &CodeGenNNP400LLVM::CreateBdmaLoad);
+    RegisterNNPIntrinsic(edgex::builtin::nnp_lock_vcu(), &CodeGenNNP400LLVM::CreateLockVcu);
+    RegisterNNPIntrinsic(edgex::builtin::nnp_unlock_vcu(), &CodeGenNNP400LLVM::CreateUnlockVcu);
 
     // handshakes
     RegisterNNPIntrinsic(edgex::builtin::nnp_sync(),
@@ -779,6 +816,9 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
 
   /*! \brief nnp intrinsic codegen router dict. */
   std::map<tvm::Op, IntrinGenF> intrinsic_dict_;
+
+  /*! \brief vcu resource info */
+  PrimExpr vcore_resource_;
 };
 
 /**
@@ -1015,6 +1055,10 @@ runtime::Module BuildNNP400LLVM(IRModule mod, Target target) {
     std::stringstream ss;
     ss << "#include \"nnp400_main.h\"\n";
     ss << data_asm.c_str();
+    if (cg->RequireVcoreResource()) {
+      ss << "\n#include \"get_mbx_lock.asm\"";
+      ss << "\n#include \"cfg_vu_desp.asm\"";
+    }
     std::string asm_code = ss.str();
     asm_code_map[kernel_name] = asm_code;
   }

@@ -24,60 +24,25 @@ import tvm.testing
 import tvm._ffi
 
 
-def verify_matmul(m, l, n, dtype="int8"):
-    """matmul: m*l X l*n"""
-    A = te.placeholder((m, l), dtype=dtype, name="A")
-    B = te.placeholder((l, n), dtype=dtype, name="B")
-    C = edgex_runtime.matmul(A, B)
-    s = te.create_schedule([C.op])
-
-    ctx = tvm.edgex(0)
-    # data in host, from model
-    # two input tensors in one file
-    base_dir = os.environ.get("EDGEX_ROOT_DIR", "./")
-    a_np = np.fromfile(base_dir + "/tests/matmul_case/ddr_in_MatMul1.bin", dtype=dtype).reshape(
-        (m, l)
+def test_add():
+    shape = [1024]
+    A = te.placeholder(shape, dtype="int8", name="A")
+    B = tvm.te.extern(
+        (A.shape[0] // 2,),
+        [A],
+        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.edgex.add_example", ins[0], outs[0]),
+        name="B",
     )
-    b_np = np.fromfile(base_dir + "/tests/matmul_case/ddr_in_MatMul2.bin", dtype=dtype).reshape(
-        (l, n)
-    )
-    c_np = np.fromfile(base_dir + "/tests/matmul_case/ddr_out_MatMul.bin", dtype=dtype).reshape(
-        (m, n)
-    )
-    # copy data from host to device, in CreateTVMOp
-    a = tvm.nd.array(a_np, ctx)
-    b = tvm.nd.array(b_np, ctx)
-    c = tvm.nd.empty((m, n), dtype, ctx)
-    f = tvm.build(s, [A, B, C], "edgex", name="add")
-    f(a, b, c)
-    tvm.testing.assert_allclose(c.numpy(), c_np, rtol=1e-3)
-
-
-def test_matmul():
-    verify_matmul(384, 256, 384)
-
-
-def verify_add(shape, dtype="int8"):
-    A = te.placeholder(shape, dtype=dtype, name="A")
-    B = edgex_runtime.add(A)
     s = te.create_schedule([B.op])
-
     ctx = tvm.edgex(0)
-    # data in host, from model
-    # two input tensors in one file
     base_dir = os.environ.get("EDGEX_ROOT_DIR", "./")
-    a_np = np.fromfile(base_dir + "/tests/add_case/data_in.bin", dtype=dtype)
-    c_np = np.fromfile(base_dir + "/tests/add_case/ref.dat.bin", dtype=dtype)
-    # copy data from host to device, in CreateTVMOp
+    a_np = np.fromfile(base_dir + "/tests/drv_case0_ncore_vcore0/data_in.bin", dtype="int8")
+    c_np = np.fromfile(base_dir + "/tests/drv_case0_ncore_vcore0/ref.dat.bin", dtype="int8")
     a = tvm.nd.array(a_np, ctx)
-    b = tvm.nd.empty((shape[0] // 2,), dtype, ctx)
+    b = tvm.nd.empty((shape[0] // 2,), "int8", ctx)
     f = tvm.build(s, [A, B], "edgex", name="add")
     f(a, b)
     tvm.testing.assert_allclose(b.numpy(), c_np, rtol=1e-3)
-
-
-def test_add():
-    verify_add((1024,))
 
 
 def test_ndarray():
@@ -105,8 +70,8 @@ def test_iss():
     a = tvm.nd.array(a_np, tvm.edgex(0))
     b = tvm.nd.array(np.ones(512, dtype="int8"), tvm.edgex(0))
     edgex_runtime.edgex_launch_iss(
-        edgex_dir + "/tests/add_case/drv_case0.bin",
-        edgex_dir + "/tests/add_case/drv_case0_cpp.lst",
+        edgex_dir + "/tests/drv_case0_ncore_vcore0/drv_case0_ncore_vcore0.bin",
+        edgex_dir + "/tests/drv_case0_ncore_vcore0/drv_case0_ncore_vcore0_cpp.lst",
         [a, b],
         False,
     )
@@ -116,5 +81,4 @@ def test_iss():
 if __name__ == "__main__":
     test_ndarray()
     test_add()
-    test_matmul()
     test_iss()

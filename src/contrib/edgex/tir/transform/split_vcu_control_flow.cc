@@ -25,6 +25,7 @@
 #include <tvm/tir/stmt_functor.h>
 #include <tvm/tir/transform.h>
 
+#include "../attrs.h"
 #include "../edgex_ir_utils.h"
 #include "../op/builtin.h"
 #include "./edgex_transform.h"
@@ -388,6 +389,8 @@ class VcuControlFlowSplitter : public StmtExprMutator {
     return VisitStmt(stmt);
   }
 
+  bool HasVcuStmt() const { return marker_.HasVcuStmt(); }
+
   Stmt VisitStmt_(const AllocateNode* op) {
     auto storage_scope = GetStorageScope(op->buffer_var);
     if (storage_scope.rank == StorageRank::kVM) {
@@ -432,17 +435,17 @@ class VcuControlFlowSplitter : public StmtExprMutator {
     Stmt cu_block = CodeEliminator(CodeState::CU, marker_)(body);
     Stmt vcu_block = CodeEliminator(CodeState::VCU, marker_)(body);
 
-    // cu awake vcu, currently only awake vcu0
-    Stmt awake = Evaluate(
-        Call(DataType::Void(), edgex::builtin::nnp_sync(),
-             {StringImm("cu"), StringImm("ub"), StringImm("vcu"), IntImm(DataType::Int(32), 0)}));
+    // acquire and release vcu resources
+    Stmt lock_vcu = Evaluate(Call(DataType::Void(), edgex::builtin::nnp_lock_vcu(), {}));
+    Stmt unlock_vcu = Evaluate(Call(DataType::Void(), edgex::builtin::nnp_unlock_vcu(), {}));
 
     // update for iss input buffer convention
     if (input_buffer_rebind_stmt_.defined()) {
-      cu_block = SeqStmt::Flatten(input_buffer_rebind_stmt_, awake, cu_block);
+      cu_block = SeqStmt::Flatten(lock_vcu, input_buffer_rebind_stmt_, cu_block);
     } else {
-      cu_block = SeqStmt::Flatten(awake, cu_block);
+      cu_block = SeqStmt::Flatten(lock_vcu, cu_block);
     }
+    vcu_block = SeqStmt::Flatten(vcu_block, unlock_vcu);
 
     PrimExpr cuid = Call(DataType::Int(32), edgex::builtin::nnp_cuid(), {});
     PrimExpr cond = cuid >= VCU_NUM;
@@ -481,6 +484,10 @@ Pass SplitVcuControlFlow() {
     VcuControlFlowSplitter splitter;
     splitter.SetInputBufferRebindStmt(rebind_input_buffer);
     n->body = splitter.Rewrite(std::move(n->body));
+    if (splitter.HasVcuStmt()) {
+      n->body = AttrStmt(ObjectRef(), attr::nnp_vcore_resource, make_const(DataType::Int(32), 0x01),
+                         n->body);
+    }
     return f;
   };
   Pass split_pass = CreatePrimFuncPass(pass_func, 0, "tir.edgex.SplitVcuControlFlow", {});

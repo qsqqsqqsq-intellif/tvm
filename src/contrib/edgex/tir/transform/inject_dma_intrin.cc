@@ -885,11 +885,20 @@ Stmt DMAIntrinRewriter::CreateEidmaLoad(const Var& src_buffer, const DataType& s
   ICHECK(status) << "Fail to infer eidma shape attributes for " << src_base << " <- " << dst_base;
 
   auto intrin_ptr = const_cast<CallNode*>(intrin.get());
+  size_t total_loops = std::accumulate(shape_attrs.loop_num.begin(), shape_attrs.loop_num.end(), 1,
+                                       [](size_t x, size_t y) { return x * y; });
+
   SetExtraDmaAttrs(intrin_ptr);
   NNPAddArg(intrin_ptr, "ei_start_addr_in_en", 1);
   NNPAddArg(intrin_ptr, "ei_start_addr_out_en", 1);
   NNPAddArg(intrin_ptr, "ei_first_state_en", 1);
   NNPAddArg(intrin_ptr, "ei_state_num", 1);
+
+  // avoid misleading warning in iss though unused
+  NNPAddArg(intrin_ptr, "ei_crop", 1);
+  NNPAddArg(intrin_ptr, "ei_ub_data_size", total_loops * dtype_bytes);
+  NNPAddArg(intrin_ptr, "ei_wo_data_size", total_loops * dtype_bytes);
+
   NNPAddArg(intrin_ptr, "ei_dtype", GetDmaDatatypeCode(src_dtype));
   NNPAddArg(intrin_ptr, "ei_mode", EIDMA_TRANSPOSE_MODE);
   NNPAddArg(intrin_ptr, "ei_j0_loop_num", shape_attrs.loop_num[0]);
@@ -968,11 +977,20 @@ Stmt DMAIntrinRewriter::CreateEodmaStore(const Var& src_buffer, const DataType& 
   ICHECK(status) << "Fail to infer eodma shape attributes for " << src_base << " <- " << dst_base;
 
   auto intrin_ptr = const_cast<CallNode*>(intrin.get());
+  size_t total_loops = std::accumulate(shape_attrs.loop_num.begin(), shape_attrs.loop_num.end(), 1,
+                                       [](size_t x, size_t y) { return x * y; });
+
   SetExtraDmaAttrs(intrin_ptr);
   NNPAddArg(intrin_ptr, "eo_start_addr_in_en", 1);
   NNPAddArg(intrin_ptr, "eo_start_addr_out_en", 1);
   NNPAddArg(intrin_ptr, "eo_first_state_en", 1);
   NNPAddArg(intrin_ptr, "eo_state_num", 3);
+
+  // avoid misleading warning in iss though unused
+  NNPAddArg(intrin_ptr, "eo_crop", 1);
+  NNPAddArg(intrin_ptr, "eo_ub_data_size", total_loops * dtype_bytes);
+  NNPAddArg(intrin_ptr, "eo_wo_data_size", total_loops * dtype_bytes);
+
   NNPAddArg(intrin_ptr, "eo_dtype", GetDmaDatatypeCode(src_dtype));
   NNPAddArg(intrin_ptr, "eo_mode", EODMA_TRANSPOSE_MODE);
   NNPAddArg(intrin_ptr, "eo_j0_loop_num", shape_attrs.loop_num[0]);
@@ -989,6 +1007,7 @@ Stmt DMAIntrinRewriter::CreateEodmaStore(const Var& src_buffer, const DataType& 
   NNPAddArg(intrin_ptr, "eo_j0_strideout", shape_attrs.loop_dst_stride[0] * dtype_bytes);
   NNPAddArg(intrin_ptr, "eo_j1_strideout", shape_attrs.loop_dst_stride[1] * dtype_bytes);
   NNPAddArg(intrin_ptr, "eo_j2_strideout", shape_attrs.loop_dst_stride[2] * dtype_bytes);
+
   return Evaluate(std::move(intrin));
 }
 

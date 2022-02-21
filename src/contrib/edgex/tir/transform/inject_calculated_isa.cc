@@ -149,6 +149,8 @@ class CalculatedIsaInjector : public StmtExprMutator {
       this->CalculateOdmaConstraintVal();
       // calculate the wdma constraint value.
       this->CalculateWdmaConstraintVal();
+      // calculate cube burst size pipe num
+      this->CalculateCubeBurstSize();
       // start inject the calculated isa.
       return operator()(std::move(stmt));
     } else {
@@ -185,7 +187,7 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else if (op.same_as(edgex::builtin::nnp_cube())) {
       InjectCalculatedIsa({"epsilon", "delta", "zeta", "dense", "epsilon_times", "delta_times",
                            "zeta_times", "dense_times", "last_epsilon", "last_delta", "last_zeta",
-                           "last_dense", "last_beta_remind"},
+                           "last_dense", "last_beta_remind", "burst_size_pipe_num"},
                           n.get(), "cube");
     } else if (op.same_as(edgex::builtin::nnp_idma_load())) {
       InjectCalculatedIsa({"epsilon", "delta", "zeta", "dense", "epsilon_times", "delta_times",
@@ -896,6 +898,33 @@ class CalculatedIsaInjector : public StmtExprMutator {
       epsilon_times_rewrite_dm = 0;
     }
     inject_isa_val_map_.emplace("epsilon_times_rewrite_dm", epsilon_times_rewrite_dm);
+  }
+
+  // Calculate burst_size_pipe_num_cube.
+  void CalculateCubeBurstSize() {
+    // assume num_group_cube == num_group_odma
+    int32_t num_group = GetValueFromMap(collector_.exist_isa_val_map_, "num_group_odma");
+    int32_t delta_times = GetValueFromMap(inject_isa_val_map_, "delta_times");
+    int32_t delta = GetValueFromMap(inject_isa_val_map_, "delta");
+    int32_t last_delta = GetValueFromMap(inject_isa_val_map_, "last_delta");
+    int32_t dense_times = GetValueFromMap(inject_isa_val_map_, "dense_times");
+    int32_t dense = GetValueFromMap(inject_isa_val_map_, "dense");
+    int32_t last_dense = GetValueFromMap(inject_isa_val_map_, "last_dense");
+    int32_t zeta_times = GetValueFromMap(inject_isa_val_map_, "zeta_times");
+    int32_t zeta = GetValueFromMap(inject_isa_val_map_, "zeta");
+    int32_t last_zeta = GetValueFromMap(inject_isa_val_map_, "last_zeta");
+    int32_t epsilon_times = GetValueFromMap(inject_isa_val_map_, "epsilon_times");
+    int32_t epsilon = GetValueFromMap(inject_isa_val_map_, "epsilon");
+    int32_t last_epsilon = GetValueFromMap(inject_isa_val_map_, "last_epsilon");
+    int32_t normal_epsilon_burst_size = num_group * ((delta_times - 1) * delta + last_delta) *
+                                        ((dense_times - 1) * dense + last_dense) *
+                                        ((zeta_times - 1) * zeta + last_zeta) *
+                                        ((epsilon_times - 1) * epsilon);
+    int32_t last_epsilon_burst_size = num_group * ((delta_times - 1) * delta + last_delta) *
+                                      ((dense_times - 1) * dense + last_dense) *
+                                      ((zeta_times - 1) * zeta + last_zeta) * last_epsilon;
+    int32_t burst_size_pipe_num = normal_epsilon_burst_size + last_epsilon_burst_size;
+    inject_isa_val_map_.emplace("burst_size_pipe_num", burst_size_pipe_num);
   }
 
   // Get assisted value from map by specified key.

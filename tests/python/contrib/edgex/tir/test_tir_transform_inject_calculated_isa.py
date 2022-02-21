@@ -376,6 +376,7 @@ def inject_isa_transformed(a: T.handle, c: T.handle) -> None:
             "last_zeta_cube=0x6",
             "last_dense_cube=0x1",
             "last_beta_remind_cube=0x3",
+            "burst_size_pipe_num_cube=0x3226",
             dtype="",
         )
     )

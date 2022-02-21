@@ -35,6 +35,9 @@ constexpr const char* nnp_dma_scope = "pragma_nnp_dma_scope";
 /*! \brief Tag for conv co info. */
 constexpr const char* nnp_num_co_scope = "pragma_nnp_num_co";
 
+/*! \brief Vcore resource usage mark on primfunc, kth bit encode it uses vcu[k] */
+constexpr const char* nnp_vcore_resource = "vcore_resource";
+
 /*! \brief Relay op name annotation on block */
 constexpr const char* relay_op_name = "relay_op_name";
 

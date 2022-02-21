@@ -33,6 +33,7 @@
     {llvm::Intrinsic::nnp_cube_last_loop,
      {"last_dense_cube", "last_zeta_cube", "last_delta_cube", "last_epsilon_cube"}},
     {llvm::Intrinsic::nnp_cube_k_size, {"k_size_cube"}},
+    {llvm::Intrinsic::nnp_cube_burst_size, {"burst_size_pipe_num_cube"}},
     {llvm::Intrinsic::nnp_cube_bias_value, {"bias_value_cube"}},
     {llvm::Intrinsic::nnp_cube_layer_burst,
      {"obuf_wait_cyc_num_clr_cube",

@@ -72,7 +72,6 @@ def test_cu_sqrt():
     check_edgex_tir_build("simple_cu_add", func, check_cpu=True)
 
 
-@pytest.mark.skip
 def test_temp_global_workspace():
     func = add_with_global_temp_workspace
     func = func.specialize({func.params[0]: tvm.tir.decl_buffer([128])})

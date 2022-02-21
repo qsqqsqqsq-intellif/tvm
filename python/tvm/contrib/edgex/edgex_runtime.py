@@ -26,54 +26,6 @@ import shutil
 import struct
 import numpy as np
 import tvm
-from tvm import te
-
-
-def matmul(x, y):
-    """Compute add using edgex
-
-    Parameters
-    ----------
-    x : tvm.te.Tensor
-        The input tensor
-
-    y : tvm.te.Tensor
-        The input tensor
-
-    Returns
-    -------
-    ret : tvm.te.Tensor
-        The result tensor
-    """
-    return te.extern(
-        (x.shape[0], y.shape[1]),
-        [x, y],
-        lambda ins, outs: tvm.tir.call_packed(
-            "tvm.contrib.edgex.matmul.forward", ins[0], ins[1], outs[0]
-        ),
-        name="C",
-    )
-
-
-def add(x):
-    """Compute add using edgex
-
-    Parameters
-    ----------
-    x : tvm.te.Tensor
-        The input tensor
-
-    Returns
-    -------
-    ret : tvm.te.Tensor
-        The result tensor
-    """
-    return te.extern(
-        (x.shape[0] // 2,),
-        [x],
-        lambda ins, outs: tvm.tir.call_packed("tvm.contrib.edgex.add.forward", ins[0], outs[0]),
-        name="B",
-    )
 
 
 @tvm._ffi.register_func("tvm.edgex.invoke_assembler")
@@ -129,8 +81,12 @@ def edgex_invoke_assembler(
             asm_file.write(asm)
 
     bin_dir = os.path.abspath(os.path.join(os.environ.get("EDGEX_ROOT_DIR", "./"), "ass"))
-    macro_header_path = os.path.join(bin_dir, "nnp400_main.h")
-    status = subprocess.call(["cp", macro_header_path, output_dir])
+    ass_dep_files = [
+        os.path.join(bin_dir, "nnp400_main.h"),
+        os.path.join(bin_dir, "cfg_vu_desp.asm"),
+        os.path.join(bin_dir, "get_mbx_lock.asm"),
+    ]
+    status = subprocess.call(["cp"] + ass_dep_files + [output_dir])
     if status != 0:
         raise RuntimeError("Copy macro header failed")
 
@@ -291,7 +247,7 @@ def edgex_launch_iss(
     subprocess.call(["cp", "%s/nnp_main_cpp.lst" % nnp_main_dir, output_dir])
 
     # launching configuration with pre-gen cfg
-    nnp_queue_cfg_magic = [
+    nnp_queue_cfg_descriptor = [
         "ff010000000000f00000000100000000",
         "00000000000000010000003000000000",
         "00000000000000010000000000000000",
@@ -309,11 +265,16 @@ def edgex_launch_iss(
         "00000000000000000000000000000000",
     ]
     nnp_code_tran_lens = op_hex_lines * 2
-    nnp_queue_cfg_magic[3] = (
-        struct.pack("i", nnp_code_tran_lens)[::-1].hex() + nnp_queue_cfg_magic[3][8:]
+    nnp_queue_cfg_descriptor[3] = (
+        struct.pack("i", nnp_code_tran_lens)[::-1].hex() + nnp_queue_cfg_descriptor[3][8:]
     )
+    vu_resource = 0x01
+    line = list(nnp_queue_cfg_descriptor[9])
+    line[2 * (16 - 4 - 1) : 2 * (16 - 4)] = struct.pack("b", vu_resource).hex()
+    nnp_queue_cfg_descriptor[9] = "".join(line)
+
     with open(os.path.join(output_dir, "nnp_queue_cfg"), "w") as outf:
-        outf.write("\n".join(nnp_queue_cfg_magic))
+        outf.write("\n".join(nnp_queue_cfg_descriptor))
 
     # two 64-bit ddr per line,  low address is at the right
     tensor_addr_cfg_magic = []
@@ -327,12 +288,13 @@ def edgex_launch_iss(
     # reference to dcl server init
     start_pc = tvm.get_global_func("tvm.edgex.get_iss_start_pc")()
     start_lines = start_pc / 4
-    nu_breakpoint_lines = "0xf4"
+    nu_breakpoint_lines = "0x170"
     nnp_main_cmds = [
         "set dis_lvl 0x0",
         "load ddr nnp_main_main.hex 0x00f0000000",
         "load ppm nnp_main_cpp.lst",
         "w reg mbx_ram:25 %d" % start_lines,
+        "w reg mbx_ram:153 %d" % start_lines,
         "w reg ccm:4 1",
         "w reg pdma:9 0x00000000",
         "w reg pdma:0 0xf0000000",
@@ -341,42 +303,15 @@ def edgex_launch_iss(
         "w reg pdma:3 0",
         "w reg pdma:5 1",
         "w reg pdma:7 1",
-        "w reg ccm:0 1",
-        "w reg vpdma0:9 0x00000000",
-        "w reg vpdma0:0 0xf0000000",
-        "w reg vpdma0:1 0",
-        "w reg vpdma0:2 %d" % start_lines,
-        "w reg vpdma0:3 0",
-        "w reg vpdma0:5 1",
-        "w reg vpdma0:7 1",
-        "w reg ccm:1 1",
-        "w reg vpdma1:9 0x00000000",
-        "w reg vpdma1:0 0xf0000000",
-        "w reg vpdma1:1 0",
-        "w reg vpdma1:2 %d" % start_lines,
-        "w reg vpdma1:3 0",
-        "w reg vpdma1:5 1",
-        "w reg vpdma1:7 1",
-        "w reg ccm:2 1",
-        "w reg vpdma2:9 0x00000000",
-        "w reg vpdma2:0 0xf0000000",
-        "w reg vpdma2:1 0",
-        "w reg vpdma2:2 %d" % start_lines,
-        "w reg vpdma2:3 0",
-        "w reg vpdma2:5 1",
-        "w reg vpdma2:7 1",
-        "w reg ccm:3 1",
-        "w reg vpdma3:9 0x00000000",
-        "w reg vpdma3:0 0xf0000000",
-        "w reg vpdma3:1 0",
-        "w reg vpdma3:2 %d" % start_lines,
-        "w reg vpdma3:3 0",
-        "w reg vpdma3:5 1",
-        "w reg vpdma3:7 1",
         "b %s" % nu_breakpoint_lines,
+        "b vcu0 %s" % nu_breakpoint_lines,
         "c",
+        "c",
+        "dis b %s" % nu_breakpoint_lines,
+        "dis b vcu0 %s" % nu_breakpoint_lines,
     ]
     prepare_task_cmds = [
+        "b %s" % nu_breakpoint_lines,
         "load ddr op.hex 0x00f1000000",
         "load ddr128 nnp_queue_cfg 0x00ff000000",
         "load ddr128 tensor_addr_cfg 0x00ff010000",
