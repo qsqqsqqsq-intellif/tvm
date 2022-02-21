@@ -38,6 +38,8 @@ num_workers = 8
 model_name = "densenet121"
 performance = {"float": 74.434, "int8": 74.4120}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+data_path = "/data/zhaojinxi/data/imagenet"
+# data_path = "/home/yhh/Desktop/dedatasets-lfs"
 
 all_op = [
     "conv2d_bias_add",
@@ -74,8 +76,6 @@ def prepare_data_loaders(data_path, batch_size):
     return data_loader
 
 
-data_path = "/data/zhaojinxi/data/imagenet"
-# data_path = "/home/yhh/Desktop/dedatasets-lfs"
 data_loader = prepare_data_loaders(data_path, batch_size)
 
 calibrate_data = []
@@ -134,8 +134,8 @@ quantize_search = relay.quantization.QuantizeSearch(
     root_path=root_path,
     norm={
         "input": {
-            "mean": [0.485 * 255, 0.456 * 255, 0.406 * 255],
-            "std": [0.229 * 255, 0.224 * 255, 0.225 * 255],
+            "mean": [123.675, 116.28, 103.53],
+            "std": [58.395, 57.12, 57.375],
             "axis": 1,
         },
     },

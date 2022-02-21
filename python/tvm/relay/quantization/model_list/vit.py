@@ -38,6 +38,7 @@ num_workers = 8
 model_name = "vit_base_patch32_224"
 performance = {"float32": 80.7160, "int8": 79.3160}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+data_path = "/data/zhaojinxi/data/imagenet"
 
 all_op = [
     "conv2d_bias_add",
@@ -80,7 +81,6 @@ def prepare_data_loaders(data_path, batch_size):
     return data_loader
 
 
-data_path = "/data/zhaojinxi/data/imagenet"
 data_loader = prepare_data_loaders(data_path, batch_size)
 
 calibrate_data = []
@@ -146,8 +146,8 @@ quantize_search = relay.quantization.QuantizeSearch(
     root_path=root_path,
     norm={
         "input": {
-            "mean": [0.5 * 255, 0.5 * 255, 0.5 * 255],
-            "std": [0.5 * 255, 0.5 * 255, 0.5 * 255],
+            "mean": [127.5, 127.5, 127.5],
+            "std": [127.5, 127.5, 127.5],
             "axis": 1,
         },
     },

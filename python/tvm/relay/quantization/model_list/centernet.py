@@ -42,9 +42,9 @@ calibrate_num = 500
 num_workers = 8
 model_name = "center_net_resnet18_v1b_coco"
 performance = {"float": 26.8, "int8": None}
+root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/coco"
 # data_path = "/home/yhh/Desktop/dedatasets-lfs/coco_val2017"
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 
 all_op = [
     "conv2d_bias_add",
@@ -203,8 +203,8 @@ quantize_search = relay.quantization.QuantizeSearch(
     root_path=root_path,
     norm={
         "input": {
-            "mean": [0.485 * 255, 0.456 * 255, 0.406 * 255],
-            "std": [0.229 * 255, 0.224 * 255, 0.225 * 255],
+            "mean": [123.675, 116.28, 103.53],
+            "std": [58.395, 57.12, 57.375],
             "axis": 1,
         },
     },

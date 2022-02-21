@@ -38,6 +38,7 @@ num_workers = 16
 model_name = "r3d_18"
 performance = {"float": 51.5192, "int8": 51.3242}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+data_path = "/data/zhaojinxi/data/kinetics400"
 
 all_op = [
     "conv3d_bias_add",
@@ -110,7 +111,6 @@ def prepare_data_loaders(data_path, batch_size):
     return data_loader
 
 
-data_path = "/data/zhaojinxi/data/kinetics400"
 data_loader = prepare_data_loaders(data_path, batch_size)
 
 calibrate_data = []
@@ -169,8 +169,8 @@ quantize_search = relay.quantization.QuantizeSearch(
     root_path=root_path,
     norm={
         "input": {
-            "mean": [0.43216 * 255, 0.394666 * 255, 0.37645 * 255],
-            "std": [0.22803 * 255, 0.22145 * 255, 0.216989 * 255],
+            "mean": [110.2008, 100.63983, 95.99475],
+            "std": [58.14765, 56.46975, 55.332195],
             "axis": 1,
         },
     },

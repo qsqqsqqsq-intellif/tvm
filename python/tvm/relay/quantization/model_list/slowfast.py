@@ -31,19 +31,16 @@ torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-if tvm.runtime.enabled("gpu"):
-    ctx = tvm.cuda()
-    target = "cuda"
-else:
-    ctx = tvm.cpu()
-    target = "llvm"
+ctx = tvm.cpu()
+target = "llvm"
 
 batch_size = 1
 calibrate_num = 500
 num_workers = 16
 model_name = "slowfast_r50"
-performance = {"float": None, "int8": None}
+performance = {"float": 65.3409, "int8": 65.2703}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+data_path = "/data/zhaojinxi/data/kinetics400/val"
 
 all_op = [
     "conv3d_bias_add",
@@ -121,7 +118,6 @@ def prepare_data_loaders(data_path, batch_size):
     return data_loader
 
 
-data_path = "/data/zhaojinxi/data/kinetics400/val"
 data_loader = prepare_data_loaders(data_path, batch_size)
 
 calibrate_data = []
@@ -195,13 +191,13 @@ quantize_search = relay.quantization.QuantizeSearch(
     root_path=root_path,
     norm={
         "input0": {
-            "mean": [0.45 * 255, 0.45 * 255, 0.45 * 255],
-            "std": [0.225 * 255, 0.225 * 255, 0.225 * 255],
+            "mean": [114.75, 114.75, 114.75],
+            "std": [57.375, 57.375, 57.375],
             "axis": 1,
         },
         "input1": {
-            "mean": [0.45 * 255, 0.45 * 255, 0.45 * 255],
-            "std": [0.225 * 255, 0.225 * 255, 0.225 * 255],
+            "mean": [114.75, 114.75, 114.75],
+            "std": [57.375, 57.375, 57.375],
             "axis": 1,
         },
     },
