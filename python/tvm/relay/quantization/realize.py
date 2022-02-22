@@ -250,7 +250,7 @@ def _quantize_shift(node):
             LOGGER.info("[realize] quantize conv2d_transpose_weight...")
             output_oc = scale.shape[0]
             i_c, o_c, k_h, k_w = data.shape
-            groups = output_oc // o_c
+            groups = axis - 10
             data = numpy.reshape(data, (groups, i_c // groups, o_c, k_h * k_w))
             data = numpy.transpose(data, (0, 2, 1, 3))
             data = numpy.reshape(data, (o_c * groups, i_c // groups, k_h, k_w))
@@ -267,7 +267,7 @@ def _quantize_shift(node):
             data = numpy.clip(data, q_min_max["qmin"], q_min_max["qmax"])
             data = data.astype(dtype)
 
-            data = numpy.reshape(data, (groups, o_c, i_c, k_h * k_w))
+            data = numpy.reshape(data, (groups, o_c, i_c//groups, k_h * k_w))
             data = numpy.transpose(data, (0, 2, 1, 3))
             data = numpy.reshape(data, (i_c, o_c, k_h, k_w))
 
