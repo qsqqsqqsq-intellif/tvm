@@ -17,10 +17,15 @@
 # pylint: disable=unused-argument,inconsistent-return-statements
 """op"""
 
+import logging
 from tvm import relay
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
 from ..realize import operate, pair_node
+from ..analyze import _quantized_judge
+from ..calibrate import _calibrate_core
+
+LOGGER = logging.getLogger("quantize")
 
 __all__ = ("HardSigmoid",)
 
@@ -47,40 +52,96 @@ class HardSigmoid:
     """HardSigmoid"""
 
     name = "hard_sigmoid"
-    controlable = False
+    controlable = True
 
     def __init__(self, node, vertex_config, config):
+        if isinstance(node.op, relay.Function):
+            self.name = getattr(node.op.attrs, "Composite")
+        else:
+            self.name = node.op.name
+
+        LOGGER.debug("[analyze] %s start...", self.name)
         self.quantized = False
 
-        arg = node.args[0]
-        input0_config = {}
-        input0_config.update({"in_dtype": vertex_config[arg].output_config["dtype"]})
-        input0_config.update({"in_axis": vertex_config[arg].output_config["axis"]})
-        if not vertex_config[arg].quantized and not self.quantized:
-            tmp2 = {"operate": "none"}
-        elif vertex_config[arg].quantized and not self.quantized:
-            tmp2 = {"operate": "dequantize"}
-        input0_config.update(tmp2)
-        self.input_config = {arg: input0_config}
+        self.input_config = {}
+        for i, one_arg in enumerate(node.args):
+            tmp = "input" + str(i)
+            input_axis = -1
+            if vertex_config[one_arg].quantized:
+                input_axis = vertex_config[one_arg].output_config["axis"]
 
-        self.output_config = {
-            "dtype": node.checked_type.dtype,
+            input_config = _quantized_judge(
+                vertex_config, one_arg, input_axis, self.quantized, config[tmp]
+            )
+            self.input_config[one_arg] = input_config
+
+        output0_config = {
+            "dtype": DataType.Float16,
             "axis": -1,
+            "quantized_axis": "none",
+            "ref_count": 0,
         }
+        self.output_config = output0_config
+        LOGGER.debug("[anaylze] %s finish", self.name)
 
     @classmethod
     def get_config(cls, config, call):
         return {"valid_config": VALIDCONFIG, "default_config": DEFAULTCONFIG}
 
+    def quantize_params(self, node, vertex_config):
+        """quantize_params"""
+        LOGGER.debug("[calibrate] %s start and quantized is %d", self.name, self.quantized)
+
+        for arg in node.args:
+            input_config = self.input_config[arg]
+            y = _calibrate_core(arg, input_config, vertex_config, self.quantized)
+            input_config.update(y)
+
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
-        old_arg = old_node.args[0]
-        new_arg = new_node.args[0]
+        LOGGER.debug("[realize]-- %s realize...", self.name)
 
-        output_config = vertex_config[old_arg].output_config
-        input_config = self.input_config[old_arg]
-        new_arg = operate(input_config["operate"], new_arg, output_config, input_config, True)
-        pair_node(old_arg, new_arg, output_config, input_config, n2o, self.quantized)
+        realized_args = []
+        for old_arg, new_arg in zip(old_node.args, new_node.args):
 
-        new_node = relay.nn.softmax(new_arg, **dict(new_node.attrs))
+            output_config = vertex_config[old_arg].output_config
+            input_config = self.input_config[old_arg]
+            if (
+                output_config["ref_count"] > 1
+                and old_arg in n2o
+                and (self.quantized or vertex_config[old_arg].quantized)
+            ):
+                new_arg = n2o[old_arg]
+            else:
+                new_arg = operate(
+                    input_config["operate"], new_arg, output_config, input_config, True
+                )
+
+            if (
+                output_config["ref_count"] > 1
+                and old_arg not in n2o
+                and input_config["operate"] != "none"
+            ):
+                n2o[old_arg] = new_arg
+
+            realized_args.append(new_arg)
+
+        new_realized_args = []
+        for old_arg, new_arg in zip(old_node.args, realized_args):
+            tmp = relay.frontend.common.infer_type(new_arg)
+            if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
+                new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
+            elif tmp.checked_type.dtype.startswith("int"):
+                new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
+            elif tmp.checked_type.dtype != "float16":
+                new_arg = relay.cast(new_arg, "float16")
+
+            pair_node(old_arg, new_arg, {}, {"operate": "none"}, n2o, self.quantized)
+
+            new_realized_args.append(new_arg)
+
+        add = relay.add(new_realized_args[0], relay.const(3, "float16"))
+        clip = relay.clip(add, 0, 6)
+        new_node = relay.multiply(clip, relay.const(1 / 6, "float16"))
+        LOGGER.debug("[realize] %s finish", self.name)
         return new_node

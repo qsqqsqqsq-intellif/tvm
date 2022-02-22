@@ -60,7 +60,7 @@ class GlobalSumPool2D:
 
         # support fixed first
         self.quantized = True
-        if cnt - 1 in []:
+        if "skip_conv_layers" in config and cnt in config["skip_conv_layers"]:
             self.quantized = False
 
         ci0 = config["input0"]
