@@ -58,7 +58,7 @@ class Relu:
         cnt = _conv_counter()
 
         self.quantized = True
-        if cnt - 1 in []:
+        if "skip_conv_layers" in config and cnt in config["skip_conv_layers"]:
             self.quantized = False
 
         # todo ci0 can get outside

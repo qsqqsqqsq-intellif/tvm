@@ -37,15 +37,17 @@ class Pad:
     name = "nn.pad"
     controlable = False
 
-    def __init__(self, node, vertex_config, configs):
+    def __init__(self, node, vertex_config, config):
         cnt = _conv_counter()
 
         arg = node.args[0]
         self.quantized = True
-        if not vertex_config[arg].quantized or cnt - 1 in []:
+        if not vertex_config[arg].quantized or (
+            "skip_conv_layers" in config and cnt in config["skip_conv_layers"]
+        ):
             self.quantized = False
 
-        oneargdeal(self, node, vertex_config, configs["input0"])
+        oneargdeal(self, node, vertex_config, config["input0"])
         LOGGER.debug("[analyze] nn.pad finish")
 
     @classmethod

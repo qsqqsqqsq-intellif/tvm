@@ -162,7 +162,7 @@ class Conv2DBiasAdd:
         if "target" in config and config["target"].startswith("nnp3"):
             bias_dtype = DataType.Int24
         input3_config = {
-            "dtype": bias_dtype if self.quantized else DataType.Float32,
+            "dtype": bias_dtype if self.quantized else DataType.Float16,
             "axis": input3_axis,
             "method": None,
             "threshold": None,
@@ -303,7 +303,7 @@ class Conv2DBiasAdd:
         for old_arg, new_arg in zip(old_node.args, realized_args):
             tmp_expr = relay.frontend.common.infer_type(new_arg)
             if isinstance(new_arg, relay.Constant) and tmp_expr.checked_type.dtype != "float16":
-                new_arg = relay.const(new_arg.data.asnumpy(), "float16")
+                new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
             elif tmp_expr.checked_type.dtype.startswith("int"):
                 new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
             elif tmp_expr.checked_type.dtype != "float16":

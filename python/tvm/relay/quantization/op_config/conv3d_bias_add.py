@@ -148,7 +148,7 @@ class Conv3DBiasAdd:
 
         input3_axis = 0
         input3_config = {
-            "dtype": DataType.Int32 if self.quantized else DataType.Float32,
+            "dtype": DataType.Int32 if self.quantized else DataType.Float16,
             "axis": input3_axis,
             "method": None,
             "threshold": None,
