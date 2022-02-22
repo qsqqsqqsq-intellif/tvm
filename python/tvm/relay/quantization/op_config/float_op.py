@@ -205,7 +205,7 @@ class FloatOp:
             for old_arg, new_arg in zip(old_node.args, realized_args):
                 tmp = relay.frontend.common.infer_type(new_arg)
                 if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "int32":
-                    new_arg = relay.const(new_arg.data.asnumpy(), "int32")
+                    new_arg = relay.const(new_arg.data.asnumpy().astype("int32"))
                 elif tmp.checked_type.dtype != "int32":
                     new_arg = relay.cast(new_arg, "int32")
 

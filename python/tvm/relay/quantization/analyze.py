@@ -266,8 +266,7 @@ def oneargdeal(cls, node, vertex_config, ci0):
 
     # pool can use prechannel
     if (
-        node.attrs is not None
-        and name != "gather_nd"
+        name.split("_")[-1].startswith("pool")
         and "layout" in node.attrs.keys()
         and node.attrs.layout in ["NCHW", "NHWC"]
     ):
