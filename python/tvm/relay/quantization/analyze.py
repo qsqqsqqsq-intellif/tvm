@@ -80,6 +80,7 @@ IDENTITY_INPUT_DTYPE_OP = [
     "slice_like",
     "nn.pad",
     "image.resize",
+    "image.resize2d",
     "nn.leaky_relu",
     "nn.prelu",
     "nn.upsampling",
