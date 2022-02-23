@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""TVM EdgeX"""
+"""TVM EdgeX runtime utilities"""
 # pylint: disable-msg=C0103
 import os
 import sys
@@ -26,6 +26,7 @@ import shutil
 import struct
 import numpy as np
 import tvm
+from tvm.contrib.edgex.edgex import build_config_nnp
 
 
 @tvm._ffi.register_func("tvm.edgex.invoke_assembler")
@@ -60,7 +61,7 @@ def edgex_invoke_assembler(
     -------
     ret : str
         Directory path to store ass results. It contains
-        output/${op_name}.bin and output/${op_name}_cpp.lst
+        ${op_name}.bin and ${op_name}_cpp.lst
     """
     tmp_file_dir = None
     if output_dir is None or output_dir.strip() == "":
@@ -75,7 +76,7 @@ def edgex_invoke_assembler(
     asm_path = os.path.join(output_dir, asm_name)
     if os.path.exists(asm):
         # asm is a file path
-        subprocess.call("cp %s %s" % (asm, asm_path))
+        subprocess.call(["cp", asm, asm_path])
     elif os.environ.get("EDGEX_DEBUG_USE_EXISTING_ASM", "").strip() == "":
         with open(asm_path, "w") as asm_file:
             asm_file.write(asm)
@@ -175,6 +176,9 @@ def edgex_launch_iss(
         hex_lines = 0
         if isinstance(data, str):
             data = str.encode(data)
+        if len(data) % 32 != 0:
+            tail_n = 32 - len(data) % 32
+            data = data + bytearray([0 for _ in range(tail_n)])
         length = len(data) // 8
         items = struct.unpack(str(length) + "Q", data)
         assert len(items) % 4 == 0
@@ -416,3 +420,29 @@ def edgex_launch_iss(
     stderr_printer_thread.join()
     if not keep_tmp_dir and tmp_file_dir is not None:
         shutil.rmtree(tmp_file_dir)
+
+
+def create_llvm_module(lowered_mod, target, do_optimize=True):
+    """Invoke llvm codegen interface and get llvm module string
+
+    Parameters
+    ----------
+    lowered_mod : str
+        The tvm tir module after tvm.lower().
+
+    target : tvm.target.Target or str
+        The target.
+
+    do_optimize : bool
+        Return the optimized llvm module
+
+    """
+    if isinstance(target, str):
+        target = tvm.target.Target(target)
+    with build_config_nnp():
+        mixed_opt = tvm.get_global_func("driver.mixed_mod_passes")
+        mod = mixed_opt(lowered_mod, target)(lowered_mod)
+        device_opt = tvm.get_global_func("driver.device_mod_passes")
+        mod = device_opt(mod, target)(mod)
+        get_func = tvm.get_global_func("target.build.edgex.create_llvm_module")
+        return get_func(mod, target, do_optimize)

@@ -14,11 +14,14 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+import subprocess
 import os
+import tempfile
 import tvm
 from tvm import te
-from tvm.contrib.edgex import edgex_runtime
+from tvm.contrib.edgex.runtime import edgex_runtime
 import numpy as np
+from tvm.contrib.edgex.edgex import build_config_nnp
 import tvm.topi.testing
 import tvm.testing
 import tvm._ffi
@@ -78,7 +81,34 @@ def test_iss():
     assert np.array_equal(b.numpy(), a_np[0:512] + a_np[512:])
 
 
+def test_create_llvm_module():
+    x = tvm.te.placeholder([128], "int32")
+    y = tvm.te.compute([128], lambda i: x[i] + 1)
+    s = tvm.contrib.edgex.tir.schedule.EdgexSchedule(tvm.te.create_prim_func([x, y]))
+    block = s.get_child_blocks(s.get_block("root"))[0]
+    x_dm = s.cache_read(block, 0, "dm")
+    x_vm = s.cache_read(block, 0, "vm")
+    y_vm = s.cache_write(block, 0, "vm")
+    y_dm = s.cache_write(y_vm, 0, "dm")
+    s.vectorize(s.get_loops(block)[0])
+    s.pragma(s.get_loops(x_dm)[-1], "nnp_dma_scope", "eidma")
+    s.pragma(s.get_loops(x_vm)[-1], "nnp_dma_scope", "vidma")
+    s.pragma(s.get_loops(y_vm)[-1], "nnp_dma_scope", "vodma")
+    s.pragma(s.get_loops(y_dm)[-1], "nnp_dma_scope", "eodma")
+    with build_config_nnp():
+        mod = tvm.lower(s.mod)
+    llvm_mod = edgex_runtime.create_llvm_module(mod, tvm.target.edgex())
+    llvm_bin_dir = os.environ.get("EDGEX_LLVM_TOOLCHAIN_DIR")
+    assert llvm_bin_dir, "EDGEX_LLVM_TOOLCHAIN_DIR not configured"
+    with tempfile.NamedTemporaryFile("w") as ll_file:
+        ll_file.write(llvm_mod)
+        ll_file.flush()
+        status = subprocess.call([f"{llvm_bin_dir}/llc", "-mtriple=nnp", ll_file.name])
+        assert status == 0
+
+
 if __name__ == "__main__":
     test_ndarray()
     test_add()
     test_iss()
+    test_create_llvm_module()

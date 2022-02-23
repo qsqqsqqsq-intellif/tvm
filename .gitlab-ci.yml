@@ -104,6 +104,7 @@ tvm_edgex:
     - |
       export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
       export EDGEX_MODELS_DIR=${DEP_ROOT}/models
+      export EDGEX_LLVM_TOOLCHAIN_DIR=${DEP_ROOT}/llvm/bin
       export EDGEX_DEBUG_ISS=on
       echo "********** TEST EDGEX UNIT TEST **********"
       if [ "$CI_PIPELINE_SOURCE" == "push" ]

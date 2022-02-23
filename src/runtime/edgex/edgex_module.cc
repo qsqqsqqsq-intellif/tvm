@@ -275,6 +275,48 @@ Module EdgeXModuleCreate(const std::unordered_map<std::string, std::string>& bin
   return Module(n);
 }
 
+Module EdgeXModuleCreateFromObjects(tvm::IRModule mod,
+                                    const std::unordered_map<std::string, std::string>& obj_map,
+                                    const std::string& working_dir) {
+  const int start_pc = GetIssStartPC();
+  const std::string link_funcname = "tvm.edgex.get_linked_bin";
+  auto* get_linked_bin = tvm::runtime::Registry::Get(link_funcname);
+  CHECK(get_linked_bin) << "Cannot find " << link_funcname;
+
+  const std::string bin2lst_funcname = "tvm.edgex.bin2lst";
+  auto* bin2lst = tvm::runtime::Registry::Get(bin2lst_funcname);
+  CHECK(bin2lst) << "Cannot find " << bin2lst_funcname;
+
+  std::unordered_map<std::string, FunctionInfo> f_map;
+  std::unordered_map<std::string, std::string> bin_map;
+  std::unordered_map<std::string, std::string> lst_map;
+  std::unordered_map<std::string, std::string> asm_map;
+
+  for (auto fitem : mod->functions) {
+    // fill function info map, currently only single op function exists
+    const std::string& kernel_name = fitem.first->name_hint;
+    FunctionInfo& finfo = f_map[kernel_name];
+    finfo.name = kernel_name;
+    ICHECK(obj_map.count(kernel_name)) << kernel_name << "'s object is not generated";
+
+    const std::string& obj_str = obj_map.at(kernel_name);
+    TVMByteArray obj_bytes{obj_str.c_str(), obj_str.size()};
+    String kernel_bin = (*get_linked_bin)(obj_bytes, kernel_name, working_dir);
+    bin_map[kernel_name] = kernel_bin;
+
+    TVMByteArray bin_bytes{kernel_bin.c_str(), kernel_bin.size()};
+    String kernel_lst = (*bin2lst)(bin_bytes, start_pc);
+    lst_map[kernel_name] = kernel_lst;
+  }
+
+  // create module
+  auto n = make_object<EdgeXModuleNode>(bin_map, lst_map, "edgex", f_map, asm_map);
+
+  // delete working directory
+  // TODO(bxq): remove temp directory for ass outputs
+  return Module(n);
+}
+
 Module EdgeXModuleCreateFromAsm(tvm::IRModule mod,
                                 const std::unordered_map<std::string, std::string>& asm_map,
                                 const std::string& working_dir) {

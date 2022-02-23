@@ -79,9 +79,8 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
 
   std::unique_ptr<llvm::Module> Finish();
 
-  void Optimize();
-
-  const llvm::Module* GetRawModule() const { return module_.get(); }
+  // always use this instead of base class's Optimize() routine
+  static void OptimizeModule(llvm::Module* module, llvm::TargetMachine* tm);
 
   llvm::Value* CreateWaitOp(bool wo, const char* bb) {
     auto BBBegin = &BB[0];
@@ -749,10 +748,6 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     return tensor_desc_addr;
   }
 
-  bool RequireVcoreResource() const {
-    return vcore_resource_.defined() && arith::Analyzer().CanProveGreaterEqual(vcore_resource_, 1);
-  }
-
  protected:
   void InitTarget(llvm::TargetMachine* tm) final {
     // Maximum vector lane = float4
@@ -869,6 +864,13 @@ void CodeGenNNP400LLVM::AddFunctionInternal(const PrimFunc& f, bool ret_void) {
     function_->addFnAttr("target-features", fs);
   }
   builder_->CreateRetVoid();
+
+  if (vcore_resource_.defined() && analyzer_->CanProveGreaterEqual(vcore_resource_, 1)) {
+    auto md_value = llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(t_int32_, 1));
+    llvm::MDNode* md_node = llvm::MDNode::get(module_->getContext(), {md_value});
+    function_->setMetadata(tvm::tir::attr::nnp_vcore_resource, md_node);
+    vcore_resource_ = PrimExpr();
+  }
 }
 
 std::unique_ptr<llvm::Module> CodeGenNNP400LLVM::Finish() {
@@ -878,19 +880,17 @@ std::unique_ptr<llvm::Module> CodeGenNNP400LLVM::Finish() {
         << "Failed to link modules";
   }
   link_modules_.clear();
-  // optimize
-  this->Optimize();
   return std::move(module_);
 }
 
-void CodeGenNNP400LLVM::Optimize() {
+void CodeGenNNP400LLVM::OptimizeModule(llvm::Module* module, llvm::TargetMachine* tm) {
   // pass manager
-  llvm::legacy::FunctionPassManager fpass(module_.get());
+  llvm::legacy::FunctionPassManager fpass(module);
   llvm::legacy::PassManager mpass;
-  mpass.add(llvm::createTargetTransformInfoWrapperPass(
-      target_machine_ ? target_machine_->getTargetIRAnalysis() : llvm::TargetIRAnalysis()));
-  fpass.add(llvm::createTargetTransformInfoWrapperPass(
-      target_machine_ ? target_machine_->getTargetIRAnalysis() : llvm::TargetIRAnalysis()));
+  mpass.add(llvm::createTargetTransformInfoWrapperPass(tm ? tm->getTargetIRAnalysis()
+                                                          : llvm::TargetIRAnalysis()));
+  fpass.add(llvm::createTargetTransformInfoWrapperPass(tm ? tm->getTargetIRAnalysis()
+                                                          : llvm::TargetIRAnalysis()));
 
   // place optimization pass
   llvm::PassManagerBuilder builder;
@@ -903,21 +903,19 @@ void CodeGenNNP400LLVM::Optimize() {
 #endif
   builder.LoopVectorize = false;
   builder.SLPVectorize = false;
-  this->InitPassManagerBuilder(&builder);
-
 #if TVM_LLVM_VERSION >= 50
-  target_machine_->adjustPassManager(builder);
+  tm->adjustPassManager(builder);
 #endif
 
   builder.populateFunctionPassManager(fpass);
   builder.populateModulePassManager(mpass);
 
   fpass.doInitialization();
-  for (auto it = module_->begin(); it != module_->end(); ++it) {
+  for (auto it = module->begin(); it != module->end(); ++it) {
     fpass.run(*it);
   }
   fpass.doFinalization();
-  mpass.run(*module_);
+  mpass.run(*module);
 }
 
 static std::once_flag init_llvm_cl_options_flag;
@@ -975,47 +973,76 @@ static std::unique_ptr<llvm::TargetMachine> GetNNPTargetMachine() {
   return std::unique_ptr<llvm::TargetMachine>(tm);
 }
 
-runtime::Module BuildNNP400LLVM(IRModule mod, Target target) {
-  InitializeLLVM();
-
-  // config cl options
+std::unique_ptr<llvm::Module> NNP400CreateLLVMModule(IRModule mod, Target target,
+                                                     llvm::TargetMachine* tm,
+                                                     llvm::LLVMContext* ctx, bool do_optimize) {
+  // init llvm and config cl options, reentrancy ensured
   std::call_once(init_llvm_cl_options_flag, InitLLVMClOptions);
 
+  std::unique_ptr<CodeGenNNP400LLVM> cg(new CodeGenNNP400LLVM());
+  cg->Init("TVMLLVMModule", tm, ctx, false, false, false);
+
+  for (auto kv : mod->functions) {
+    ICHECK(kv.second->IsInstance<PrimFuncNode>()) << "Can only lower IR Module with PrimFuncs";
+    auto f = Downcast<PrimFunc>(kv.second);
+    cg->AddFunction(f);
+  }
+
+  std::unique_ptr<llvm::Module> module = cg->Finish();
+  if (do_optimize) {
+    CodeGenNNP400LLVM::OptimizeModule(module.get(), tm);
+  }
+  return std::move(module);
+}
+
+runtime::Module BuildNNP400LLVM(IRModule mod, Target target) {
+  InitializeLLVM();
   std::unique_ptr<llvm::TargetMachine> tm = GetNNPTargetMachine();
   std::unique_ptr<llvm::LLVMContext> ctx(new llvm::LLVMContext());
-  std::unordered_map<std::string, std::string> asm_code_map;
+  std::unordered_map<std::string, std::string> kernel_map;
 
+  // llvm output filetype: either asm or obj
+  std::string llvm_output_filetype = dmlc::GetEnv<std::string>("EDGEX_LLVM_OUTPUT_FILETYPE", "asm");
+  bool gen_obj;
+  if (llvm_output_filetype == "asm") {
+    gen_obj = false;
+  } else if (llvm_output_filetype == "obj") {
+    gen_obj = true;
+  } else {
+    LOG(FATAL) << "Invalid EDGEX_LLVM_OUTPUT_FILETYPE: " << llvm_output_filetype;
+  }
+
+  // llvm dump working dir
   const std::string working_dir = dmlc::GetEnv<std::string>("EDGEX_DEBUG_WORKING_DIR", "");
   bool dump_llvm_ir = !dmlc::GetEnv<std::string>("EDGEX_DEBUG_DUMP_LLVM", "").empty();
   if (dump_llvm_ir && working_dir.empty()) {
     LOG(WARNING) << "No `EDGEX_DEBUG_WORKING_DIR` specified for llvm ir dumping, use logging.";
   }
 
+  // currently we have to build per-function
   for (auto kv : mod->functions) {
-    std::unique_ptr<CodeGenNNP400LLVM> cg(new CodeGenNNP400LLVM());
-    cg->Init("TVMLLVMModule", tm.get(), ctx.get(), false, false, false);
-    ICHECK(kv.second->IsInstance<PrimFuncNode>()) << "Can only lower IR Module with PrimFuncs";
-    auto f = Downcast<PrimFunc>(kv.second);
-    const std::string kernel_name = kv.first->name_hint;
-    cg->AddFunction(f);
+    IRModule single_func_mod = mod;
+    single_func_mod.CopyOnWrite()->functions = {kv};
+    auto llvm_mod = NNP400CreateLLVMModule(single_func_mod, target, tm.get(), ctx.get(), false);
 
     // dump ll before optimize
+    const std::string kernel_name = kv.first->name_hint;
     std::string llvm_dump_dir;
     if (dump_llvm_ir) {
       if (!working_dir.empty()) {
-        const std::string kernel_name = kv.first->name_hint;
         llvm_dump_dir = working_dir + "/" + kernel_name + "/llvm/";
         int status = tvm::runtime::mkdir_recursive(llvm_dump_dir.c_str());
         CHECK(status == 0 || errno == EEXIST) << "Create llvm ir dump directory failed";
         std::error_code ferr;
         llvm::raw_fd_ostream fstream(llvm_dump_dir + "/" + kernel_name + ".origin.ll", ferr,
                                      llvm::sys::fs::FA_Write);
-        cg->GetRawModule()->print(fstream, nullptr);
+        llvm_mod->print(fstream, nullptr);
         fstream.close();
       }
     }
 
-    std::unique_ptr<llvm::Module> module = cg->Finish();
+    // optimize the ll module
+    CodeGenNNP400LLVM::OptimizeModule(llvm_mod.get(), tm.get());
 
     // dump ll after optimize
     if (dump_llvm_ir) {
@@ -1023,50 +1050,86 @@ runtime::Module BuildNNP400LLVM(IRModule mod, Target target) {
         std::error_code ferr;
         llvm::raw_fd_ostream fstream(llvm_dump_dir + "/" + kernel_name + ".ll", ferr,
                                      llvm::sys::fs::FA_Write);
-        module->print(fstream, nullptr);
+        llvm_mod->print(fstream, nullptr);
         fstream.close();
       } else {
         llvm::SmallString<8> data_ll;
         llvm::raw_svector_ostream dest_ll(data_ll);
         dest_ll.SetUnbuffered();
-        module->print(dest_ll, nullptr);
+        llvm_mod->print(dest_ll, nullptr);
         LOG(INFO) << "LLVM IR for " << kernel_name << ":\n" << data_ll.c_str();
       }
     }
 
-    llvm::SmallString<8> data_asm, data_ll;
-    llvm::raw_svector_ostream dest_asm(data_asm);
-    dest_asm.SetUnbuffered();
     std::string verify_errors_storage;
     llvm::raw_string_ostream verify_errors(verify_errors_storage);
-    LOG_IF(FATAL, llvm::verifyModule(*module, &verify_errors))
+    LOG_IF(FATAL, llvm::verifyModule(*llvm_mod, &verify_errors))
         << "LLVM module verification failed with the following errors: \n"
         << verify_errors.str();
-    // emit asm
+    auto llvm_func = llvm_mod->getFunction(kernel_name);
+    ICHECK(llvm_func) << kernel_name << " not found in llvm module";
     llvm::legacy::PassManager pass;
-#if TVM_LLVM_VERSION <= 60
-    CHECK(tm->addPassesToEmitFile(pass, dest_asm, llvm::CGFT_AssemblyFile) == 0)
-        << "Cannot emit target CGFT_ObjectFile";
-#else
-    CHECK(tm->addPassesToEmitFile(pass, dest_asm, nullptr, llvm::CGFT_AssemblyFile) == 0)
-        << "Cannot emit target CGFT_ObjectFile";
-#endif
-    pass.run(*module);
-    std::stringstream ss;
-    ss << "#include \"nnp400_main.h\"\n";
-    ss << data_asm.c_str();
-    if (cg->RequireVcoreResource()) {
-      ss << "\n#include \"get_mbx_lock.asm\"";
-      ss << "\n#include \"cfg_vu_desp.asm\"";
-    }
-    std::string asm_code = ss.str();
-    asm_code_map[kernel_name] = asm_code;
-  }
 
-  return tvm::runtime::EdgeXModuleCreateFromAsm(mod, asm_code_map, working_dir);
+    if (gen_obj) {
+      llvm::SmallString<8> data_obj;
+      llvm::raw_svector_ostream dest_obj(data_obj);
+      dest_obj.SetUnbuffered();
+      CHECK_EQ(tm->addPassesToEmitFile(pass, dest_obj, nullptr, llvm::CGFT_ObjectFile), 0);
+      pass.run(*llvm_mod);
+      kernel_map[kernel_name] = std::string(data_obj.begin(), data_obj.end());
+    } else {
+      llvm::SmallString<8> data_asm;
+      llvm::raw_svector_ostream dest_asm(data_asm);
+      dest_asm.SetUnbuffered();
+      CHECK_EQ(tm->addPassesToEmitFile(pass, dest_asm, nullptr, llvm::CGFT_AssemblyFile), 0);
+      pass.run(*llvm_mod);
+      std::stringstream ss;
+      ss << "#include \"nnp400_main.h\"\n";
+      ss << data_asm.c_str();
+
+      // whether we should link vcu utilities
+      auto md_node = llvm_func->getMetadata(tvm::tir::attr::nnp_vcore_resource);
+      if (md_node) {
+        auto md_oprand = llvm::dyn_cast<llvm::ConstantAsMetadata>(md_node->getOperand(0));
+        ICHECK(md_oprand);
+        llvm::Constant* const_node = md_oprand->getValue();
+        ICHECK(const_node && const_node->getType()->isIntegerTy());
+        int64_t vcore_resource = const_node->getUniqueInteger().getSExtValue();
+        if (vcore_resource > 0) {
+          ss << "\n#include \"get_mbx_lock.asm\"";
+          ss << "\n#include \"cfg_vu_desp.asm\"";
+        }
+      }
+      kernel_map[kernel_name] = ss.str();
+    }
+  }
+  if (gen_obj) {
+    return tvm::runtime::EdgeXModuleCreateFromObjects(mod, kernel_map, working_dir);
+  } else {
+    return tvm::runtime::EdgeXModuleCreateFromAsm(mod, kernel_map, working_dir);
+  }
 }
 
 TVM_REGISTER_GLOBAL("target.build.edgex").set_body_typed(BuildNNP400LLVM);
+
+TVM_REGISTER_GLOBAL("target.build.edgex.create_llvm_module")
+    .set_body_typed([](IRModule mod, Target target, bool do_optimize) {
+      InitializeLLVM();
+      std::unique_ptr<llvm::TargetMachine> tm = GetNNPTargetMachine();
+      std::unique_ptr<llvm::LLVMContext> ctx(new llvm::LLVMContext());
+      auto llvm_mod = NNP400CreateLLVMModule(mod, target, tm.get(), ctx.get(), do_optimize);
+
+      std::string error_msg;
+      llvm::raw_string_ostream error_msg_stream(error_msg);
+      ICHECK(!llvm::verifyModule(*llvm_mod, &error_msg_stream))
+          << "LLVM module verification failed with the following errors: \n"
+          << error_msg;
+
+      std::string ll_data;
+      llvm::raw_string_ostream ll_stream(ll_data);
+      llvm_mod->print(ll_stream, nullptr);
+      return ll_data;
+    });
 
 }  // namespace codegen
 }  // namespace tvm

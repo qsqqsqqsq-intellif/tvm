@@ -83,6 +83,17 @@ Module EdgeXModuleCreateFromAsm(tvm::IRModule mod,
                                 const std::unordered_map<std::string, std::string>& asm_map,
                                 const std::string& working_dir);
 
+/*!
+ * \brief create a edgex module with original ir module and per-kernel objects.
+ *
+ * \param mod Original ir module.
+ * \param obj_map Edgex per-kernel objects.
+ * \param working_dir Edgex working directory.
+ */
+Module EdgeXModuleCreateFromObjects(tvm::IRModule mod,
+                                    const std::unordered_map<std::string, std::string>& obj_map,
+                                    const std::string& working_dir);
+
 }  // namespace runtime
 }  // namespace tvm
 
