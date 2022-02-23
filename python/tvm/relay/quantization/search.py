@@ -247,7 +247,7 @@ class QuantizeSearch:
         """evaluate"""
 
         def tmp(mod):
-            with tvm.transform.PassContext(opt_level=3):
+            with tvm.transform.PassContext(opt_level=2):
                 graph, lib, params = relay.build(mod, self.target)
             runtime = tvm.contrib.graph_executor.create(graph, lib, self.ctx)
             runtime.set_input(**params)
