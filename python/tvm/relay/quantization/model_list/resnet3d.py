@@ -151,8 +151,8 @@ if os.path.exists(path):
     mod = None
     params = None
 else:
-    model = torchvision.models.video.r3d_18(pretrained=True)
     x = torch.randn([1, 3, 16, 112, 112])
+    model = torchvision.models.video.r3d_18(pretrained=True)
     scripted_model = torch.jit.trace(model.eval(), x)
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)

@@ -116,8 +116,8 @@ if os.path.exists(path):
     mod = None
     params = None
 else:
-    model = torch.hub.load("pytorch/vision:v0.10.0", model_name, pretrained=True)
     x = torch.randn([1, 3, 224, 224])
+    model = torchvision.models.mobilenet_v2(pretrained=True)
     scripted_model = torch.jit.trace(model.eval(), x)
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)

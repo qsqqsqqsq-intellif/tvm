@@ -94,7 +94,7 @@ def _get_graph(nodes, params, ctx, target, optlevel=3):
             graph, lib, params = relay.build_module.build(func, target=target)
         runtime = tvm.contrib.graph_executor.create(graph, lib, ctx)
     else:
-        with relay.build_config(opt_level=optlevel):
+        with relay.build_config(opt_level=2):
             graph, lib, params = relay.build(func, target=target)
         runtime = tvm.contrib.graph_runtime.create(graph, lib, ctx)
     runtime.set_input(**params)

@@ -22,7 +22,6 @@ import torch
 import torchvision
 import tvm
 from tvm import relay
-
 import tvm.relay.quantization
 
 torch.manual_seed(0)
@@ -117,7 +116,7 @@ if os.path.exists(path):
     params = None
 else:
     x = torch.randn([1, 3, 224, 224])
-    model = torch.hub.load("pytorch/vision:v0.10.0", model_name, pretrained=True)
+    model = torchvision.models.densenet121(pretrained=True)
     scripted_model = torch.jit.trace(model.eval(), x)
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
@@ -139,7 +138,6 @@ quantize_search = relay.quantization.QuantizeSearch(
             "axis": 1,
         },
     },
-    opt_level=2,
     compare_statistics=False,
 )
 

@@ -22,33 +22,35 @@ import torch
 import torchvision
 import tvm
 from tvm import relay
-
 import tvm.relay.quantization
 
 torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-ctx = tvm.cpu()
-target = "llvm"
+if tvm.runtime.enabled("gpu"):
+    ctx = tvm.cuda()
+    target = "cuda"
+else:
+    ctx = tvm.cpu()
+    target = "llvm"
 
 batch_size = 1
 calibrate_num = 500
 num_workers = 8
-model_name = "resnet50"
-performance = {"float": 76.13, "int8": 76.03}
+model_name = "squeezenet1_1"
+performance = {"float": 58.1780, "int8": None}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/imagenet"
-# data_path = "/home/yhh/Desktop/dedatasets-lfs"
 
 all_op = [
     "conv2d_bias_add",
     "nn.relu",
     "nn.max_pool2d",
-    "add",
+    "concatenate",
     "nn.sum_pool2d",
+    "multiply",
     "reshape",
-    "dense_bias_add",
 ]
 
 
@@ -115,7 +117,7 @@ if os.path.exists(path):
     params = None
 else:
     x = torch.randn([1, 3, 224, 224])
-    model = torchvision.models.resnet50(pretrained=True)
+    model = torchvision.models.squeezenet1_1(pretrained=True)
     scripted_model = torch.jit.trace(model.eval(), x)
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)

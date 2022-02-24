@@ -43,7 +43,7 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 16
 model_name = "deeplabv3_resnet50"
-performance = {"float": None, "int8": None}
+performance = {"float": 64.5607, "int8": 64.4320}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/coco"
 

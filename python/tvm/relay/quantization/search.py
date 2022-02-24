@@ -62,7 +62,7 @@ class QuantizeSearch:
         quantize_config=None,
         compare_statistics=False,
         net_in_dtype="uint8",
-        opt_level=3,
+        opt_level=2,
     ):
         self.model_name = model_name
         self.calibrate_num = calibrate_num
