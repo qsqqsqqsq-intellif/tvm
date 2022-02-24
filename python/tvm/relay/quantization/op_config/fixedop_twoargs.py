@@ -66,7 +66,9 @@ class FixedOpTwoArgs:
         self.quantized = True
 
         if ("skip_conv_layers" in config and cnt - 1 in config["skip_conv_layers"]) or (
-            not vertex_config[node.args[0]].quantized and not vertex_config[node.args[1]].quantized
+            not vertex_config[node.args[0]].quantized
+            and not vertex_config[node.args[1]].quantized
+            and self.name not in ["nn.bias_add"]
         ):
             self.quantized = False
 
@@ -89,6 +91,9 @@ class FixedOpTwoArgs:
             input1_axis = input0_axis
         elif isinstance(node.args[1], relay.Constant) and node.args[1].data.asnumpy().size == 1:
             input0_axis, input1_axis = -1, -1
+
+        if node.op.name == "nn.bias_add" and node.attrs.axis == 1:
+            input0_axis, input1_axis = 1, 0
 
         # set input config
         input0_config = _quantized_judge(
@@ -255,7 +260,10 @@ class FixedOpTwoArgs:
                 tmp = relay.frontend.common.infer_type(new_arg)
                 if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
                     new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
-                elif tmp.checked_type.dtype.startswith("int"):
+                # get int32, must be no-quantized op
+                elif tmp.checked_type.dtype.startswith("int") and tmp.checked_type.dtype not in [
+                    "int32"
+                ]:
                     new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
                 elif tmp.checked_type.dtype != "float16":
                     new_arg = relay.cast(new_arg, "float16")
@@ -346,9 +354,17 @@ class FixedOpTwoArgs:
                 "maximum": relay.maximum,
             }
 
-            new_node = op_dict[self.name](
-                adjust_realized_args[0], adjust_realized_args[1], out_dtype="int32"
-            )
+            if self.name != "nn.bias_add":
+                new_node = op_dict[self.name](
+                    adjust_realized_args[0], adjust_realized_args[1], out_dtype="int32"
+                )
+            else:
+                new_node = relay.nn.bias_add(
+                    adjust_realized_args[0],
+                    adjust_realized_args[1],
+                    axis=old_node.attrs.axis,
+                    out_dtype="int32",
+                )
         else:
             new_node = relay.Call(self.op, adjust_realized_args, old_node.attrs)
 

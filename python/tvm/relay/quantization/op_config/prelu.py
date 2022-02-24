@@ -18,7 +18,9 @@
 """op"""
 
 import logging
+import numpy
 from tvm import relay
+from ..analyze import _quantized_judge
 
 try:
     from ..relay_ops import round_right_shift
@@ -26,13 +28,13 @@ except ImportError:
     pass
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
-from ..analyze import _conv_counter, oneargdeal
+from ..analyze import _conv_counter
 from ..realize import _realize_core, operate
 from ..calibrate import _calibrate_core
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("LeakyRelu",)
+__all__ = ("Prelu",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -53,19 +55,19 @@ DEFAULTCONFIG = {
 }
 
 
-def calrightshift(v_p, mul_coef_max=255, shift_coef_max=15):
-    bit = -1
-    v = v_p
+def calrightshift(v_p, mul_coef_max=127, shift_coef_max=19):
+    bit = 0
+    v = abs(v_p)
     while v < mul_coef_max and bit <= shift_coef_max:
-        v = v * 2
+        v = (v * 2).astype("float32")
         bit = bit + 1
-    return int(v_p * 2 ** (bit - 1)), bit - 1
+    return numpy.floor(v_p * 2 ** (bit - 1) + 0.5), bit - 1
 
 
-class LeakyRelu:
-    """LeakyRelu"""
+class Prelu:
+    """Prelu"""
 
-    name = "nn.leaky_relu"
+    name = "nn.prelu"
     controlable = False
 
     def __init__(self, node, vertex_config, config):
@@ -80,9 +82,36 @@ class LeakyRelu:
 
         ci0 = config["input0"]
 
-        oneargdeal(self, node, vertex_config, ci0)
+        input_axis = -1
+        if vertex_config[arg].quantized:
+            input_axis = vertex_config[arg].output_config["axis"]
 
-        LOGGER.debug("[anaylze] leaky_relu finish")
+        input0_config = _quantized_judge(
+            vertex_config, node.args[0], input_axis, self.quantized, ci0
+        )
+
+        input1_config = {
+            "dtype": "float16",
+            "axis": node.attrs.axis,
+            "method": None,
+            "threshold": None,
+            "operate": "none",
+        }
+        self.input_config = {
+            node.args[0]: input0_config,
+            node.args[1]: input1_config,
+        }
+
+        # get output0_config
+        output0_config = {
+            "dtype": input0_config["dtype"],
+            "axis": input_axis,
+            "quantized_axis": "none",
+            "ref_count": 0,
+        }
+
+        self.output_config = output0_config
+        LOGGER.debug("[anaylze] prelu finish")
 
     @classmethod
     def get_config(cls, config, call):
@@ -90,7 +119,7 @@ class LeakyRelu:
 
     def quantize_params(self, node, vertex_config):
         """quantize_params"""
-        LOGGER.debug("[calibrate]leaky_relu start and quantized is %d", self.quantized)
+        LOGGER.debug("[calibrate]prelu start and quantized is %d", self.quantized)
         arg = node.args[0]
         input_config = self.input_config[arg]
 
@@ -102,33 +131,50 @@ class LeakyRelu:
 
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
-        LOGGER.debug("[realize]leaky_relu start...")
+        LOGGER.debug("[realize]prelu start...")
         old_arg = old_node.args[0]
         new_arg = new_node.args[0]
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
         if self.quantized:
-            alpha = old_node.attrs.alpha
-            param, shift = calrightshift(alpha)
+
+            tmp = relay.frontend.common.infer_type(new_arg)
+            param = numpy.array([])
+            shift = numpy.array([])
+            for num in new_node.args[1].data.asnumpy():
+                param_num, shift_num = calrightshift(num)
+                param = numpy.append(param, param_num)
+                shift = numpy.append(shift, shift_num)
+
+            axis_param = old_node.attrs.axis
+            tmp_shape = tmp.checked_type.shape
+            add_axis_len = len(tmp_shape) - axis_param - 1
+            while add_axis_len > 0:
+                add_axis_len = add_axis_len - 1
+                param = numpy.expand_dims(param, axis=-1)
+                shift = numpy.expand_dims(shift, axis=-1)
+
             # todo condisder int16!
             if "ir_pass" in relay.__dict__:
                 new_node_plus = relay.maximum(new_arg, relay.const(0, "int8"))
                 new_node_minus = relay.minimum(new_arg, relay.const(0, "int8"))
                 new_node_minus = relay.multiply(
-                    new_node_minus, relay.const(param, "int32"), out_dtype="int32"
+                    new_node_minus, relay.const(param.astype("int32")), out_dtype="int32"
                 )
                 new_node_minus = relay.round_right_shift(
-                    new_node_minus, relay.const(shift, "int32"), out_dtype="int32"
+                    new_node_minus, relay.const(shift.astype("int32")), out_dtype="int32"
                 )
-                new_node = relay.add(new_node_plus, new_node_minus)
+                new_node = relay.add(new_node_plus, new_node_minus, out_dtype="int32")
                 new_node = relay.clip(new_node, -128, 127, out_dtype="int8")
             else:
                 new_node_plus = relay.maximum(new_arg, relay.const(0, "int8"))
                 new_node_minus = relay.minimum(new_arg, relay.const(0, "int8"))
                 new_node_minus = relay.cast(new_node_minus, "int32")
-                new_node_minus = relay.multiply(new_node_minus, relay.const(param, "int32"))
-                new_node_minus = round_right_shift(new_node_minus, relay.const(shift, "int32"))
+                new_node_minus = relay.multiply(new_node_minus, relay.const(param.astype("int32")))
+                new_node_minus = round_right_shift(
+                    new_node_minus, relay.const(shift.astype("int32"))
+                )
                 new_node_minus = relay.cast(new_node_minus, "int8")
                 new_node = relay.add(new_node_plus, new_node_minus)
         else:
@@ -138,5 +184,5 @@ class LeakyRelu:
                 new_arg = operate(
                     "dequantize", new_arg, self.input_config[old_node.args[0]], {}, True
                 )
-            new_node = relay.nn.leaky_relu(new_arg, **dict(new_node.attrs))
+            new_node = relay.nn.prelu(new_arg, new_node.args[1], **dict(new_node.attrs))
         return new_node

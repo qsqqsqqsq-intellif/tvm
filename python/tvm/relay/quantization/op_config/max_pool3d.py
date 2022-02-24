@@ -58,12 +58,7 @@ class MaxPool3D:
         cnt = _conv_counter()
 
         self.quantized = True  # TODO whether
-        # nnp300 quantized first!
-        if (
-            not vertex_config[node.args[0]].quantized
-            and "target" in config
-            and config["target"].startswith("nnp400")
-        ) or ("skip_conv_layers" in config and cnt - 1 in config["skip_conv_layers"]):
+        if "skip_conv_layers" in config and cnt - 1 in config["skip_conv_layers"]:
             self.quantized = False
 
         ci0 = config["input0"]

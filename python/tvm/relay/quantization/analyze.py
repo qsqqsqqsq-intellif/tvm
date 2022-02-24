@@ -143,6 +143,7 @@ FIXED_OP_TWOARGS_LIST = [
     "subtract",
     "maximum",
     "minimum",
+    "nn.bias_add",
 ]
 
 

@@ -157,7 +157,9 @@ class Multiply:
                 tmp = relay.frontend.common.infer_type(new_arg)
                 if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
                     new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
-                elif tmp.checked_type.dtype.startswith("int"):
+                elif tmp.checked_type.dtype.startswith("int") and tmp.checked_type.dtype not in [
+                    "int32"
+                ]:
                     new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
                 elif tmp.checked_type.dtype != "float16":
                     new_arg = relay.cast(new_arg, "float16")
