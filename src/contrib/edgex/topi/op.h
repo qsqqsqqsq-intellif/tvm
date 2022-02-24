@@ -36,8 +36,8 @@ namespace tvm {
 namespace topi {
 
 TOPI_DEFINE_BCAST_OP(round_right_shift, {
-  auto pos = 1ll << (b - 1);
-  auto neg = (1ll << (b - 1)) - 1;
+  auto pos = 1l << (b - 1);
+  auto neg = (1l << (b - 1)) - 1;
   auto round_param = tvm::tir::Select(a >= 0, pos, neg);
   return tvm::tir::Select(b > 0, (a + round_param) >> b, a);
 });

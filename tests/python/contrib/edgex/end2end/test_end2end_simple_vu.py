@@ -85,7 +85,7 @@ def do_test_multi_param(*items, failures=None):
             te_func, numpy_func = desc
         else:
             te_func, numpy_func = desc, desc
-        print("Testcase (%s, %d, %s) with func:\n%s" % (key, n, dtype, inspect.getsource(te_func)))
+        # print("Testcase (%s, %d, %s) with func:\n%s" % (key, n, dtype, inspect.getsource(te_func)))
         tir_func = simple_vu_te_create_func(te_func, n, dtype)
         s = simple_vu_schedule_without_iter(tir_func, n, dtype)
         name = "simple_vu_case_%s_%d_%s" % (key, n, dtype)

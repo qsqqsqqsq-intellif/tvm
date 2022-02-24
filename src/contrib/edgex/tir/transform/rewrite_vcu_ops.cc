@@ -179,16 +179,22 @@ static PrimExpr RewriteVeltaddPattern(const PrimExpr& expr) {
     return std::move(veltadd);
   } else {
     // fallback to vacc computation
-    arith::Analyzer analyzer;
-    if (!arg1.same_as(dummy_arg)) {
-      arg0 = analyzer.Simplify(cast(DataType::Int(32, lanes), arg0) +
-                               cast(DataType::Int(32, lanes), arg1));
+    PrimExpr shiftnorm = pat_shiftnorm.Eval();
+    PrimExpr input = pat_input.Eval();
+    // cast shiftnorm to int32
+    Call nnp_round_right_shift_call =
+        Call(DataType::Int(64, lanes), edgex::builtin::nnp_round_right_shift(),
+             {input, cast(DataType::Int(32, lanes), shiftnorm)});
+    PrimExpr new_expr;
+    if (veltadd_pattern0.Match(root)) {
+      new_expr =
+          cast(DataType::Int(8, lanes),
+               Max(Min(nnp_round_right_shift_call, (make_const(DataType::Int(64, lanes), 127))),
+                   (make_const(DataType::Int(64, lanes), -128))));
+    } else if (veltadd_pattern1.Match(root)) {
+      new_expr = cast(DataType::Int(8, lanes), nnp_round_right_shift_call);
     }
-    Call vu_call = Call(i8_vec_ty.Eval(), edgex::builtin::nnp_vacc_madd_right_shift(),
-                        {mulnorm, arg0, shiftnorm});
-    auto n = const_cast<CallNode*>(vu_call.get());
-    edgex::NNPAddArg(n, "asr_rmode", VELTADD_ASR_MODE_ROUNDING);
-    return std::move(vu_call);
+    return std::move(new_expr);
   }
 }
 
