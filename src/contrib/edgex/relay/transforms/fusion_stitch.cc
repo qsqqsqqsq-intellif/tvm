@@ -468,6 +468,16 @@ class AtomicGraph {
                          {"clip"},
                          {"cast"},
                          {"nn.relu", "nn.prelu", "nn.leaky_relu", ""}});
+    // for mobilenet_v2_qat, output dtype of vu cannot be int64
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_ELTWISE,
+                        {{"subtract"},
+                         {"nn.bias_add", ""},
+                         {"cast"},
+                         {"multiply"},
+                         {"round_right_shift"},
+                         {"clip", ""},
+                         {"cast"},
+                         {"nn.pad", ""}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_ELTWISE,
                         {{"cast", ""},
                          {"sum", ""},
