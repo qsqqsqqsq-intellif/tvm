@@ -39,7 +39,7 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "resnext50_32x4d"
-performance = {"float": 77.6180, "int8": None}
+performance = {"float": 77.6180, "int8": 77.5020}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/imagenet"
 

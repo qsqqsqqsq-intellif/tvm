@@ -28,18 +28,14 @@ torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-if tvm.runtime.enabled("gpu"):
-    ctx = tvm.cuda()
-    target = "cuda"
-else:
-    ctx = tvm.cpu()
-    target = "llvm"
+ctx = tvm.cpu()
+target = "llvm"
 
 batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "shufflenet_v2_x1_0"
-performance = {"float": 69.3620, "int8": None}
+performance = {"float": 69.3620, "int8": 68.6720}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/imagenet"
 

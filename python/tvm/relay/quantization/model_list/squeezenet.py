@@ -39,7 +39,7 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "squeezenet1_1"
-performance = {"float": 58.1780, "int8": None}
+performance = {"float": 58.1780, "int8": 46.5240}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/imagenet"
 

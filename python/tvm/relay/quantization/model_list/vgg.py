@@ -39,7 +39,7 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "vgg11_bn"
-performance = {"float": 70.3700, "int8": None}
+performance = {"float": 70.3700, "int8": 69.9380}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/imagenet"
 
