@@ -33,17 +33,20 @@ IDENTITY_OP_LIST = [
     "squeeze",
     "transpose",
     "nn.batch_flatten",
-    "yolo_reorg",
+    "vision.yolo_reorg",
     "tile",
     "reverse",
+    "zeros_like",
+    "ones_like",
 ]
 
-# fixed-point, two inputs identity scale
+# if fixed-point, two inputs identity scale
 FIXED_OP_TWOARGS_LIST = [
     "add",
     "subtract",
     "maximum",
     "minimum",
+    "nn.bias_add",
 ]
 
 
