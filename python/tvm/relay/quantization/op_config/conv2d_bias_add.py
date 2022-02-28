@@ -92,7 +92,10 @@ class Conv2DBiasAdd:
         conv2d_groups = conv2d.attrs.groups
         weight_co_axis = conv2d.attrs.kernel_layout.find("O")
         weigh_co = node.args[1].data.shape[weight_co_axis]
-        if conv2d_groups == weigh_co:
+        weight_ci_axis = conv2d.attrs.kernel_layout.find("I")
+        weigh_ci = node.args[1].data.shape[weight_ci_axis]
+
+        if conv2d_groups == weigh_co and weigh_ci == 1:
             input0_axis = conv2d.attrs.data_layout.find("C")
 
             # input is global sumpool, do pertensor
