@@ -303,21 +303,6 @@ def evaluate(runtime):
         y[:, 3] = x[:, 3] - x[:, 1]  # height
         return y
 
-    # def box_iou(box1, box2):
-    #     def box_area(box):
-    #         # box = 4xn
-    #         return (box[2] - box[0]) * (box[3] - box[1])
-
-    #     area1 = box_area(box1.T)
-    #     area2 = box_area(box2.T)
-
-    #     inter = (
-    #         (torch.min(box1[:, None, 2:], box2[:, 2:]) - torch.max(box1[:, None, :2], box2[:, :2]))
-    #         .clamp(0)
-    #         .prod(2)
-    #     )
-    #     return inter / (area1[:, None] + area2 - inter)
-
     def non_max_suppression(prediction):
         xc = prediction[..., 4] > 0.001
         min_wh, max_wh = 2, 4096
@@ -369,12 +354,10 @@ def evaluate(runtime):
 
     def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
         if ratio_pad is None:
-            gain = min(
-                img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1]
-            )  # gain  = old / new
+            gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])
             pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (
                 img1_shape[0] - img0_shape[0] * gain
-            ) / 2  # wh padding
+            ) / 2
         else:
             gain = ratio_pad[0][0]
             pad = ratio_pad[1]
@@ -385,8 +368,7 @@ def evaluate(runtime):
         clip_coords(coords, img0_shape)
         return coords
 
-    jdict, stats = [], []
-    niou = torch.linspace(0.5, 0.95, 10).numel()
+    jdict = []
     class_map = [
         1,
         2,
@@ -489,8 +471,6 @@ def evaluate(runtime):
 
             predn = pred.clone()
             scale_coords(image[si].shape[1:], predn[:, :4], shape, shapes[si][1])
-            correct = torch.zeros(pred.shape[0], niou, dtype=torch.bool)
-            stats.append((correct.cpu(), pred[:, 4].cpu(), pred[:, 5].cpu(), []))
 
             image_id = int(path.stem) if path.stem.isnumeric() else path.stem
             box = xyxy2xywh(predn[:, :4])
@@ -513,7 +493,7 @@ def evaluate(runtime):
             vis_detections(im, class_name[j-1], cls_box, 0.25)
         """
 
-    pred_json = "yolov5s_predictions.json"
+    pred_json = "%s_predictions.json" % model_name
 
     with open(pred_json, "w") as f:
         json.dump(jdict, f)
@@ -528,7 +508,7 @@ def evaluate(runtime):
     eval.summarize()
     map, map50 = eval.stats[:2]
     os.remove(pred_json)
-    print(map)
+    print(map * 100)
     return map
 
 

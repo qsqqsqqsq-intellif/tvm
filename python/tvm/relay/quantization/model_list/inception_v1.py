@@ -56,7 +56,7 @@ all_op = [
 
 
 def prepare_data_loaders(data_path, batch_size):
-    transform_test = mxnet.gluon.data.vision.transforms.Compose(
+    transforms = mxnet.gluon.data.vision.transforms.Compose(
         [
             mxnet.gluon.data.vision.transforms.Resize(256, keep_ratio=True),
             mxnet.gluon.data.vision.transforms.CenterCrop(224),
@@ -67,7 +67,7 @@ def prepare_data_loaders(data_path, batch_size):
         ]
     )
     dataset = gluoncv.data.imagenet.classification.ImageNet(data_path, train=False).transform_first(
-        transform_test
+        transforms
     )
 
     sampler = mxnet.gluon.data.RandomSampler(len(dataset))

@@ -16,8 +16,6 @@
 # under the License.
 
 import os
-import cv2
-import numpy
 import tqdm
 import mxnet
 import gluoncv
@@ -30,44 +28,43 @@ mxnet.random.seed(0)
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 if tvm.runtime.enabled("gpu"):
-    ctx = tvm.gpu()
+    ctx = tvm.cuda()
     target = "cuda"
 else:
     ctx = tvm.cpu()
     target = "llvm"
 
 batch_size = 1
-calibrate_num = 500
+calibrate_num = 5
 num_workers = 16
-model_name = "center_net_resnet50_v1b_coco"
-performance = {"float": 32.3, "int8": None}
+model_name = "ssd_512_resnet50_v1_coco"
+performance = {"float": 29.5, "int8": None}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/coco"
-# data_path = "/home/yhh/Desktop/dedatasets-lfs/coco_val2017"
 
 all_op = [
     "conv2d_bias_add",
     "nn.relu",
     "nn.max_pool2d",
     "add",
-    "nn.conv2d_transpose",
-    "sigmoid",
-    "equal",
-    "cast",
-    "multiply",
-    "reshape",
-    "topk",
-    "divide",
-    "mod",
     "transpose",
-    "slice_like",
-    "expand_dims",
-    "tile",
-    "zeros_like",
+    "nn.batch_flatten",
     "concatenate",
-    "gather_nd",
-    "subtract",
+    "reshape",
+    "nn.softmax",
+    "strided_slice",
+    "greater",
+    "cast",
+    "zeros_like",
     "ones_like",
+    "multiply",
+    "where",
+    "split",
+    "slice_like",
+    "exp",
+    "subtract",
+    "vision.get_valid_counts",
+    "vision.non_max_suppression",
 ]
 
 
@@ -76,38 +73,18 @@ def prepare_data_loaders(data_path, batch_size):
         root=data_path, splits="instances_val2017", skip_empty=False
     )
 
-    class CenterNetDefaultValTransform:
+    class SSDDefaultValTransform(object):
         def __init__(self, width, height):
             self._width = width
             self._height = height
 
         def __call__(self, src, label):
-            img, bbox = src.asnumpy(), label
-            input_h, input_w = self._height, self._width
             h, w, _ = src.shape
-            s = max(h, w) * 1.0
-            c = numpy.array([w / 2.0, h / 2.0], dtype=numpy.float32)
-            trans_input = gluoncv.data.transforms.bbox.get_affine_transform(
-                c, s, 0, [input_w, input_h]
-            )
-            inp = cv2.warpAffine(img, trans_input, (input_w, input_h), flags=cv2.INTER_LINEAR)
-            output_w = input_w
-            output_h = input_h
-            trans_output = gluoncv.data.transforms.bbox.get_affine_transform(
-                c, s, 0, [output_w, output_h]
-            )
-            for i in range(bbox.shape[0]):
-                bbox[i, :2] = gluoncv.data.transforms.bbox.affine_transform(
-                    bbox[i, :2], trans_output
-                )
-                bbox[i, 2:4] = gluoncv.data.transforms.bbox.affine_transform(
-                    bbox[i, 2:4], trans_output
-                )
-            bbox[:, :2] = numpy.clip(bbox[:, :2], 0, output_w - 1)
-            bbox[:, 2:4] = numpy.clip(bbox[:, 2:4], 0, output_h - 1)
-
-            img = mxnet.ndarray.from_numpy(inp)
+            img = gluoncv.data.transforms.image.imresize(src, self._width, self._height, interp=9)
             img = mxnet.nd.transpose(img, [2, 0, 1])
+            bbox = gluoncv.data.transforms.bbox.resize(
+                label, in_size=(w, h), out_size=(self._width, self._height)
+            )
             return img, bbox.astype("float32")
 
     batchify_fn = gluoncv.data.batchify.Tuple(
@@ -115,8 +92,8 @@ def prepare_data_loaders(data_path, batch_size):
     )
 
     data_loader = mxnet.gluon.data.DataLoader(
-        dataset.transform(CenterNetDefaultValTransform(512, 512)),
-        batch_size,
+        dataset.transform(SSDDefaultValTransform(512, 512)),
+        batch_size=batch_size,
         batchify_fn=batchify_fn,
         num_workers=num_workers,
     )
@@ -143,11 +120,7 @@ def evaluate(runtime):
         root=data_path, splits="instances_val2017", skip_empty=False
     )
     metric = gluoncv.utils.metrics.coco_detection.COCODetectionMetric(
-        dataset,
-        model_name,
-        cleanup=True,
-        data_shape=(512, 512),
-        post_affine=gluoncv.data.transforms.presets.center_net.get_post_transform,
+        dataset, model_name, cleanup=True, data_shape=(512, 512)
     )
     metric.reset()
 
@@ -189,7 +162,7 @@ if os.path.exists(path):
     params = None
 else:
     model = gluoncv.model_zoo.get_model(model_name, pretrained=True)
-    model.hybridize(static_shape=True, static_alloc=True)
+    model.set_nms(nms_thresh=0.45, nms_topk=400)
     shape_dict = {"input": (1, 3, 512, 512)}
     mod, params = relay.frontend.from_mxnet(model, shape_dict)
 
@@ -212,7 +185,7 @@ quantize_search = relay.quantization.QuantizeSearch(
     },
     compare_statistics=False,
 )
-quantize_search.evaluate("pre_process")
+
 config = quantize_search.get_default_config()
 quantize_search.quantize(config)
 # quantize_search.visualize("post_process", config)
