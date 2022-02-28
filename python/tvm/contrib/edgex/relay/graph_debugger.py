@@ -594,6 +594,11 @@ def parse_args(cmd, extra_args, use_cache=True, require_relay_mod=False, require
         type=lambda x: [_.strip() for _ in x.split(",") if _.strip() != ""],
         help="Specify transform passes to run.",
     )
+    parser.add_argument(
+        "--model-info-file",
+        default=None,
+        help="Model info Excel file, which contains shape dict, dtype dict, etc.",
+    )
     args = parser.parse_args(extra_args)
 
     # update some parsed arguments
@@ -830,6 +835,33 @@ def run(args, debugger):
         )
 
 
+def gen_tflite_model_info(excel_dir):
+    import pandas as pd
+
+    xls = pd.ExcelFile(excel_dir)
+    data_frame = xls.parse(xls.sheet_names[0])
+
+    models = {}
+    for col in data_frame.to_dict("records"):
+        info = {}
+        shape_dict = {}
+        dtype_dict = {}
+        name_list = str(col["input_name"]).split(";")
+        shape_list = col["input_shape"].split(";")
+
+        for i, item in enumerate(shape_list):
+            dtype, shape = item.split("[")
+            shape = [int(x) for x in shape[:-1].split(",")]
+            shape_dict[name_list[i]] = shape
+            dtype_dict[name_list[i]] = dtype
+
+        info["shape_dict"] = shape_dict
+        info["dtype_dict"] = dtype_dict
+        models[col["model"]] = info
+
+    return models
+
+
 @register_cmd(
     "convert",
     require_main_arg=True,
@@ -844,10 +876,28 @@ def convert_frontend_model(args):
         sys.exit(-1)
     from tvm.driver.tvmc.frontends import load_model
 
+    model_format = args.input.rsplit(".")[-1]
+    if model_format == "tflite":
+        if args.model_info_file:
+            file_name = args.model_info_file
+        else:
+            file_name = "/data/share/400tvm_models/nnp400_tflite.xlsx"
+        name = os.path.basename(args.input)[:-7]
+        model = gen_tflite_model_info(file_name).get(name)
+        if model is None:
+            print_error("Found none info for " % name)
+            sys.exit(-1)
+        print(name, model)
+        tvmc_model = load_model(
+            args.input,
+            model_format=model_format,
+            shape_dict=model["shape_dict"],
+            dtype_dict=model["dtype_dict"],
+        )
+    else:
+        tvmc_model = load_model(args.input, model_format=model_format, shape_dict=args.input_shapes)
+
     model_path = args.input
-    tvmc_model = load_model(
-        args.input, model_format=args.model_format, shape_dict=args.input_shapes
-    )
     model_name = os.path.basename(model_path)
     model_name = model_name[: model_name.rfind(".")]
     mod, params = tvmc_model.mod, tvmc_model.params
