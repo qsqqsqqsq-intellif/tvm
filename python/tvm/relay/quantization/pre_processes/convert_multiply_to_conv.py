@@ -33,26 +33,59 @@ class ConvertMultiplyToConv(ExprMutator):
         ):
 
             shape0 = call.args[0].checked_type.shape
+            if shape0:
+                shape0 = [x.value for x in shape0]
             shape1 = call.args[1].checked_type.shape
+            if shape1:
+                shape1 = [x.value for x in shape1]
+            weight = visited.args[1].data.asnumpy()
+            layout = None
+
+            # find layout
+            if not shape1 or not layout:
+                pre_expr = call.args[0]
+
+                while isinstance(pre_expr, relay.Call) and pre_expr.op.name not in [
+                    "transpose",
+                    "reshape",
+                    "nn.batch_flatten",
+                ]:
+                    attrs = dict(pre_expr.attrs) if pre_expr.attrs is not None else {}
+                    if "layout" in attrs:
+                        layout = attrs["layout"]
+
+                    if "data_layout" in attrs:
+                        layout = attrs["data_layout"]
+
+                    if layout is not None:
+                        break
+
+                if not shape1 and layout is not None:
+                    idx = layout.find("C")
+                    shape1 = [1 for _ in range(len(shape0) - idx)]
+                    shape1[0] = shape0[idx]
+
+                    full_ones = np.ones(shape1, call.args[1].checked_type.dtype)
+                    weight = full_ones * visited.args[1].data.asnumpy()
 
             if (
                 len(shape0) == 5
                 and isinstance(visited.args[0], relay.Call)
                 and visited.args[0].op.name in ["nn.conv3d"]
             ):
-                mul_w = visited.args[1].data.asnumpy()
-                ichannel = shape0[1].value
-                ochannel = shape1[0].value
+                assert layout == "NCDHW"
+                ichannel = shape0[1]
+                ochannel = shape1[0]
                 assert ichannel == ochannel
                 s = 1
                 for x in shape1:
-                    s = s * x.value
+                    s = s * x
                 assert s == ochannel
                 r_shape = [ochannel, 1, 1, 1, 1]
-                mul_w = mul_w.reshape(r_shape)
+                weight = weight.reshape(r_shape)
 
                 conv3d_w = visited.args[0].args[1].data.asnumpy()
-                new_w = conv3d_w * mul_w
+                new_w = conv3d_w * weight
                 conv3d_arg = relay.Constant(tvm.nd.array(new_w))
                 attrs = dict(visited.args[0].attrs)
 
@@ -62,29 +95,28 @@ class ConvertMultiplyToConv(ExprMutator):
                 not isinstance(visited.args[0], relay.Call)
                 or visited.args[0].op.name not in ["nn.conv3d"]
             ):
+                assert layout == "NCDHW"
                 if len(shape1) != 4:
                     return visited
-                ichannel = shape0[1].value
-                ochannel = shape1[0].value
+                ichannel = shape0[1]
+                ochannel = shape1[0]
                 assert ichannel == ochannel
                 s = 1
                 for x in shape1:
-                    s = s * x.value
+                    s = s * x
                 assert s == ochannel
                 r_shape = [ichannel, 1, 1, 1, 1]
                 x = np.ones((ochannel, 1, 1, 1), dtype=np.float32)
 
                 zeros = np.zeros((1, 1, 1), dtype=np.float32)
 
-                mul_w = visited.args[1].data.asnumpy()
-                mul_w = mul_w.reshape(r_shape)
-
-                mul_w = mul_w * x
+                weight = weight.reshape(r_shape)
+                weight = weight * x
                 for i in range(0, ochannel):
                     for j in range(0, ichannel):
                         if i != j:
-                            mul_w[i][j] = zeros
-                conv3d_arg = relay.Constant(tvm.nd.array(mul_w))
+                            weight[i][j] = zeros
+                conv3d_arg = relay.Constant(tvm.nd.array(weight))
 
                 return relay.nn.conv3d(
                     visited.args[0], conv3d_arg, channels=ochannel, kernel_size=[1, 1, 1]
@@ -93,28 +125,20 @@ class ConvertMultiplyToConv(ExprMutator):
             if len(shape0) != 4:
                 return visited
 
-            if len(shape1) == 1 and shape1[0].value == shape0[3].value:
-                layout = "NHWC"
+            if layout == "NHWC":
                 c_idx = 3
                 kernel_layout = "HWOI"
-                r_shape = [1, 1, shape1[0].value, 1]
-            elif (
-                len(shape1) == 3
-                and shape1[0].value == shape0[1].value
-                and shape1[1].value == shape1[2].value == 1
-            ):
-                layout = "NCHW"
+                r_shape = [1, 1, shape1[0], 1]
+            elif layout == "NCHW":
                 c_idx = 1
                 kernel_layout = "OIHW"
-                r_shape = [shape1[0].value, 1, 1, 1]
+                r_shape = [shape1[0], 1, 1, 1]
             else:
                 return visited
 
-            channels = shape0[c_idx].value
-            assert channels == shape1[0].value
-            conv2d_arg = relay.Constant(
-                tvm.nd.array(visited.args[1].data.asnumpy().reshape(r_shape))
-            )
+            channels = shape0[c_idx]
+            assert channels == shape1[0]
+            conv2d_arg = relay.Constant(tvm.nd.array(weight.reshape(r_shape)))
             return relay.nn.conv2d(
                 visited.args[0],
                 conv2d_arg,

@@ -49,6 +49,7 @@ def origin_pass(mod, norm):
     optimize_pass.append(FuseMultiplyToConv())
     optimize_pass.append(transform.FoldConstant())
     optimize_pass.append(transform.FoldExplicitPadding())
+    optimize_pass.append(ConvertMultiplyToConv())
 
     optimize = tvm.transform.Sequential(optimize_pass, opt_level=3, name="optimize")
     with tvm.transform.PassContext(opt_level=3):

@@ -14,10 +14,16 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements
+# pylint: disable=unused-argument,inconsistent-return-statements,E1102
 """pre process"""
 
-from .pre_processes import leaky_relu, origin_pass, pattern_match, divide_to_multiply
+from .pre_processes import (
+    leaky_relu,
+    origin_pass,
+    pattern_match,
+    divide_to_multiply,
+    ExpandAddParam,
+)
 
 
 def pre_process(cls, norm):
@@ -26,4 +32,5 @@ def pre_process(cls, norm):
     mod = origin_pass(mod, norm)
     mod = pattern_match(mod)
     mod = divide_to_multiply(mod)
+    mod = ExpandAddParam()(mod)
     cls.pre_processed_mod = mod
