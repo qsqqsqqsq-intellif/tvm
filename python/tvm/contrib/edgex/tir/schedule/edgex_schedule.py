@@ -27,6 +27,7 @@ from tvm.ir import IRModule
 from tvm.runtime import Object, PackedFunc
 from tvm.tir import PrimFunc
 from tvm.tir.schedule import Schedule, LoopRV
+from tvm.tir.schedule.block_scope import StmtSRef
 from tvm.tir.schedule.schedule import BlockRV, ExprRV
 from . import _ffi_api_schedule
 
@@ -134,3 +135,15 @@ class EdgexSchedule(Schedule):
         _ffi_api_schedule.ScheduleReplaceBuffer(
             self, block, origin_buffer, new_buffer, load_rewrite, store_rewrite, region_rewrite
         )
+
+    def can_compute_at(self, block: StmtSRef, loop: LoopRV) -> bool:
+        return _ffi_api_schedule.CanComputeAt(self, block, loop)
+
+    def can_reverse_compute_at(self, block: StmtSRef, loop: LoopRV) -> bool:
+        return _ffi_api_schedule.CanReverseComputeAt(self, block, loop)
+
+    def can_compute_inline(self, block: StmtSRef) -> bool:
+        return _ffi_api_schedule.CanComputeInline(self, block)
+
+    def can_reverse_compute_inline(self, block: StmtSRef) -> bool:
+        return _ffi_api_schedule.CanReverseComputeInline(self, block)

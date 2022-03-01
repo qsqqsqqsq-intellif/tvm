@@ -18,6 +18,7 @@
  */
 #include <tvm/tir/schedule/schedule.h>
 
+#include "../../../../tir/schedule/analysis.h"
 #include "../../../../tir/schedule/concrete_schedule.h"
 #include "./edgex_primitives.h"
 
@@ -93,6 +94,25 @@ class EdgexScheduleNode : public ConcreteScheduleNode {
     StmtSRef stmt_sref = this->GetSRef(block_rv);
     return schedule::ReplaceBuffer(this->state(), stmt_sref, origin_buffer, new_buffer,
                                    load_rewrite_func, store_rewrite_func, region_rewrite_func);
+  }
+
+  bool CanComputeAt(const BlockRV& block_rv, const LoopRV& loop_rv, bool preserve_unit_loop) {
+    return tir::CanComputeAt(this->state(), this->GetSRef(block_rv), this->GetSRef(loop_rv),
+                             preserve_unit_loop);
+  }
+
+  bool CanReverseComputeAt(const BlockRV& block_rv, const LoopRV& loop_rv,
+                           bool preserve_unit_loop) {
+    return tir::CanReverseComputeAt(this->state(), this->GetSRef(block_rv), this->GetSRef(loop_rv),
+                                    preserve_unit_loop);
+  }
+
+  bool CanComputeInline(const BlockRV& block_rv) {
+    return tir::CanComputeInline(this->state(), this->GetSRef(block_rv));
+  }
+
+  bool CanReverseComputeInline(const BlockRV& block_rv) {
+    return tir::CanReverseComputeInline(this->state(), this->GetSRef(block_rv));
   }
 
   static constexpr const char* _type_key = "tir.edgex.EdgexSchedule";
@@ -201,6 +221,30 @@ TVM_REGISTER_GLOBAL("tir.edgex.schedule.ScheduleReplaceBuffer")
       auto edgex_schd = const_cast<EdgexScheduleNode*>(self.as<EdgexScheduleNode>());
       return edgex_schd->ReplaceBuffer(block_rv, origin_buffer, new_buffer, load_rewrite_func,
                                        store_rewrite_func, region_rewrite_func);
+    });
+
+TVM_REGISTER_GLOBAL("tir.edgex.schedule.CanComputeAt")
+    .set_body_typed([](Schedule self, BlockRV block_rv, LoopRV loop_rv, bool preserve_unit_loop) {
+      auto edgex_schd = const_cast<EdgexScheduleNode*>(self.as<EdgexScheduleNode>());
+      return edgex_schd->CanComputeAt(block_rv, loop_rv, preserve_unit_loop);
+    });
+
+TVM_REGISTER_GLOBAL("tir.edgex.schedule.CanReverseComputeAt")
+    .set_body_typed([](Schedule self, BlockRV block_rv, LoopRV loop_rv, bool preserve_unit_loop) {
+      auto edgex_schd = const_cast<EdgexScheduleNode*>(self.as<EdgexScheduleNode>());
+      return edgex_schd->CanReverseComputeAt(block_rv, loop_rv, preserve_unit_loop);
+    });
+
+TVM_REGISTER_GLOBAL("tir.edgex.schedule.CanComputeInline")
+    .set_body_typed([](Schedule self, BlockRV block_rv) {
+      auto edgex_schd = const_cast<EdgexScheduleNode*>(self.as<EdgexScheduleNode>());
+      return edgex_schd->CanComputeInline(block_rv);
+    });
+
+TVM_REGISTER_GLOBAL("tir.edgex.schedule.CanReverseComputeInline")
+    .set_body_typed([](Schedule self, BlockRV block_rv) {
+      auto edgex_schd = const_cast<EdgexScheduleNode*>(self.as<EdgexScheduleNode>());
+      return edgex_schd->CanReverseComputeInline(block_rv);
     });
 
 }  // namespace tir
