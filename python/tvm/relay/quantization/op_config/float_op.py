@@ -166,7 +166,8 @@ class FloatOp:
                 #     or (abs_max > 65504)
                 # ):
                 abs_max = numpy.max(numpy.abs(arg_.data.asnumpy()))
-                if abs_max > 65504:
+                # int32 and float, use float32
+                if abs_max > 65504 or use_i32:
                     use_fp32 = True
             else:
                 use_fp16 = True
@@ -214,7 +215,17 @@ class FloatOp:
                 new_realized_args.append(new_arg)
 
         else:
-            assert 0, "float32 no support, concat yhh!!"
+            LOGGER.info("[realize]-- %s use float32...", self.name)
+            for old_arg, new_arg in zip(old_node.args, realized_args):
+                tmp = relay.frontend.common.infer_type(new_arg)
+                if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float32":
+                    new_arg = relay.const(new_arg.data.asnumpy().astype("float32"))
+                elif tmp.checked_type.dtype != "float32":
+                    new_arg = relay.cast(new_arg, "float32")
+
+                pair_node(old_arg, new_arg, {}, {"operate": "none"}, n2o, self.quantized)
+
+                new_realized_args.append(new_arg)
 
         new_node = relay.Call(old_node.op, new_realized_args, old_node.attrs)
 
