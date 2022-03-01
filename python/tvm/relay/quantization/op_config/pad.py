@@ -18,6 +18,7 @@
 """op"""
 
 import logging
+import numpy
 from tvm import relay
 from ..analyze import _conv_counter, oneargdeal
 from ..calibrate import _calibrate_core
@@ -87,7 +88,7 @@ class Pad:
             assert (
                 self.input_config[old_arg]["scale"].size == 1
             ), "when padvalue !=0 and quantized, only support per_tensor"
-            pad_value = int(pad_value / self.input_config[old_arg]["scale"])
+            pad_value = numpy.floor(pad_value / self.input_config[old_arg]["scale"])
             if pad_value > 127:
                 pad_value = 127
             elif pad_value < -128:
