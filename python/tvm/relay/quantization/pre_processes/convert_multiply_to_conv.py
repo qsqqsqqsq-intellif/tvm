@@ -60,6 +60,8 @@ class ConvertMultiplyToConv(ExprMutator):
                     if layout is not None:
                         break
 
+                    pre_expr = pre_expr.args[0]
+
                 if not shape1 and layout is not None:
                     idx = layout.find("C")
                     shape1 = [1 for _ in range(len(shape0) - idx)]
