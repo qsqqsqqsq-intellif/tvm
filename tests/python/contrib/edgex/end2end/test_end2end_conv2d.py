@@ -14,7 +14,6 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-import pytest
 import tvm
 from tvm import relay
 import numpy as np
@@ -212,7 +211,6 @@ def test_single_conv2d_tile_co_end2end():
     )
 
 
-@pytest.mark.skip("data compare failed")
 def test_conv2d_nchwc_end2end():
     do_test_single_conv2d(
         input_shape=[1, 1, 224, 224, 16],

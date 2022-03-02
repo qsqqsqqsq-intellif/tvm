@@ -206,9 +206,7 @@ def test_tir_func_single_conv2d():
         )
         return relay_rewrite_mgr.create_annotated_func()
 
-    check_edgex_tir_build(
-        "tir_single_conv2d", primfunc, edgex_fschedule=fschedule, output_idx=2, data_range=1
-    )
+    check_edgex_tir_build("tir_single_conv2d", primfunc, edgex_fschedule=fschedule, output_idx=2)
 
 
 def test_tir_func_quantized_conv2d():
@@ -522,11 +520,11 @@ def test_tir_func_conv2d_NCHW16c():
     input_shape = [n, c_i, h, w, c_b]
     weight_shape = [c_o, c_i, *kernel_size, c_b, c_b]
     primfunc = conv2d_NCHWc
-    x, w, _, stride_h, stride_w, pad_top, pad_left, pad_bottom, pad_right = conv2d_NCHWc.params
+    x, weight, _, stride_h, stride_w, pad_top, pad_left, pad_bottom, pad_right = conv2d_NCHWc.params
     primfunc = primfunc.specialize(
         {
             x: tir.decl_buffer(input_shape, "int8"),
-            w: tir.decl_buffer(weight_shape, "int8"),
+            weight: tir.decl_buffer(weight_shape, "int8"),
             stride_h: strides[0],
             stride_w: strides[1],
             pad_top: padding[0],
@@ -554,9 +552,7 @@ def test_tir_func_conv2d_NCHW16c():
         )
         return relay_rewrite_mgr.create_annotated_func()
 
-    check_edgex_tir_build(
-        "tir_conv2d_NCHWc", primfunc, edgex_fschedule=fschedule, output_idx=2, data_range=1
-    )
+    check_edgex_tir_build("tir_conv2d_NCHWc", primfunc, edgex_fschedule=fschedule, output_idx=2)
 
 
 if __name__ == "__main__":

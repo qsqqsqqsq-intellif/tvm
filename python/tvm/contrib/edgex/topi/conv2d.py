@@ -103,16 +103,19 @@ class ScheduleConv2d:
         self._strides = strides
         self._padding = padding
         self._dilation = dilation
-        self._interleaved = re.match(r"NCHW(\d*)c", layout)
-        self._input_C = self._input_shape[1] * (self._input_shape[-1] if self._interleaved else 1)
+        self._interleaved_data = re.match(r"NCHW(\d*)c", layout)
+        self._interleaved_weight = re.match(r"OIHW(\d*i\d*o)", kernel_layout)
+        self._input_C = self._input_shape[1] * (
+            self._input_shape[-1] if self._interleaved_data else 1
+        )
         self._weight_O = self._weight_shape[0] * (
-            self._weight_shape[-1] if self._interleaved else 1
+            self._weight_shape[-1] if self._interleaved_weight else 1
         )
         self._weight_I = self._weight_shape[1] * (
-            self._weight_shape[-2] if self._interleaved else 1
+            self._weight_shape[-2] if self._interleaved_weight else 1
         )
         self._output_C = self._output_shape[1] * (
-            self._output_shape[-1] if self._interleaved else 1
+            self._output_shape[-1] if self._interleaved_data else 1
         )
 
         # conv internal attrs
@@ -143,7 +146,7 @@ class ScheduleConv2d:
     ):
         """Rewrite conv2d weight layout by edgex cube weight layout convention"""
         # schedule use OIHW weight layout
-        if self._interleaved:
+        if self._interleaved_weight:
             co, ci, kh, kw, ib, ob = self._sch.get_read_buffer_axes(conv, 2)
             self._sch.reorder_buffer(co, ob, ci, ib, kh, kw)
             self._sch.fuse_buffer(co, ob)
@@ -243,6 +246,8 @@ class ScheduleConv2d:
 
         # specify relay transformation for arguments
         def relay_forward_ochw(x):
+            if self._interleaved_weight:
+                x = relay.layout_transform(x, self._kernel_layout, "OIHW")
             x = relay.reshape(x, shape_post_split_co)
             if self._cfg.tile_co:
                 x = relay.nn.pad(x, [(0, 0), (0, 0), (0, add_co), (0, add_ci), (0, 0), (0, 0)])
@@ -373,7 +378,7 @@ class ScheduleConv2d:
         axes = self._sch.get_write_buffer_axes(eidma, 0)
         n, c, h, w = axes[:4]
         group, ci_group = self._sch.split_buffer(c, factors=[self._groups, None])
-        if not self._interleaved:
+        if not self._interleaved_data:
             c1, c0 = self._sch.split_buffer(ci_group, factor=self._ci_para_lines)
             self._sch.reorder_buffer(n, group, c1, h, w, c0)
 
@@ -384,7 +389,7 @@ class ScheduleConv2d:
             loops = self._sch.get_loops(eidma)
             n, c, h, w = loops[:4]
         group, ci_group = self._sch.split(c, factors=[self._groups, None])
-        if not self._interleaved:
+        if not self._interleaved_data:
             c1, c0 = self._sch.split(ci_group, factors=[None, self._ci_para_lines])
             self._sch.reorder(n, group, c1, h, w, c0)
 
@@ -417,7 +422,7 @@ class ScheduleConv2d:
         axes = self._sch.get_write_buffer_axes(idma, 0)
         n, c, h, w = axes[:4]
         group, ci_group = self._sch.split_buffer(c, factors=[self._groups, None])
-        if not self._interleaved:
+        if not self._interleaved_data:
             c1, c0 = self._sch.split_buffer(ci_group, factor=self._ci_para_lines)
             self._sch.reorder_buffer(n, group, c1, h, w, c0)
 
@@ -631,7 +636,7 @@ class ScheduleConv2d:
                 co_group_o, co_group_i = self._sch.split_buffer(
                     co_group, nparts=self._cfg.tile_co_num
                 )
-                if self._interleaved:
+                if self._interleaved_data:
                     self._sch.reorder_buffer(co_group_o, n, group, co_group_i, h, w, axes[-1])
                 else:
                     c1, c0 = self._sch.split_buffer(co_group_i, factor=16)
@@ -642,7 +647,7 @@ class ScheduleConv2d:
         else:
             if self._cfg.tile_co:
                 co_o, co_i = self._sch.split_buffer(c, nparts=self._cfg.tile_co_num)
-                if self._interleaved:
+                if self._interleaved_data:
                     self._sch.reorder_buffer(co_o, n, co_i, h, w, axes[-1])
                 else:
                     c1, c0 = self._sch.split_buffer(co_i, factor=16)
@@ -744,10 +749,10 @@ class ScheduleConv2d:
             co_group_tile = self._output_C // self._groups
         if self._groups > 1:
             _, co_group = self._sch.split(c, factors=[self._groups, None])
-            if not self._interleaved:
+            if not self._interleaved_data:
                 c1, _ = self._sch.split(co_group, factors=[None, 16])
         else:
-            if not self._interleaved:
+            if not self._interleaved_data:
                 c1, _ = self._sch.split(c, factors=[None, 16])
 
         # eodma write dm buffer should align c0 dimension with 16
