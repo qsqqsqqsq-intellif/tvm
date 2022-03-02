@@ -302,10 +302,10 @@ class ELFObject:
         self.strings_offset += len(name) + 1
 
     def get_section(self, name):
-        for section in self.sections:
+        for idx, section in enumerate(self.sections):
             if section.name == name:
-                return section
-        return None
+                return idx, section
+        return None, None
 
     def add_symbol(self, name, value, size, bind, stype, other, section_idx):
         symbol = ELFSymbol(name, self.strings_offset, value, size, bind, stype, other, section_idx)
@@ -520,6 +520,7 @@ def merge_relocatable_object(main_objects, lib_objects, output_path):
     merged_bin = bytearray()
     text_offset = 0
     symbol_offsets = {}  # symbol_name -> offset in bytes
+    symbol_sizes = {}  # symbol_name -> size in bytes
     unresolved = {}  # symbol_name -> [reloc positions]
 
     def do_reloc(bin_data, symbol_name, reloc_pos, symbol_offset):
@@ -544,13 +545,13 @@ def merge_relocatable_object(main_objects, lib_objects, output_path):
         assert isinstance(obj, (bytes, bytearray))
         elf_object = ELFObject.load(obj, 0)
 
-        text_section = elf_object.get_section(".text")
+        _, text_section = elf_object.get_section(".text")
         if not text_section:
             return
         bin_data = text_section.content
 
         # lookup reloc information
-        reloc_section = elf_object.get_section(".rel.text")
+        _, reloc_section = elf_object.get_section(".rel.text")
         if reloc_section:
             reloc_entry_cnt = reloc_section.size // 8
             for i in range(reloc_entry_cnt):
@@ -582,6 +583,7 @@ def merge_relocatable_object(main_objects, lib_objects, output_path):
                 raise ValueError(f"Symbol redefinition: {symbol.name}")
             offset = text_offset + symbol.value
             symbol_offsets[symbol.name] = offset
+            symbol_sizes[symbol.name] = symbol.size
 
             if symbol.name in unresolved:
                 for reloc_position in unresolved[symbol.name]:
@@ -612,15 +614,21 @@ def merge_relocatable_object(main_objects, lib_objects, output_path):
         result_object.add_symbol(
             symbol_name,
             symbol_offsets[symbol_name],
-            0,
+            symbol_sizes[symbol_name],
             ELFSymbol.STB_GLOBAL,
             ELFSymbol.STT_NOTYPE,
             0,
             2,
         )
     result_object.finish()
-    with open(output_path, "wb") as out_file:
-        out_file.write(result_object.dump())
+    result_data = result_object.dump()
+    if output_path is not None:
+        out_dir = os.path.dirname(output_path)
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+        with open(output_path, "wb") as out_file:
+            out_file.write(result_data)
+    return result_data
 
 
 def wrap_obj_as_single_kernel(obj, kernel_name, output_path):
@@ -643,7 +651,7 @@ def wrap_obj_as_single_kernel(obj, kernel_name, output_path):
     input_object = ELFObject.load(obj, 0)
     output_object = ELFObject()
 
-    text_section = input_object.get_section(".text")
+    section_idx, text_section = input_object.get_section(".text")
     assert text_section
     if text_section:
         output_object.add_section(
@@ -657,17 +665,28 @@ def wrap_obj_as_single_kernel(obj, kernel_name, output_path):
             text_section.content,
         )
         output_object.add_symbol(
-            kernel_name, 0, 0, ELFSymbol.STB_GLOBAL, ELFSymbol.STT_NOTYPE, 0, 2
+            kernel_name,
+            0,
+            len(text_section.content),
+            ELFSymbol.STB_GLOBAL,
+            ELFSymbol.STT_NOTYPE,
+            0,
+            section_idx,
         )
+    output_object.finish()
+    result_data = output_object.dump()
+    if output_path:
+        out_dir = os.path.dirname(output_path)
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+        with open(output_path, "wb") as out_file:
+            out_file.write(result_data)
+    return result_data
 
-    with open(output_path, "wb") as out_file:
-        output_object.finish()
-        out_file.write(output_object.dump())
 
-
-@tvm._ffi.register_func("tvm.edgex.get_linked_bin")
-def get_linked_bin(obj, kernel_name, output_dir):
-    """Helper to get linked bin data from llvm-gen relocatable object
+@tvm._ffi.register_func("tvm.edgex.get_linked_obj")
+def get_linked_obj(obj, kernel_name, output_dir, as_single_kernel=False):
+    """Helper to get linked object from llvm-gen relocatable object
 
     Parameters:
     -----------
@@ -679,6 +698,9 @@ def get_linked_bin(obj, kernel_name, output_dir):
 
     output_dir : str
         directory to put intermedia files
+
+    as_single_kernel : bool
+        whether wrap result as a single kernel
     """
     if isinstance(obj, str) and os.path.isfile(obj):
         with open(obj, "rb") as in_file:
@@ -710,13 +732,49 @@ def get_linked_bin(obj, kernel_name, output_dir):
         vu_resource_libs.append(objpath)
 
     bin_path = os.path.join(output_dir, f"{kernel_name}.obj")
-    merge_relocatable_object([obj], vu_resource_libs, bin_path)
-    with open(bin_path, "rb") as bin_file:
-        bin_elf = ELFObject(bin_file.read())
-        text = bin_elf.get_section(".text")
-        if text is None:
-            raise ValueError(f"No .text section for {bin_path}")
-        return text.content
+    res = merge_relocatable_object([obj], vu_resource_libs, bin_path)
+    if as_single_kernel:
+        bin_path = os.path.join(output_dir, f"{kernel_name}.single.obj")
+        res = wrap_obj_as_single_kernel(res, kernel_name, bin_path)
+    return res
+
+
+@tvm._ffi.register_func("tvm.edgex.extract_bin_data")
+def extract_bin_data(obj, kernel_name):
+    """Helper to get bin data from relocatable object by kernel function name
+
+    Parameters:
+    -----------
+    obj : str or bytes
+        object file path or object data bytes
+
+    kernel_name : str
+        kernel function name
+    """
+    if isinstance(obj, str) and os.path.isfile(obj):
+        with open(obj, "rb") as in_file:
+            obj = in_file.read()
+    assert isinstance(obj, (bytes, bytearray))
+    elf_obj = ELFObject(obj)
+    text_section_idx, text = elf_obj.get_section(".text")
+    if text is None:
+        raise ValueError(f"No .text section for {kernel_name}")
+    for symbol in elf_obj.symbols:
+        if symbol.name != kernel_name:
+            continue
+        if symbol.size <= 0:
+            raise ValueError(f"Illegal size {symbol.size} for {kernel_name}")
+        if symbol.bind != ELFSymbol.STB_GLOBAL:
+            raise ValueError(f"{kernel_name} is not a global symbol")
+        if symbol.section_idx != text_section_idx:
+            raise ValueError(f"{kernel_name} do not refer to .text section")
+        if symbol.value < 0:
+            raise ValueError(f"Illegal start offset of {kernel_name}: {symbol.value}")
+        if symbol.value + symbol.size > len(text.content):
+            raise ValueError(f"Offset out of bound of {kernel_name}: {symbol.value + symbol.size}")
+        return text.content[symbol.value : symbol.value + symbol.size]
+
+    raise ValueError(f"Can not find kernel function {kernel_name}")
 
 
 @tvm._ffi.register_func("tvm.edgex.bin2lst")
@@ -785,3 +843,14 @@ def bin2lst(bin_data, start_pc):
     lst_str += "// Branch Labels                                                              Src File                              Line No                     pc           ext_offt\n"  # pylint:disable=C0301
     lst_str += "//===================================================================================================================================================================\n"  # pylint:disable=C0301
     return lst_str
+
+
+@tvm._ffi.register_func("tvm.edgex.create_full_kernels_obj")
+def merge_relocatable_object_wrapper(output_dir, *objs):
+    """Create an elf object contains all function kernels"""
+    output_path = None
+    if output_dir and output_dir.strip() != "":
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        output_path = os.path.join(output_dir, "full_kernels.obj")
+    return merge_relocatable_object(objs, [], output_path)

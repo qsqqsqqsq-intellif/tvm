@@ -58,8 +58,14 @@ class EdgeXModuleNode : public runtime::ModuleNode {
                            const std::unordered_map<std::string, std::string>& lst_map,
                            const std::string& fmt,
                            const std::unordered_map<std::string, FunctionInfo>& fmap,
-                           const std::unordered_map<std::string, std::string>& asm_map)
-      : bin_map_(bin_map), lst_map_(lst_map), fmt_(fmt), f_map_(fmap), asm_map_(asm_map) {
+                           const std::unordered_map<std::string, std::string>& asm_map,
+                           const std::string& full_obj)
+      : bin_map_(bin_map),
+        lst_map_(lst_map),
+        fmt_(fmt),
+        f_map_(fmap),
+        asm_map_(asm_map),
+        full_obj_(full_obj) {
     debug_iss_ = dmlc::GetEnv("EDGEX_DEBUG_ISS", std::string("")) == "true";
     // std::fill(module_.begin(), module_.end(), nullptr);
   }
@@ -184,6 +190,8 @@ class EdgeXModuleNode : public runtime::ModuleNode {
   std::unordered_map<std::string, FunctionInfo> f_map_;
   // The edgex source.
   std::unordered_map<std::string, std::string> asm_map_;
+  // The full elf object contains all functions
+  std::string full_obj_;
 
   // TODO(@yiheng): check this
   // the internal modules per GPU, to be lazily initialized.
@@ -270,8 +278,9 @@ Module EdgeXModuleCreate(const std::unordered_map<std::string, std::string>& bin
                          const std::unordered_map<std::string, std::string>& lst_map,
                          const std::string& fmt,
                          const std::unordered_map<std::string, FunctionInfo>& fmap,
-                         const std::unordered_map<std::string, std::string>& asm_map) {
-  auto n = make_object<EdgeXModuleNode>(bin_map, lst_map, fmt, fmap, asm_map);
+                         const std::unordered_map<std::string, std::string>& asm_map,
+                         const std::string& full_obj) {
+  auto n = make_object<EdgeXModuleNode>(bin_map, lst_map, fmt, fmap, asm_map, full_obj);
   return Module(n);
 }
 
@@ -279,18 +288,27 @@ Module EdgeXModuleCreateFromObjects(tvm::IRModule mod,
                                     const std::unordered_map<std::string, std::string>& obj_map,
                                     const std::string& working_dir) {
   const int start_pc = GetIssStartPC();
-  const std::string link_funcname = "tvm.edgex.get_linked_bin";
-  auto* get_linked_bin = tvm::runtime::Registry::Get(link_funcname);
-  CHECK(get_linked_bin) << "Cannot find " << link_funcname;
+  const std::string link_funcname = "tvm.edgex.get_linked_obj";
+  auto* get_linked_obj = tvm::runtime::Registry::Get(link_funcname);
+  CHECK(get_linked_obj) << "Cannot find " << link_funcname;
+
+  const std::string extract_bin_funcname = "tvm.edgex.extract_bin_data";
+  auto* extract_bin = tvm::runtime::Registry::Get(extract_bin_funcname);
+  CHECK(extract_bin) << "Cannot find " << extract_bin_funcname;
 
   const std::string bin2lst_funcname = "tvm.edgex.bin2lst";
   auto* bin2lst = tvm::runtime::Registry::Get(bin2lst_funcname);
   CHECK(bin2lst) << "Cannot find " << bin2lst_funcname;
 
+  const std::string merge_funcname = "tvm.edgex.create_full_kernels_obj";
+  auto* merge_objs = tvm::runtime::Registry::Get(merge_funcname);
+  CHECK(merge_objs) << "Cannot find " << merge_funcname;
+
   std::unordered_map<std::string, FunctionInfo> f_map;
   std::unordered_map<std::string, std::string> bin_map;
   std::unordered_map<std::string, std::string> lst_map;
   std::unordered_map<std::string, std::string> asm_map;
+  std::vector<String> to_merge_objs;
 
   for (auto fitem : mod->functions) {
     // fill function info map, currently only single op function exists
@@ -299,18 +317,40 @@ Module EdgeXModuleCreateFromObjects(tvm::IRModule mod,
     finfo.name = kernel_name;
     ICHECK(obj_map.count(kernel_name)) << kernel_name << "'s object is not generated";
 
-    const std::string& obj_str = obj_map.at(kernel_name);
-    TVMByteArray obj_bytes{obj_str.c_str(), obj_str.size()};
-    String kernel_bin = (*get_linked_bin)(obj_bytes, kernel_name, working_dir);
+    // linking per kernel
+    const std::string& origin_obj = obj_map.at(kernel_name);
+    TVMByteArray obj_bytes{origin_obj.c_str(), origin_obj.size()};
+    String linked_obj = (*get_linked_obj)(obj_bytes, kernel_name, working_dir, true);
+    to_merge_objs.push_back(linked_obj);
+
+    // extract bin
+    TVMByteArray linked_obj_bytes{linked_obj.c_str(), linked_obj.size()};
+    String kernel_bin = (*extract_bin)(linked_obj_bytes, kernel_name);
     bin_map[kernel_name] = kernel_bin;
 
+    // make lst
     TVMByteArray bin_bytes{kernel_bin.c_str(), kernel_bin.size()};
     String kernel_lst = (*bin2lst)(bin_bytes, start_pc);
     lst_map[kernel_name] = kernel_lst;
   }
 
+  // create fat elf object which contains all kernel functions
+  size_t num_objs = to_merge_objs.size();
+  std::vector<TVMValue> tvm_values(num_objs + 1);
+  std::vector<int> tvm_type_codes(num_objs + 1);
+  TVMArgsSetter setter(tvm_values.data(), tvm_type_codes.data());
+  setter(0, working_dir);
+  std::vector<TVMByteArray> to_merge_bytes_ref(num_objs);
+  for (size_t k = 0; k < num_objs; ++k) {
+    to_merge_bytes_ref[k] = TVMByteArray{to_merge_objs[k].c_str(), to_merge_objs[k].size()};
+    setter(k + 1, to_merge_bytes_ref[k]);
+  }
+  TVMRetValue rv;
+  (*merge_objs).CallPacked(TVMArgs(tvm_values.data(), tvm_type_codes.data(), num_objs + 1), &rv);
+  String full_obj = rv;
+
   // create module
-  auto n = make_object<EdgeXModuleNode>(bin_map, lst_map, "edgex", f_map, asm_map);
+  auto n = make_object<EdgeXModuleNode>(bin_map, lst_map, "edgex", f_map, asm_map, full_obj);
 
   // delete working directory
   // TODO(bxq): remove temp directory for ass outputs
@@ -357,7 +397,7 @@ Module EdgeXModuleCreateFromAsm(tvm::IRModule mod,
   }
 
   // create module
-  auto n = make_object<EdgeXModuleNode>(bin_map, lst_map, "edgex", f_map, asm_map);
+  auto n = make_object<EdgeXModuleNode>(bin_map, lst_map, "edgex", f_map, asm_map, "");
 
   // delete working directory
   // TODO(bxq): remove temp directory for ass outputs
@@ -382,7 +422,7 @@ Module EdgeXModuleLoadBinary(void* strm) {
   stream->Read(&bin_map);
   stream->Read(&lst_map);
   stream->Read(&asm_map);
-  return EdgeXModuleCreate(bin_map, lst_map, fmt, fmap, asm_map);
+  return EdgeXModuleCreate(bin_map, lst_map, fmt, fmap, asm_map, "");
 }
 
 TVM_REGISTER_GLOBAL("runtime.module.loadfile_exbin").set_body_typed(EdgeXModuleLoadFile);
