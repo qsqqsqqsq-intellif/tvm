@@ -90,7 +90,7 @@ def do_test_multi_param(*items, failures=None):
         s = simple_vu_schedule_without_iter(tir_func, n, dtype)
         name = "simple_vu_case_%s_%d_%s" % (key, n, dtype)
         # use numpy func as expect, do not run cpu, since they are not compatible on saturation
-        check_edgex_tir_build(name, s.mod["main"], numpy_func, check_cpu=False)
+        check_edgex_tir_build(name, s.mod["main"], numpy_func=numpy_func, check_cpu=False)
 
 
 def numpy_saturate_add(x, y):
@@ -250,6 +250,18 @@ def test_simple_vu_ops_float16():
 
 
 @pytest.mark.edgex_slow
+def test_simple_vu_ops_float_to_int_cast():
+    """This test case is used to test basic f16 vu casting functionality"""
+    funcs = {
+        "cast_int8": (lambda x: tir.Cast("int8", x), lambda x: x.astype("int8")),
+        "cast_int32": (lambda x: tir.Cast("int32", x), lambda x: x.astype("int32")),
+    }
+    failures = {}
+    lengths = [128, 29, 17]
+    do_test_multi_param(funcs.items(), lengths, ["float16", "float32"], failures=failures)
+
+
+@pytest.mark.edgex_slow
 def test_simple_vu_add_dm_in_iter():
     """This test case is used to test basic vu end2end functionality.
     where edma and vdma are both iterative in outer loop"""
@@ -346,3 +358,4 @@ if __name__ == "__main__":
     test_simple_vu_ops_int32()
     test_simple_vu_ops_float16()
     test_simple_vu_ops_float32()
+    test_simple_vu_ops_float_to_int_cast()

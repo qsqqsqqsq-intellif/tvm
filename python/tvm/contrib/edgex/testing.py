@@ -661,7 +661,11 @@ def check_edgex_tir_build(
         elif isinstance(data_range, float):
             data_range = (data_range, data_range)
         if dtype.startswith("i") or dtype.startswith("u"):
-            arrs.append(np.random.randint(data_range[0], data_range[1], size=shape).astype(dtype))
+            arrs.append(
+                np.random.randint(
+                    data_range[0], max(data_range[0] + 1, data_range[1]), size=shape
+                ).astype(dtype)
+            )
         else:
             arrs.append(np.random.uniform(data_range[0], data_range[1], size=shape).astype(dtype))
 

@@ -61,6 +61,47 @@ static const char* BB[] = {
     "vidma3", "vodma0", "vodma1",   "vodma2", "vodma3",    "vpdma0",    "vpdma1",    "vpdma2",
     "vpdma3", "ccmvuc", "debugvuc", "vidma",  "vodma",     "pe"};
 
+/*! \brief Field specification for setmode, -1 denotes unspecified */
+struct NNPSetModeSpec {
+  int fx2fp_rmode{-1};
+  int fp2fx_rmode{-1};
+  int asr_rmode{-1};
+  int relu_mul{-1};
+  int vld0_ext_mode_en{-1};
+  int vld1_ext_mode_en{-1};
+  int eltmul_relu{-1};
+  int veltadd_relu{-1};
+
+  static NNPSetModeSpec FromCall(const CallNode* call) {
+    return NNPSetModeSpec{
+        GetValueByKey(call, "fx2fp_rmode"),      GetValueByKey(call, "fp2fx_rmode"),
+        GetValueByKey(call, "asr_rmode"),        GetValueByKey(call, "relu_mul"),
+        GetValueByKey(call, "vld0_ext_mode_en"), GetValueByKey(call, "vld1_ext_mode_en"),
+        GetValueByKey(call, "eltmul_relu"),      GetValueByKey(call, "veltadd_relu_mode"),
+    };
+  }
+
+  bool valid() const {
+    return fx2fp_rmode >= 0 || fp2fx_rmode >= 0 || asr_rmode >= 0 || relu_mul >= 0 ||
+           vld0_ext_mode_en >= 0 || vld1_ext_mode_en >= 0 || eltmul_relu >= 0 || veltadd_relu >= 0;
+  }
+
+  static const NNPSetModeSpec HW_DEFAULT_SPEC;
+  static const NNPSetModeSpec TVM_APP_DEFAULT_SPEC;
+};
+
+/*! \brief Hardware default setmode specs */
+const NNPSetModeSpec NNPSetModeSpec::HW_DEFAULT_SPEC{
+    /*fx2fp_rmode=*/3,      /*fp2fx_rmode=*/3,      /*asr_rmode=*/3,
+    /*relu_mul=*/0,         /*vld0_ext_mode_en*/ 0,
+    /*vld1_ext_mode_en*/ 0, /*eltmul_relu*/ 0,      /*veltadd_relu*/ 0};
+
+/*! \brief TVM application default setmode specs*/
+const NNPSetModeSpec NNPSetModeSpec::TVM_APP_DEFAULT_SPEC{
+    /*fx2fp_rmode=*/3,      /*fp2fx_rmode=*/2,      /*asr_rmode=*/3,
+    /*relu_mul=*/0,         /*vld0_ext_mode_en*/ 0,
+    /*vld1_ext_mode_en*/ 0, /*eltmul_relu*/ 0,      /*veltadd_relu*/ 0};
+
 // NNP400 llvm code generator.
 class CodeGenNNP400LLVM : public CodeGenLLVM {
  public:
@@ -544,38 +585,40 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
   }
 
   template <typename RetT>
-  RetT WithSetModeScope(const CallNode* op, const std::function<RetT()>& callback) {
-    const char* attrs[8] = {"", "", "asr_rmode", "", "", "", "", "veltadd_relu_mode"};
-    int recover_value[8] = {-1, -1, 3, -1, -1, -1, -1, 0};
-    std::vector<llvm::Value*> mode_args(8, builder_->getInt32(-1));
-    std::vector<llvm::Value*> recover_mode_args(8, builder_->getInt32(-1));
-    bool gen = false;
-    for (size_t i = 0; i < 8; ++i) {
-      std::string name = attrs[i];
-      if (name.empty()) continue;  // not supported attrs
-      int value = GetValueByKey(op, name);
-      if (value >= 0) {
-        mode_args[i] = builder_->getInt32(value);
-        recover_mode_args[i] = builder_->getInt32(recover_value[i]);
-        gen = true;
-      }
+  RetT WithSetModeScope(const NNPSetModeSpec& new_spec, const NNPSetModeSpec& old_spec,
+                        const std::function<RetT()>& callback) {
+    if (!new_spec.valid()) {
+      return callback();
     }
-    if (gen) {
-      auto setmode_intrin =
-          llvm::Intrinsic::getDeclaration(module_.get(), llvm::Intrinsic::nnp_setmode, {});
-      builder_->CreateCall(setmode_intrin, mode_args);
-    }
+    NNPSetModeSpec recover_spec;
+    recover_spec.fx2fp_rmode = new_spec.fx2fp_rmode >= 0 ? old_spec.fx2fp_rmode : -1;
+    recover_spec.fp2fx_rmode = new_spec.fp2fx_rmode >= 0 ? old_spec.fp2fx_rmode : -1;
+    recover_spec.asr_rmode = new_spec.asr_rmode >= 0 ? old_spec.asr_rmode : -1;
+    recover_spec.relu_mul = new_spec.relu_mul >= 0 ? old_spec.relu_mul : -1;
+    recover_spec.vld0_ext_mode_en = new_spec.vld0_ext_mode_en >= 0 ? old_spec.vld0_ext_mode_en : -1;
+    recover_spec.vld1_ext_mode_en = new_spec.vld1_ext_mode_en >= 0 ? old_spec.vld1_ext_mode_en : -1;
+    recover_spec.eltmul_relu = new_spec.eltmul_relu >= 0 ? old_spec.eltmul_relu : -1;
+    recover_spec.veltadd_relu = new_spec.veltadd_relu >= 0 ? old_spec.veltadd_relu : -1;
+    CreateNNPSetMode(new_spec);
     RetT result = callback();
-    if (gen) {
-      auto setmode_intrin =
-          llvm::Intrinsic::getDeclaration(module_.get(), llvm::Intrinsic::nnp_setmode, {});
-      builder_->CreateCall(setmode_intrin, recover_mode_args);
-    }
+    CreateNNPSetMode(recover_spec);
     return result;
   }
 
+  void CreateNNPSetMode(const NNPSetModeSpec& spec) {
+    std::vector<llvm::Value*> mode_args(
+        {builder_->getInt32(spec.fx2fp_rmode), builder_->getInt32(spec.fp2fx_rmode),
+         builder_->getInt32(spec.asr_rmode), builder_->getInt32(spec.relu_mul),
+         builder_->getInt32(spec.vld0_ext_mode_en), builder_->getInt32(spec.vld1_ext_mode_en),
+         builder_->getInt32(spec.eltmul_relu), builder_->getInt32(spec.veltadd_relu)});
+    auto setmode_intrin =
+        llvm::Intrinsic::getDeclaration(module_.get(), llvm::Intrinsic::nnp_setmode, {});
+    builder_->CreateCall(setmode_intrin, mode_args);
+  }
+
   llvm::Value* CreateVeltadd(const CallNode* op) {
-    return WithSetModeScope<llvm::Value*>(op, [this, op]() {
+    NNPSetModeSpec spec = NNPSetModeSpec::FromCall(op);
+    return WithSetModeScope<llvm::Value*>(spec, NNPSetModeSpec::TVM_APP_DEFAULT_SPEC, [this, op]() {
       ICHECK_GE(op->args.size(), 4);
       llvm::Value* vs0 = VisitExpr(op->args[0]);
       llvm::Value* vs1 = VisitExpr(op->args[1]);
@@ -857,12 +900,19 @@ void CodeGenNNP400LLVM::AddFunctionInternal(const PrimFunc& f, bool ret_void) {
 
   llvm::BasicBlock* entry = llvm::BasicBlock::Create(*ctx_, "entry", function_);
   builder_->SetInsertPoint(entry);
-  this->VisitStmt(f->body);
 
+  // set default setmode config of tvm application convention
+  CreateNNPSetMode(NNPSetModeSpec::TVM_APP_DEFAULT_SPEC);
+
+  this->VisitStmt(f->body);
   llvm::StringRef fs = target_machine_->getTargetFeatureString();
   if (!fs.empty()) {
     function_->addFnAttr("target-features", fs);
   }
+
+  // recover hardware default setmode config
+  CreateNNPSetMode(NNPSetModeSpec::HW_DEFAULT_SPEC);
+
   builder_->CreateRetVoid();
 
   if (vcore_resource_.defined() && analyzer_->CanProveGreaterEqual(vcore_resource_, 1)) {
