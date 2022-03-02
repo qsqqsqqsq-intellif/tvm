@@ -27,6 +27,32 @@ class ExpandAddParam(ExprMutator):
     """ExpandAddParam"""
 
     def visit_call(self, call):
+        def find_layout(node):
+            layout = None
+            transposed = False
+            while not layout and isinstance(node, relay.Call):
+                if isinstance(node.op, relay.Function):
+                    layout = find_layout(node.op.body)
+
+                else:
+                    if node.op.name in ["transpose", "reshape", "nn.batch_flatten"]:
+                        transposed = True
+                        break
+
+                if transposed:
+                    break
+
+                attrs = dict(node.attrs) if node.attrs is not None else {}
+                if "layout" in attrs:
+                    layout = attrs["layout"]
+
+                if "data_layout" in attrs:
+                    layout = attrs["data_layout"]
+
+                node = node.args[0]
+
+            return layout
+
         visited = super().visit_call(call)
         if visited.op == tvm.relay.op.get("add") and isinstance(
             visited.args[1], tvm.relay.Constant
@@ -39,24 +65,7 @@ class ExpandAddParam(ExprMutator):
             if len(shape0) < 4:
                 return visited
 
-            layout = None
-            arg0 = visited.args[0]
-            while isinstance(arg0, relay.Call) and arg0.op.name not in [
-                "transpose",
-                "reshape",
-                "nn.batch_flatten",
-            ]:
-                attrs = dict(arg0.attrs) if arg0.attrs is not None else {}
-                if "layout" in attrs:
-                    layout = attrs["layout"]
-
-                if "data_layout" in attrs:
-                    layout = attrs["data_layout"]
-
-                if layout is not None:
-                    break
-
-                arg0 = arg0.args[0]
+            layout = find_layout(visited.args[0])
 
             if layout:
                 idx = layout.find("C")
