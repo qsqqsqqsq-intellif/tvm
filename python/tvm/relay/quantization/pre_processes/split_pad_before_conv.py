@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements
+# pylint: disable=unused-argument,inconsistent-return-statements,bad-continuation
 """split pad before conv if pad refrence count is greater than 1"""
 from tvm import relay
 from tvm.relay.expr_functor import ExprMutator, ExprVisitor
