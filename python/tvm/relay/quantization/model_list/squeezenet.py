@@ -36,12 +36,13 @@ else:
     target = "llvm"
 
 batch_size = 1
-calibrate_num = 500
-num_workers = 8
+calibrate_num = 1
+num_workers = 0
 model_name = "squeezenet1_1"
 performance = {"float": 58.1780, "int8": 46.5240}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
-data_path = "/data/zhaojinxi/data/imagenet"
+# data_path = "/data/zhaojinxi/data/imagenet"
+data_path = "/home/yhh/Desktop/dedatasets-lfs"
 
 all_op = [
     "conv2d_bias_add",

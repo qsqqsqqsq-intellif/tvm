@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements,unexpected-keyword-arg
+# pylint: disable=unused-argument,inconsistent-return-statements,unexpected-keyword-arg,too-many-function-args
 """op"""
 
 import logging

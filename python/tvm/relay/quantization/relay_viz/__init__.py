@@ -14,6 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+# pylint: disable=unused-argument,inconsistent-return-statements,bad-continuation
 """Relay IR Visualizer"""
 import logging
 import copy

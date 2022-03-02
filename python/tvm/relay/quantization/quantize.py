@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements,import-outside-toplevel
+# pylint: disable=unused-argument,inconsistent-return-statements,import-outside-toplevel,bad-continuation
 """Automatic quantization toolkit."""
 
 import os
@@ -53,7 +53,7 @@ class Quantize:
         if isinstance(self.pre_processed_mod, relay.Function):
             LOGGER.debug(self.pre_processed_mod)
         else:
-            LOGGER.debug(self.pre_processed_mod["main"])
+            LOGGER.info(self.pre_processed_mod["main"])
         analyze_graph(self)
         LOGGER.info("[collect] start...")
         LOGGER.info("[collect] the calibrate_num is %d", cls.calibrate_num)

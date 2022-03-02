@@ -91,7 +91,20 @@ class Conv2D:
                     name = name.value
             elif isinstance(arg_call, relay.Call):
                 name = arg_call.op.name
-            if name in ["nn.global_sum_pool2d"]:
+
+            sumpool_is_global = 0
+            if name in ["nn.sum_pool2d"]:
+                pool_size = arg_call.attrs.pool_size
+                pool_shape = arg_call.type_args[0].shape
+                if len(pool_shape) == 4 and len(pool_size) == 2:
+                    if (
+                        pool_shape[2].value == pool_shape[3].value
+                        and pool_size[0].value == pool_size[1].value
+                        and pool_shape[2].value == pool_size[0].value
+                    ):
+                        sumpool_is_global = 1
+
+            if name in ["nn.global_sum_pool2d"] or sumpool_is_global == 1:
                 input0_axis = -1
         else:
             input0_axis = -1
