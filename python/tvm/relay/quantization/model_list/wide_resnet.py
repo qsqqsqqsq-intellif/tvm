@@ -28,26 +28,29 @@ torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-ctx = tvm.cpu()
-target = "llvm"
+if tvm.runtime.enabled("gpu"):
+    ctx = tvm.cuda()
+    target = "cuda"
+else:
+    ctx = tvm.cpu()
+    target = "llvm"
 
 batch_size = 1
 calibrate_num = 500
 num_workers = 8
-model_name = "squeezenet1_1"
-performance = {"float": 58.1780, "int8": 57.5960}
+model_name = "wide_resnet50_2"
+performance = {"float": 78.4680, "int8": 78.4160}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/imagenet"
-# data_path = "/home/yhh/Desktop/dedatasets-lfs"
 
 all_op = [
     "conv2d_bias_add",
     "nn.relu",
     "nn.max_pool2d",
-    "concatenate",
+    "add",
     "nn.sum_pool2d",
-    "multiply",
     "reshape",
+    "dense_bias_add",
 ]
 
 
@@ -114,7 +117,7 @@ if os.path.exists(path):
     params = None
 else:
     x = torch.randn([1, 3, 224, 224])
-    model = torchvision.models.squeezenet1_1(pretrained=True)
+    model = torchvision.models.wide_resnet50_2(pretrained=True)
     scripted_model = torch.jit.trace(model.eval(), x)
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)

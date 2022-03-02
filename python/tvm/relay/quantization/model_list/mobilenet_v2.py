@@ -28,18 +28,14 @@ torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-if tvm.runtime.enabled("gpu"):
-    ctx = tvm.cuda()
-    target = "cuda"
-else:
-    ctx = tvm.cpu()
-    target = "llvm"
+ctx = tvm.cpu()
+target = "llvm"
 
 batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "mobilenet_v2"
-performance = {"float": 71.878, "int8": 70.7220}
+performance = {"float": 71.878, "int8": 71.0540}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/imagenet"
 # data_path = "/home/yhh/Desktop/dedatasets-lfs"
@@ -123,11 +119,14 @@ else:
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
 
 quantize_config = {}
-# quantize_config["call"] = {
-#     "threshold": Threshold.MinMax,
-#     "method": Method.Symmetry,
-#     "dtype": "int16",
-# }
+from tvm.relay.quantization.threshold import Threshold
+from tvm.relay.quantization.method_dtype import Method
+
+quantize_config["call"] = {
+    "threshold": Threshold.Percentile,
+    "method": Method.Symmetry,
+    "dtype": "int8",
+}
 
 
 quantize_search = relay.quantization.QuantizeSearch(

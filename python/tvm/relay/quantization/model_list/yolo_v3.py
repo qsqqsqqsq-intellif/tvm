@@ -35,7 +35,7 @@ else:
     target = "llvm"
 
 batch_size = 1
-calibrate_num = 5
+calibrate_num = 500
 num_workers = 16
 model_name = "yolo3_darknet53_coco"
 performance = {"float": 33.6, "int8": None}

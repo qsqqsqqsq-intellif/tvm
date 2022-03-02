@@ -35,7 +35,7 @@ else:
     target = "llvm"
 
 batch_size = 1
-calibrate_num = 5
+calibrate_num = 500
 num_workers = 16
 model_name = "ssd_512_resnet50_v1_coco"
 performance = {"float": 29.5, "int8": None}
