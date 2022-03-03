@@ -87,7 +87,14 @@ def _run_graph(batch, runtime, input_keys, num_outputs):
 
 
 def _get_graph(nodes, params, ctx, target, optlevel=3):
-    func = relay.Function(params, relay.Tuple(nodes))
+
+    if "analysis" in relay.__dict__:
+        new_params = relay.analysis.free_vars(relay.Tuple(nodes))
+    else:
+        new_params = relay.ir_pass.free_vars(relay.Tuple(nodes))
+
+    func = relay.Function(new_params, relay.Tuple(nodes))
+
     input_keys = [str(param.name_hint) for param in func.params]
     if "transform" in relay.__dict__:
         with relay.transform.build_config(opt_level=optlevel):

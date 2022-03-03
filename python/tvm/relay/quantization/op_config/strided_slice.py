@@ -91,7 +91,7 @@ class StridedSlice:
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
         new_node = relay.strided_slice(new_arg, **dict(new_node.attrs))
-        if self.quantized:
-            clip_attr = _get_dtype_info(self.input_config[old_arg]["dtype"])
-            new_node = relay.clip(new_node, clip_attr["qmin"], clip_attr["qmax"])
+        # if self.quantized:
+        #     clip_attr = _get_dtype_info(self.input_config[old_arg]["dtype"])
+        #     new_node = relay.clip(new_node, clip_attr["qmin"], clip_attr["qmax"])
         return new_node

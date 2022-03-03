@@ -126,7 +126,6 @@ def eliminate_dequantize_quantize(node):
                     "nn.relu",
                     "nn.max_pool2d",
                     "nn.max_pool3d",
-                    "concatenate",
                     "add",
                     "nn.sum_pool2d",
                 ]:
