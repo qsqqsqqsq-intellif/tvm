@@ -20,7 +20,7 @@
 import logging
 from tvm import relay
 from ..threshold import Threshold
-from ..method_dtype import Method, DataType, _get_dtype_info
+from ..method_dtype import Method, DataType
 from ..analyze import _conv_counter, oneargdeal
 from ..calibrate import _calibrate_core
 from ..realize import _realize_core
