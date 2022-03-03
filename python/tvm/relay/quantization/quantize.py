@@ -123,7 +123,7 @@ def run_quantization(
 
     # call quantize search
     if use_gpu:
-        ctx = tvm.gpu(0)
+        ctx = tvm.cuda(0)
         target = "cuda"
     else:
         ctx = tvm.cpu()

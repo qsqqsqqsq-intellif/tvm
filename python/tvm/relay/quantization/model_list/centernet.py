@@ -30,7 +30,7 @@ mxnet.random.seed(0)
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 if tvm.runtime.enabled("gpu"):
-    ctx = tvm.gpu()
+    ctx = tvm.cuda()
     target = "cuda"
 else:
     ctx = tvm.cpu()

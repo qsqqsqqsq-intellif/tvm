@@ -35,7 +35,7 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "mobilenet_v2"
-performance = {"float": 71.878, "int8": 71.0540}
+performance = {"float": 71.878, "int8": 70.7220}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/imagenet"
 # data_path = "/home/yhh/Desktop/dedatasets-lfs"
@@ -118,16 +118,14 @@ else:
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
 
-quantize_config = {}
-from tvm.relay.quantization.threshold import Threshold
-from tvm.relay.quantization.method_dtype import Method
-
-quantize_config["call"] = {
-    "threshold": Threshold.Percentile,
-    "method": Method.Symmetry,
-    "dtype": "int8",
-}
-
+# quantize_config = {}
+# from tvm.relay.quantization.threshold import Threshold
+# from tvm.relay.quantization.method_dtype import Method
+# quantize_config["call"] = {
+#     "threshold": Threshold.Percentile,
+#     "method": Method.Symmetry,
+#     "dtype": "int8",
+# }
 
 quantize_search = relay.quantization.QuantizeSearch(
     model_name=model_name,
@@ -146,7 +144,7 @@ quantize_search = relay.quantization.QuantizeSearch(
             "axis": 1,
         },
     },
-    quantize_config=quantize_config,
+    # quantize_config=quantize_config,
     compare_statistics=False,
     # net_in_dtype="int16",
 )

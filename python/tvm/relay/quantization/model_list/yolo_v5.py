@@ -18,7 +18,7 @@
 import os
 import time
 import json
-from pathlib import Path
+import pathlib
 import numpy
 import tqdm
 import cv2
@@ -26,8 +26,6 @@ import torch
 import torchvision
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
-from tvm.relay.quantization.threshold import Threshold
-from tvm.relay.quantization.method_dtype import Method
 import tvm
 import tvm.relay as relay
 import tvm.relay.quantization
@@ -37,22 +35,20 @@ torch.manual_seed(0)
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 if tvm.runtime.enabled("gpu"):
-    ctx = tvm.gpu()
+    ctx = tvm.cuda()
     target = "cuda"
 else:
     ctx = tvm.cpu()
     target = "llvm"
 
 batch_size = 1
-calibrate_num = 300
+calibrate_num = 500
 num_workers = 16
 model_name = "yolov5s"
-performance = {"float": 37.098, "int8": None}
+performance = {"float": 37.098, "int8": 34.788}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
-anno_json = "/data/zhaojinxi/data/coco/annotations/instances_val2017.json"
-data_path = "/data/zhaojinxi/data/coco/val2017"
-# anno_json = "/home/yhh/Desktop/dedatasets-lfs/coco_val2017/annotations/instances_val2017.json"
-# data_path = "/home/yhh/Desktop/dedatasets-lfs/coco_val2017/val2017"
+data_path = "/data/zhaojinxi/data/coco"
+# data_path = "/home/yhh/Desktop/dedatasets-lfs/coco_val2017"
 
 all_op = [
     "conv2d_bias_add",
@@ -255,6 +251,7 @@ def prepare_data_loaders(data_path, batch_size):
 
             return torch.from_numpy(img), self.img_files[index], shapes
 
+    data_path = os.path.join(data_path, "val2017")
     dataset = LoadImagesAndLabels(data_path)
 
     def collate_fn(batch):
@@ -464,7 +461,7 @@ def evaluate(runtime):
         output = non_max_suppression(output)
 
         for si, pred in enumerate(output):
-            path, shape = Path(paths[si]), shapes[si][0]
+            path, shape = pathlib.Path(paths[si]), shapes[si][0]
 
             if len(pred) == 0:
                 continue
@@ -498,11 +495,12 @@ def evaluate(runtime):
     with open(pred_json, "w") as f:
         json.dump(jdict, f)
 
+    anno_json = os.path.join(data_path, "annotations/instances_val2017.json")
     anno = COCO(anno_json)
     pred = anno.loadRes(pred_json)
     eval = COCOeval(anno, pred, "bbox")
 
-    eval.params.imgIds = [int(Path(x).stem) for x in data_loader.dataset.img_files]
+    eval.params.imgIds = [int(pathlib.Path(x).stem) for x in data_loader.dataset.img_files]
     eval.evaluate()
     eval.accumulate()
     eval.summarize()
@@ -526,13 +524,15 @@ else:
 # notice !!!!
 # if you use calibnum is 1, and see compare_statistics
 # use Threshold.RelativeEntropy
-quantize_config = {}
-quantize_config["call"] = {
-    "threshold": Threshold.PercentileAbs,
-    "method": Method.Symmetry,
-    "dtype": "int8",
-}
-quantize_config["skip_conv_layers"] = [46, 53, 60]
+# quantize_config = {}
+# from tvm.relay.quantization.threshold import Threshold
+# from tvm.relay.quantization.method_dtype import Method
+# quantize_config["call"] = {
+#     "threshold": Threshold.PercentileAbs,
+#     "method": Method.Symmetry,
+#     "dtype": "int8",
+# }
+# quantize_config["skip_conv_layers"] = [46, 53, 60]
 
 quantize_search = relay.quantization.QuantizeSearch(
     model_name=model_name,
@@ -551,7 +551,7 @@ quantize_search = relay.quantization.QuantizeSearch(
             "axis": 1,
         },
     },
-    quantize_config=quantize_config,
+    # quantize_config=quantize_config,
     compare_statistics=False,
 )
 
