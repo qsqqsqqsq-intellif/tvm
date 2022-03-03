@@ -262,8 +262,8 @@ class Conv3DBiasAdd:
 
             if self.input_config[old_node.args[0]]["dtype"] == "int16":
                 # for conv cpu no support data-kernel dtype diff
-                weight_int16 = relay.const(conv3d_node.args[1].data.asnumpy(), "int16")
-                bias_int64 = relay.const(bias_node.args[1].data.asnumpy(), "int64")
+                weight_int16 = relay.const(conv3d_node.args[1].data.asnumpy().astype("int16"))
+                bias_int64 = relay.const(bias_node.args[1].data.asnumpy().astype("int64"))
                 conv3d_node = relay.nn.conv3d(realized_args[0], weight_int16, **conv3d_attrs)
                 bias_node = relay.nn.bias_add(conv3d_node, bias_int64)
                 bias_node = relay.clip(bias_node, -(2 ** 31), 2 ** 31 - 1)
@@ -275,7 +275,7 @@ class Conv3DBiasAdd:
         for old_arg, new_arg in zip(old_node.args, realized_args):
             tmp_expr = relay.frontend.common.infer_type(new_arg)
             if isinstance(new_arg, relay.Constant) and tmp_expr.checked_type.dtype != "float16":
-                new_arg = relay.const(new_arg.data.asnumpy(), "float16")
+                new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
             elif tmp_expr.checked_type.dtype.startswith("int"):
                 new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
             elif tmp_expr.checked_type.dtype != "float16":
