@@ -298,8 +298,10 @@ class Conv2DTransposeBiasAdd:
 
             if self.input_config[old_node.args[0]]["dtype"] == "int16":
                 # for conv cpu no support data-kernel dtype diff
-                weight_int16 = relay.const(conv2d_transpose_node.args[1].data.asnumpy(), "int16")
-                bias_int64 = relay.const(bias_node.args[1].data.asnumpy(), "int64")
+                weight_int16 = relay.const(
+                    conv2d_transpose_node.args[1].data.asnumpy().astype("int16")
+                )
+                bias_int64 = relay.const(bias_node.args[1].data.asnumpy().astype("int64"))
                 conv2d_transpose_node = relay.nn.conv2d_transpose(
                     realized_args[0], weight_int16, **conv2d_transpose_attrs
                 )

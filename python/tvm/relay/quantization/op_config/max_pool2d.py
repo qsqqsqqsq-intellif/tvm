@@ -23,7 +23,7 @@ from ..threshold import Threshold
 from ..method_dtype import Method, DataType
 from ..analyze import _conv_counter, oneargdeal
 from ..calibrate import _calibrate_core
-from ..realize import _realize_core
+from ..realize import _realize_core, operate
 
 LOGGER = logging.getLogger("quantize")
 
@@ -89,6 +89,13 @@ class MaxPool2D:
         new_arg = new_node.args[0]
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
+
+        if not self.quantized:
+            tmp = relay.frontend.common.infer_type(new_arg)
+            if tmp.checked_type.dtype.startswith("int") and tmp.checked_type.dtype not in ["int32"]:
+                new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
+            elif tmp.checked_type.dtype != "float16":
+                new_arg = relay.cast(new_arg, "float16")
 
         new_node = relay.nn.max_pool2d(new_arg, **dict(new_node.attrs))
         if isinstance(new_node, relay.TupleWrapper):

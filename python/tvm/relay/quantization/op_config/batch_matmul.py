@@ -152,7 +152,7 @@ class BatchMatmul:
         for old_arg, new_arg in zip(old_node.args, realized_args):
             tmp_expr = relay.frontend.common.infer_type(new_arg)
             if isinstance(new_arg, relay.Constant) and tmp_expr.checked_type.dtype != "float16":
-                new_arg = relay.const(new_arg.data.asnumpy(), "float16")
+                new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
             elif tmp_expr.checked_type.dtype.startswith("int"):
                 new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
             elif tmp_expr.checked_type.dtype != "float16":

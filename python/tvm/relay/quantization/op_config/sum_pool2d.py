@@ -24,7 +24,7 @@ from ..threshold import Threshold
 from ..method_dtype import Method, DataType
 from ..analyze import _conv_counter, oneargdeal
 from ..calibrate import _calibrate_core
-from ..realize import _realize_core
+from ..realize import _realize_core, operate
 
 LOGGER = logging.getLogger("quantize")
 
@@ -92,6 +92,13 @@ class SumPool2D:
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
+        if not self.quantized:
+            tmp = relay.frontend.common.infer_type(new_arg)
+            if tmp.checked_type.dtype.startswith("int") and tmp.checked_type.dtype not in ["int32"]:
+                new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
+            elif tmp.checked_type.dtype != "float16":
+                new_arg = relay.cast(new_arg, "float16")
+
         if "ir_pass" not in relay.__dict__:
             # 400 TVM no support out_dtype
             dtype = runtime_ctypes.DataType(self.input_config[old_arg]["dtype"])
@@ -109,6 +116,7 @@ class SumPool2D:
             new_attr["ceil_mode"] = new_node.attrs.ceil_mode
             if self.quantized:
                 new_attr["out_dtype"] = "int32"
+
             new_node = relay.nn.sum_pool2d(new_arg, **new_attr)
 
         return new_node
