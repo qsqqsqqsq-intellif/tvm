@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements,bad-continuation
+# pylint: disable=unused-argument,inconsistent-return-statements,bad-continuation,len-as-condition
 """collect"""
 
 import logging
@@ -59,6 +59,7 @@ def _get_statistics_min_max(quantize, run):
         vertex_config = quantize.vertex_config[node]
 
         def tmp(arg, config):
+            """cal core"""
             cond1 = not isinstance(arg, relay.Constant)
             cond2 = config["operate"] == "quantize" or config["operate"] == "requantize"
             if cond1 and cond2:

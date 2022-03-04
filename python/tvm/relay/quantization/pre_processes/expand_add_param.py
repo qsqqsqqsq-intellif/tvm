@@ -28,6 +28,7 @@ class ExpandAddParam(ExprMutator):
 
     def visit_call(self, call):
         def find_layout(node):
+            """find layout"""
             layout = None
             transposed = False
             while not layout and isinstance(node, relay.Call):

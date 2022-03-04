@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements
+# pylint: disable=unused-argument,inconsistent-return-statements,len-as-condition
 """Automatic quantization toolkit."""
 
 import logging
@@ -368,6 +368,7 @@ class L2Norm:
         """
 
         def tmp(min_, max_, histogram):
+            """cal core"""
             bin_width = (max_ - min_) / self.bins
 
             # cumulative sum
@@ -566,6 +567,7 @@ class RelativeEntropy:
         """
 
         def tmp(min_val, max_val, histogram):
+            """cal core"""
             th_ = max(abs(min_val), abs(max_val))
             _, hist_edges = numpy.histogram(0, self.bins, range=(-th_, th_))
             zero_bin_idx = self.bins // 2
@@ -812,6 +814,7 @@ class KLDAbs:
         """use 300 strategy"""
 
         def tmp(max_val, histogram):
+            """cal core"""
             histogram[0] = 0.0
             sum_all = 0.0
             m = 0

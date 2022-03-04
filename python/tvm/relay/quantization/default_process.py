@@ -25,6 +25,7 @@ import numpy
 
 
 def traverse_image(total, path):
+    """traverse_image"""
     for one in os.listdir(path):
         new_path = os.path.join(path, one)
         if os.path.isdir(new_path):
@@ -87,6 +88,7 @@ def default_eval(cls):
     traverse_image(total_path, cls.image_path)
 
     def evaluate(runtime):
+        """evaluate"""
         total_output = []
         for path in tqdm.tqdm(total_path):
             image = process_image(path, cls.image_size, cls.channel_last, cls.rgb)
