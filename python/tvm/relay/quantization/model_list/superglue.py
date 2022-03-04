@@ -15,29 +15,40 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import numpy as np
 import onnx
 import tvm
 from tvm import relay
 import tvm.relay.quantization
+import numpy as np
 
-path = "/data/share/pd_models/aslfeat/aslfeat_fix_480x640.onnx"
+path = "/data/share/pd_models/superglue_new.onnx"
 
 mod = onnx.load(path)
-shape = {"input:0": (1, 480, 640, 1)}
+shape = {
+    "kpts0": (1, 1000, 2),
+    "1": (1, 1000),
+    "2": (1, 256, 1000),
+    "kpts1": (1, 1000, 2),
+    "6": (1, 1000),
+    "7": (1, 256, 1000),
+}
 
 mod, params = relay.frontend.from_onnx(mod, shape=shape, freeze_params=True)
 mod = relay.transform.InferType()(mod)
 
 
-def evaluate(runtime):
-
-    return 0
-
-
 calibrate_data = []
 for _ in range(30):
-    calibrate_data.append({"input:0": np.random.randn(1, 480, 640, 1)})
+    calibrate_data.append(
+        {
+            "kpts0": np.random.randn(1, 1000, 2),
+            "1": np.random.randn(1, 1000),
+            "2": np.random.randn(1, 256, 1000),
+            "kpts1": np.random.randn(1, 1000, 2),
+            "6": np.random.randn(1, 1000),
+            "7": np.random.randn(1, 256, 1000),
+        }
+    )
 
 
 def yield_calibrate_data():
@@ -45,15 +56,24 @@ def yield_calibrate_data():
         yield i
 
 
+def evaluate(runtime):
+
+    return 0
+
+
 quantize_search = relay.quantization.QuantizeSearch(
-    model_name="aslfeat",
+    model_name="superglue",
     mod=mod,
     params=params,
     ctx=tvm.cpu(),
+    dataset=yield_calibrate_data,
+    calibrate_num=30,
     target="llvm",
     root_path=None,
-    dataset=yield_calibrate_data,
     compare_statistics=False,
     eval_func=evaluate,
-    # net_in_dtype="int16",
+    # net_in_dtype="uint8",
 )
+
+config = quantize_search.get_default_config()
+quantize_search.quantize(config)

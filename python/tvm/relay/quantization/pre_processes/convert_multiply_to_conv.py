@@ -35,6 +35,10 @@ class ConvertMultiplyToConv(ExprMutator):
             shape0 = call.args[0].checked_type.shape
             if shape0:
                 shape0 = [x.value for x in shape0]
+
+            if len(shape0) != 4:
+                return visited
+
             shape1 = call.args[1].checked_type.shape
             if shape1:
                 shape1 = [x.value for x in shape1]
@@ -50,6 +54,7 @@ class ConvertMultiplyToConv(ExprMutator):
                     "reshape",
                     "nn.batch_flatten",
                 ]:
+                    print(pre_expr)
                     attrs = dict(pre_expr.attrs) if pre_expr.attrs is not None else {}
                     if "layout" in attrs:
                         layout = attrs["layout"]
@@ -123,9 +128,6 @@ class ConvertMultiplyToConv(ExprMutator):
                 return relay.nn.conv3d(
                     visited.args[0], conv3d_arg, channels=ochannel, kernel_size=[1, 1, 1]
                 )
-
-            if len(shape0) != 4:
-                return visited
 
             if layout == "NHWC":
                 c_idx = 3
