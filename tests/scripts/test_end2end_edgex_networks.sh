@@ -51,7 +51,7 @@ do
   ln -sf ${MODEL} ${WORK_DIR}/${line}.${TARGET}
   start=`date +%s`
   {
-    relay_debug convert ${WORK_DIR}/${line}.tflite -o ${WORK_DIR}/origin
+    relay_debug convert ${WORK_DIR}/${line}.${TARGET} -o ${WORK_DIR}/origin
     echo "************frontend done***********"
     relay_debug quantize --json ${WORK_DIR}/origin/${line}.json --params ${WORK_DIR}/origin/${line}.params -o ${WORK_DIR}/quantized
     echo "************quantize done***********"
