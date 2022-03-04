@@ -20,4 +20,4 @@ from __future__ import absolute_import as _abs
 from .op import *
 from .naive_vu_schedule import naive_vu_schedule
 from .conv2d import *
-from .concatenate import schedule_concatenate_edgex_impl
+from .general import *

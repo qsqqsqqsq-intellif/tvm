@@ -26,14 +26,17 @@ from tvm.contrib.edgex.testing import (
     get_fused_functions,
     TempOpStrategy,
 )
-from tvm.contrib.edgex.relay.op.strategy import fschedule_general_vu
+from tvm.contrib.edgex.relay.op.strategy import (
+    fschedule_general_vu,
+    SPECIFIED_FSCHEDULE_OPS,
+)
 
 
 def verify_network_per_op(net):
     """test network's all ops, run each fused graph independently"""
     mod, params = get_fs_fused_workload(net, fix_norm=True)
     with TempOpStrategy(
-        [x for x in tvm.ir.Op.list_op_names() if x != "nn.conv2d"],
+        [x for x in tvm.ir.Op.list_op_names() if x not in SPECIFIED_FSCHEDULE_OPS],
         "edgex",
         fschedule=fschedule_general_vu,
     ):

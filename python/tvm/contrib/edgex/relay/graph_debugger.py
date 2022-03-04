@@ -30,7 +30,10 @@ from tvm import relay
 from tvm import IRModule
 from tvm import runtime
 from tvm.contrib.edgex.testing import TempOpStrategy, check_edgex_relay_build
-from tvm.contrib.edgex.relay.op.strategy import fschedule_general_vu
+from tvm.contrib.edgex.relay.op.strategy import (
+    fschedule_general_vu,
+    SPECIFIED_FSCHEDULE_OPS,
+)
 
 
 def print_info(msg):
@@ -287,7 +290,7 @@ class RelayGraphDebugger:
     @staticmethod
     def simple_run(mod, params=None, result_json=None):
         with TempOpStrategy(
-            [x for x in tvm.ir.Op.list_op_names() if x != "nn.conv2d"],
+            [x for x in tvm.ir.Op.list_op_names() if x not in SPECIFIED_FSCHEDULE_OPS],
             "edgex",
             fschedule=fschedule_general_vu,
         ):
@@ -993,7 +996,7 @@ def main():
         print_error("Missing command line arguments")
         show_arg_help()
         sys.exit(-1)
-    override_ops = [x for x in tvm.ir.Op.list_op_names() if x != "nn.conv2d"]
+    override_ops = [x for x in tvm.ir.Op.list_op_names() if x not in SPECIFIED_FSCHEDULE_OPS]
     with TempOpStrategy(override_ops, "edgex", fschedule=fschedule_general_vu):
         dispatch_cmd(sys.argv[1], sys.argv[2:])
 

@@ -27,6 +27,8 @@ from tvm.target import get_native_generic_func, generic_func
 import tvm.relay.quantization
 from tvm.relay.quantization.relay_ops import round_right_shift_strategy
 
+SPECIFIED_FSCHEDULE_OPS = ["nn.conv2d", "concatenate", "split", "reshape", "transpose"]
+
 
 def register_edgex_fschedule(op_name):
     """Workaround annotation for fschedule register"""
@@ -117,4 +119,22 @@ reg.register_schedule("cast_reinterpret", dummy_schedule)
 @register_edgex_fschedule("concatenate")
 def schedule_concatenate_edgex(attrs, prim_func, target):
     """concatenate edgex schedule"""
-    return tvm.contrib.edgex.topi.schedule_concatenate_edgex_impl(prim_func, is_cpu=False)
+    return tvm.contrib.edgex.topi.schedule_memcpy_style_edgex_impl(prim_func, target)
+
+
+@register_edgex_fschedule("split")
+def schedule_split_edgex(attrs, prim_func, target):
+    """split edgex schedule"""
+    return tvm.contrib.edgex.topi.schedule_memcpy_style_edgex_impl(prim_func, target)
+
+
+@register_edgex_fschedule("reshape")
+def schedule_reshape_edgex(attrs, prim_func, target):
+    """reshape edgex schedule"""
+    return tvm.contrib.edgex.topi.schedule_memcpy_style_edgex_impl(prim_func, target)
+
+
+@register_edgex_fschedule("transpose")
+def schedule_transpose_edgex(attrs, prim_func, target):
+    """transpose edgex schedule"""
+    return tvm.contrib.edgex.topi.schedule_memcpy_style_edgex_impl(prim_func, target)

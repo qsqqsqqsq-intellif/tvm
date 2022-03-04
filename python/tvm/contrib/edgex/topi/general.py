@@ -15,33 +15,37 @@
 # specific language governing permissions and limitations
 # under the License.
 # pylint: disable=cell-var-from-loop, bare-except
-"""The concatenate edgex vu schedule"""
+"""The memcpy style edgex vu schedule"""
 
 from tvm.contrib.edgex.tir.schedule import EdgexSchedule
 
 
-def schedule_concatenate_edgex_impl(func, is_cpu):
-    """concatenate edgex schedule implementation"""
+def schedule_memcpy_style_edgex_impl(func, target):
+    """memcpy style op edgex schedule implementation"""
+    is_cpu = target.kind.name != "edgex"
     s = EdgexSchedule(func, debug_mode=False)
 
-    concat = s.get_child_blocks(s.get_block("root"))[0]
-
-    _, c, _, _ = s.get_loops(concat)
-    s.loop_partition(c)
-
+    main_blocks = s.get_child_blocks(s.get_block("root"))
     eidma_blocks = []
 
-    concat_stmt = s.get_sref(concat).stmt
+    # loop_partition all the block's loop, may not be the best choise
+    for blk in main_blocks:
+        loops = s.get_loops(blk)
+        for loop in loops:
+            s.loop_partition(loop)
 
-    for i in range(len(concat_stmt.reads)):
-        eidma = s.cache_read(concat, i, "dm")
+    # cache_read only the first block's read buf
+    stmt = s.get_sref(main_blocks[0]).stmt
+    for i in range(len(stmt.reads)):
+        eidma = s.cache_read(main_blocks[0], i, "dm")
         eidma_blocks.append(eidma)
 
     # tensorize dma intrin
     if not is_cpu:
         for blk in eidma_blocks:
             s.pragma(s.get_loops(blk)[0], "nnp_dma_scope", "eidma")
-        # tensorize concat block
-        s.pragma(s.get_loops(concat)[0], "nnp_dma_scope", "eodma")
+        # tensorize memcpy block
+        for blk in main_blocks:
+            s.pragma(s.get_loops(blk)[0], "nnp_dma_scope", "eodma")
 
     return s.mod["main"]
