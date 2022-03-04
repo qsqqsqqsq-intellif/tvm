@@ -22,7 +22,6 @@ import torch
 import torchvision
 import tvm
 from tvm import relay
-
 import tvm.relay.quantization
 
 torch.manual_seed(0)

@@ -23,7 +23,7 @@ from tvm import relay
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 if not tvm.runtime.enabled("gpu"):
-    ctx = tvm.gpu()
+    ctx = tvm.cuda()
     target = "cuda"
 else:
     ctx = tvm.cpu()
