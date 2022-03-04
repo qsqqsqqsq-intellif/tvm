@@ -143,11 +143,15 @@ class BatchMatmul:
             new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
             realized_args.append(new_arg)
 
+        batch_matmul_attrs = dict(old_node.attrs)
         if self.quantized:
-            new_node = relay.nn.batch_matmul(realized_args[0], realized_args[1])
-
+            batch_matmul_attrs["out_dtype"] = "int32"
+            new_node = relay.nn.batch_matmul(
+                realized_args[0], realized_args[1], **batch_matmul_attrs
+            )
             return new_node
 
+        batch_matmul_attrs["out_dtype"] = "float16"
         realized_args_n = []
         for old_arg, new_arg in zip(old_node.args, realized_args):
             tmp_expr = relay.frontend.common.infer_type(new_arg)
@@ -158,6 +162,7 @@ class BatchMatmul:
             elif tmp_expr.checked_type.dtype != "float16":
                 new_arg = relay.cast(new_arg, "float16")
             realized_args_n.append(new_arg)
-        new_node = relay.nn.batch_matmul(realized_args_n[0], realized_args_n[1])
-
+        new_node = relay.nn.batch_matmul(
+            realized_args_n[0], realized_args_n[1], **batch_matmul_attrs
+        )
         return new_node
