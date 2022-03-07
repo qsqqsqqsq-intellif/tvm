@@ -87,9 +87,12 @@ def lower_ethosu(sch, args, const_dict, name="main"):
         mod = ethosu_passes.ReplaceOperators()(mod)
         mod = tvm.tir.transform.RemoveNoOp()(mod)
         mod, const_dict = ethosu_passes.EncodeConstants(const_dict)(mod)
-        mod = tvm.tir.transform.StorageRewrite()(mod)
+        disable_storage_rewrite = curr_cfg.get("tir.disable_storage_rewrite", False)
+        if not disable_storage_rewrite:
+            mod = tvm.tir.transform.StorageRewrite()(mod)
         mod = tvm.tir.transform.RemoveNoOp()(mod)
         mod = ethosu_passes.AnnotateAllocates()(mod)
+        mod, const_dict = ethosu_passes.CreatePrimFuncWithoutConstants(const_dict)(mod)
     return mod, const_dict
 
 
@@ -123,12 +126,11 @@ class ExtractConstants(ExprMutator):
 
     def visit_constant(self, const):
         if isinstance(const.checked_type, relay.ty.TensorType):
-            if const.checked_type.concrete_shape != ():
-                self.constants.append(const.data.asnumpy())
-                name = "p" + str(len(self.constants))
-                var = relay.var(type_annotation=const.checked_type, name_hint=name)
-                self.const_vars.append(var)
-                return var
+            self.constants.append(const.data.asnumpy())
+            name = "p" + str(len(self.constants))
+            var = relay.var(type_annotation=const.checked_type, name_hint=name)
+            self.const_vars.append(var)
+            return var
 
         return const
 

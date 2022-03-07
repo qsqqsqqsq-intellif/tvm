@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -47,7 +47,7 @@ echo "Linting the Python code..."
 tests/lint/pylint.sh
 tests/lint/flake8.sh
 
-echo "Lintinf the JNI code..."
+echo "Linting the JNI code..."
 tests/lint/jnilint.sh
 
 echo "Checking C++ documentation..."

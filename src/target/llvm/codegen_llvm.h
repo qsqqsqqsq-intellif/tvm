@@ -171,16 +171,19 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   llvm::Value* VisitExpr_(const SelectNode* op) override;
   llvm::Value* VisitExpr_(const LetNode* op) override;
   llvm::Value* VisitExpr_(const LoadNode* op) override;
+  llvm::Value* VisitExpr_(const BufferLoadNode* op) override;
   llvm::Value* VisitExpr_(const CallNode* op) override;
   llvm::Value* VisitExpr_(const RampNode* op) override;
   llvm::Value* VisitExpr_(const ShuffleNode* op) override;
   llvm::Value* VisitExpr_(const BroadcastNode* op) override;
   // stmt
   void VisitStmt_(const StoreNode* op) override;
+  void VisitStmt_(const BufferStoreNode* op) override;
   void VisitStmt_(const ForNode* op) override;
   void VisitStmt_(const WhileNode* op) override;
   void VisitStmt_(const IfThenElseNode* op) override;
   void VisitStmt_(const AllocateNode* op) override;
+  void VisitStmt_(const AllocateConstNode* op) override;
   void VisitStmt_(const AttrStmtNode* op) override;
   void VisitStmt_(const AssertStmtNode* op) override;
   void VisitStmt_(const LetStmtNode* op) override;
@@ -228,6 +231,26 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   // skip first arg mode used for call extern intrinsic.
   virtual llvm::Value* CreateCallExtern(Type ret_type, String global_symbol,
                                         const Array<PrimExpr>& args, bool skip_first_arg);
+
+  /*! \brief Insert a printf() call to the generated LLVM
+   *
+   * This is intended solely for debugging purposes.  After calling
+   * printf(), immediately calls fflush() to flush the stdout buffer
+   * in case of segfault.
+   */
+  void CreatePrintf(const std::string& format, const std::vector<llvm::Value*> format_args);
+
+  /*! \brief Lookup return address, for debugging purposes
+   *
+   * This is intended solely for debugging purposes.  Calls the
+   * `llvm::Intrinsic::returnaddress`, returning the return address of
+   * the current function call.
+   *
+   * \param level Look up the return address of a frame `level` steps
+   * above the current stack frame.
+   */
+  llvm::Value* CreateLookupReturnAddress(unsigned int level = 0);
+
   // Get the corresponding thread index
   virtual llvm::Value* GetThreadIndex(const IterVar& iv);
   // Get the corresponding thread index
@@ -298,6 +321,8 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   // Get alignment given index.
   void GetAlignment(DataType t, const VarNode* buf_var, const PrimExpr& index, int* p_alignment,
                     int* p_native_bits);
+  // Returns whether the LLVM type has padding for alignment
+  bool HasAlignmentPadding(DataType dtype);
   // Get constant string
   llvm::Constant* GetConstString(const std::string& str);
   // do a scalarize call with f
@@ -317,7 +342,8 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   llvm::Value* CreateSub(DataType t, llvm::Value* a, llvm::Value* b);
   llvm::Value* CreateMul(DataType t, llvm::Value* a, llvm::Value* b);
   llvm::Value* CreateBroadcast(llvm::Value* value, int lanes);
-  TypedPointer CreateBufferPtr(DataType t, llvm::Value* buffer, llvm::Value* index);
+  TypedPointer CreateBufferPtr(llvm::Value* buffer_ptr, DataType buffer_element_dtype,
+                               llvm::Value* index, DataType value_dtype);
   // Vector concatenation.
   llvm::Value* CreateVecSlice(llvm::Value* vec, int begin, int extent);
   llvm::Value* CreateVecFlip(llvm::Value* vec);

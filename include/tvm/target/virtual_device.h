@@ -361,6 +361,13 @@ class VirtualDeviceCache {
   std::unordered_set<VirtualDevice, StructuralHash, StructuralEqual> cache_;
 };
 
+/*! brief The attribute key for the virtual device. This key will be promoted to first class on
+ * functions. For use in the parser and printer only.
+ *
+ * Type: VirtualDevice
+ */
+constexpr const char* kVirtualDevice = "virtual_device";
+
 }  // namespace tvm
 
 #endif  //  TVM_TARGET_VIRTUAL_DEVICE_H_

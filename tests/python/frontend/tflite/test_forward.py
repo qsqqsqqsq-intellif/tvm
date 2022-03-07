@@ -618,6 +618,9 @@ def test_forward_stridedslice():
         _test_stridedslice(
             (4, 4), [1, 0], [4, 4], [1, 1], "float32", shrink_axis_mask=2, quantized=quantized
         )
+        _test_stridedslice(
+            (3, 4), [-1, 0], [0, 3], [1, 1], "float32", shrink_axis_mask=1, quantized=quantized
+        )
 
 
 #######################################################################
@@ -3186,6 +3189,9 @@ def test_forward_unpack():
     """UNPACK"""
     _test_unpack(np.array(np.random.uniform(0, 5, (3, 1)), dtype=np.int32), axis=1, num_unpacks=1)
     _test_unpack(np.array(np.random.uniform(0, 5, (3, 4)), dtype=np.float32), axis=0, num_unpacks=3)
+    _test_unpack(
+        np.array(np.random.uniform(0, 5, (3, 1, 2)), dtype=np.float32), axis=0, num_unpacks=3
+    )
     # tflite 1.13 doesn't accept negative axis
     if package_version.parse(tf.VERSION) >= package_version.parse("1.14.0"):
         _test_unpack(
@@ -3358,12 +3364,13 @@ def test_forward_tanh():
 # ----
 
 
-def _test_rsqrt(data, quantized=False):
-    """One iteration of RSQRT"""
-    with tf.Graph().as_default():
-        in_data = array_ops.placeholder(shape=data.shape, dtype="float32", name="in_0")
+def _test_quant_rsqrt(data):
+    """Test RSQRT with quantized data"""
 
-        if quantized:
+    # tensorflow version upgrade support
+    if tf.__version__ < LooseVersion("2.6.1"):
+        with tf.Graph().as_default():
+            in_data = array_ops.placeholder(shape=data.shape, dtype="float32", name="in_0")
             inq_data = tf.quantization.fake_quant_with_min_max_args(
                 in_data, min=1, max=6, name="inq_0"
             )
@@ -3379,7 +3386,60 @@ def _test_rsqrt(data, quantized=False):
                 input_range=input_range,
                 experimental_new_converter=True,
             )
-        else:
+    else:
+
+        def _create_model():
+            class Model(tf.Module):
+                @tf.function
+                def tf_function(self, x):
+                    op = tf.math.rsqrt(x)
+                    return op
+
+            dtype = "int8"
+            model = Model()
+
+            # Save the model
+            export_dir = tempfile.gettempdir() + "/tf_model"
+            tf.saved_model.save(
+                model,
+                export_dir,
+                signatures=model.tf_function.get_concrete_function(
+                    tf.TensorSpec(data.shape, tf.float32, name="input"),
+                ),
+            )
+
+            # Convert the model
+            def representative_dataset():
+                for _ in range(100):
+                    tmp_data = np.random.rand(*tuple(data.shape))
+                    yield [tmp_data.astype(np.float32) * 2]
+
+            converter = tf.lite.TFLiteConverter.from_saved_model(export_dir)
+            converter.optimizations = [tf.lite.Optimize.DEFAULT]
+            converter.representative_dataset = representative_dataset
+            converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+            converter.inference_input_type = tf.int8
+            converter.inference_output_type = tf.int8
+            tflite_model = converter.convert()
+            return tflite_model
+
+        tflite_model_quant = _create_model()
+        tflite_output = run_tflite_graph(tflite_model_quant, data)
+        in_node = ["tfl.quantize"]
+
+        tvm_output = run_tvm_graph(tflite_model_quant, data, in_node)
+        tvm.testing.assert_allclose(
+            np.squeeze(tvm_output[0]), np.squeeze(tflite_output[0]), rtol=1e-5, atol=1e-2
+        )
+
+
+def _test_rsqrt(data, quantized=False):
+    """One iteration of RSQRT"""
+    if quantized:
+        _test_quant_rsqrt(data)
+    else:
+        with tf.Graph().as_default():
+            in_data = array_ops.placeholder(shape=data.shape, dtype=data.dtype, name="in_0")
             out = math_ops.rsqrt(in_data)
             compare_tflite_with_tvm(data, "in_0:0", [in_data], [out])
 
@@ -3388,8 +3448,13 @@ def test_forward_rsqrt():
     """RSQRT"""
     _test_rsqrt(np.arange(1.0, 7.0, dtype=np.float32), quantized=False)
     _test_rsqrt(np.arange(1.0, 7.0, dtype=np.float32).reshape((2, 1, 3)), quantized=False)
-    _test_rsqrt(np.arange(1, 240, 40, dtype=np.uint8), quantized=True)
-    _test_rsqrt(np.arange(1, 240, 40, dtype=np.uint8).reshape((2, 1, 3)), quantized=True)
+    # tensorflow version upgrade support
+    if tf.__version__ < LooseVersion("2.6.1"):
+        _test_rsqrt(np.arange(1, 240, 40, dtype=np.uint8), quantized=True)
+        _test_rsqrt(np.arange(1, 240, 40, dtype=np.uint8).reshape((2, 1, 3)), quantized=True)
+    else:
+        _test_rsqrt(np.arange(1, 240, 40, dtype=np.int8), quantized=True)
+        _test_rsqrt(np.arange(1, 240, 40, dtype=np.int8).reshape((2, 1, 3)), quantized=True)
 
 
 #######################################################################
@@ -3693,7 +3758,41 @@ def test_forward_prelu():
     )
     _test_prelu(
         np.random.uniform(-5, 5, size=(1, 32, 32, 3)).astype("float32"),
+        np.full((1, 3), 0.2, dtype="float32"),
+    )
+    _test_prelu(
+        np.random.uniform(-5, 5, size=(1, 32, 32, 3)).astype("float32"),
         np.full((1, 1, 3), 0.2, dtype="float32"),
+    )
+    _test_prelu(
+        np.random.uniform(-5, 5, size=(1, 32, 32, 3)).astype("float32"),
+        np.full((1, 1, 1, 3), 0.2, dtype="float32"),
+    )
+    #
+    _test_prelu(
+        np.random.uniform(-5, 5, size=(1, 32, 32, 3)).astype("float32"),
+        np.full((32, 3), 0.2, dtype="float32"),
+    )
+    _test_prelu(
+        np.random.uniform(-5, 5, size=(1, 32, 32, 3)).astype("float32"),
+        np.full((32, 32, 3), 0.2, dtype="float32"),
+    )
+    _test_prelu(
+        np.random.uniform(-5, 5, size=(1, 32, 32, 3)).astype("float32"),
+        np.full((1, 32, 1, 3), 0.2, dtype="float32"),
+    )
+    #
+    _test_prelu(
+        np.random.uniform(-5, 5, size=(1, 1, 3)).astype("float32"),
+        np.full((3,), 0.2, dtype="float32"),
+    )
+    _test_prelu(
+        np.random.uniform(-5, 5, size=(1, 32, 3)).astype("float32"),
+        np.full((32, 3), 0.2, dtype="float32"),
+    )
+    _test_prelu(
+        np.random.uniform(-5, 5, size=(32, 3)).astype("float32"),
+        np.full((3), 0.2, dtype="float32"),
     )
 
 
@@ -3925,6 +4024,7 @@ def _test_fully_connected(
             # reshape N H W C into N H*W*C
             in_data_reshape = array_ops.reshape(in_data, [tensor_in_sizes[0], -1])
             out = math_ops.mat_mul(in_data_reshape, in_filter)
+            # TODO : Need to construct a fc op with (keep_num_dims == True)
 
             # if we have bias
             if bias_in_size:

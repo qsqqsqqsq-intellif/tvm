@@ -20,12 +20,15 @@ from typing import Callable, Dict, List, Optional, Union
 
 from tvm._ffi import register_object
 from tvm.ir import IRModule, transform
-from tvm.relay import Any, Function as RelayFunc, vm
+from tvm.relay import Any
+from tvm.relay import Function as RelayFunc
+from tvm.relay import vm
 from tvm.runtime import NDArray, Object
 from tvm.target import Target
 from tvm.tir import PrimFunc
 
 from . import _ffi_api
+from .database import Database
 
 
 @register_object("meta_schedule.ExtractedTask")
@@ -38,6 +41,8 @@ class ExtractedTask(Object):
         The name of the task extracted
     mod : IRModule
         The high-level IR
+    target: Target
+        Target information
     dispatched : List[IRModule]
         A list of low-level IRs that the high-level IR could potentially dispatch to
     """
@@ -50,12 +55,14 @@ class ExtractedTask(Object):
         self,
         task_name: str,
         mod: IRModule,
+        target: Target,
         dispatched: List[IRModule],
     ) -> None:
         self.__init_handle_by_constructor__(
             _ffi_api.ExtractedTask,  # type: ignore # pylint: disable=no-member
             task_name,
             mod,
+            target,
             dispatched,
         )
 
@@ -68,6 +75,7 @@ class MetaScheduleContext(Object):
         self,
         task_name: str,
         mod: IRModule,
+        target: Target,
         dispatched: Optional[List[IRModule]],
     ) -> Union[IRModule, RelayFunc, PrimFunc, None]:
         """The entry point of the integration
@@ -78,6 +86,8 @@ class MetaScheduleContext(Object):
             The name of the task extracted
         mod : IRModule
             The high-level IR
+        target: Target
+            Target Info
         dispatched : Optional[List[IRModule]]
             A list of low-level IRs that the high-level IR could potentially dispatch to
 
@@ -94,6 +104,7 @@ class MetaScheduleContext(Object):
             self,
             task_name,
             mod,
+            target,
             dispatched,
         )
 
@@ -113,6 +124,7 @@ class MetaScheduleContext(Object):
     def query_inside_with_scope(
         task_name: str,
         mod: IRModule,
+        target: Target,
         dispatched: Optional[List[IRModule]],
     ) -> Union[IRModule, RelayFunc, PrimFunc, None]:
         """The entry point of the integration workflow. The compilation process of the high-level
@@ -125,7 +137,7 @@ class MetaScheduleContext(Object):
             def query_inside_with_scope(task_name, mod, dispatched):
                 ctx = MetaScheduleContext.current()
                 assert ctx is not None
-                ctx.query(task_name, mod, dispatched)
+                ctx.query(task_name, mod, target, dispatched)
 
         Parameters
         ----------
@@ -133,6 +145,8 @@ class MetaScheduleContext(Object):
             The name of the task
         mod : IRModule
             The high-level IR
+        target: Target
+            Target
         dispatched : Optional[List[IRModule]]
             A list of low-level IRs that the high-level IR could potentially dispatch to
 
@@ -148,6 +162,7 @@ class MetaScheduleContext(Object):
         return _ffi_api.MetaScheduleContextQueryInsideWithScope(  # type: ignore # pylint: disable=no-member
             task_name,
             mod,
+            target,
             dispatched,
         )
 
@@ -174,19 +189,23 @@ class TaskExtraction(MetaScheduleContext):
 
 @register_object("meta_schedule.ApplyHistoryBest")
 class ApplyHistoryBest(MetaScheduleContext):
-    pass
+    """An integration context that allows application of historically best record from database"""
+
+    database: Database
+    """ The database to be queried from"""
+
+    def __init__(self, database) -> None:
+        self.__init_handle_by_constructor__(_ffi_api.ApplyHistoryBest, database)  # type: ignore # pylint: disable=no-member
 
 
-def extract_task(
+def extract_task_from_relay(
     mod: Union[IRModule, RelayFunc],
     target: Target,
     params: Optional[Dict[str, NDArray]] = None,
     *,
     opt_level: int = 3,
-    pass_config: Dict[str, Any] = {
-        "relay.backend.use_meta_schedule": True,
-    },
-    disabled_pass: List[str] = [],
+    pass_config: Optional[Dict[str, Any]] = None,
+    disabled_pass: Optional[List[str]] = None,
 ) -> List[ExtractedTask]:
     """Extract tuning tasks from a relay program.
 
@@ -200,9 +219,9 @@ def extract_task(
         The associated parameters of the program
     opt_level : int
         The optimization level of the compiler
-    pass_config : Dict[str, Any]
+    pass_config : Optional[Dict[str, Any]]
         The pass config of the compiler
-    disabled_pass : List[str]
+    disabled_pass : Optional[List[str]]
         The list of disabled passes of the compiler
 
     Returns
@@ -228,6 +247,11 @@ def extract_task(
         thread = threading.Thread(target=func)
         thread.start()
         thread.join()
+
+    if disabled_pass is None:
+        disabled_pass = []
+    if pass_config is None:
+        pass_config = {"relay.backend.use_meta_schedule": True}
 
     env = TaskExtraction()
     if isinstance(mod, RelayFunc):

@@ -78,15 +78,21 @@ class DialectRewriter : public transform::DeviceAwareExprMutator {
 
     for (auto field : tuple_node->fields) {
       auto new_field = Mutate(field);
-      if (new_field->IsInstance<ConstantNode>()) {
-        VirtualDevice virtual_device = GetVirtualDevice(field);
-        ICHECK(!virtual_device->IsFullyUnconstrained());
-        Var const_var("const", Type(nullptr));
-        new_field = scope.Push(const_var, MaybeOnDeviceFixed(new_field, virtual_device));
+      if (const auto* op = new_field.as<ConstantNode>()) {
+        DataType dtype(op->data->dtype);
+        bool is_simple_const = (dtype == DataType::Int(32) || dtype == DataType::Int(64) ||
+                                dtype == DataType::Float(32) || dtype == DataType::Float(64) ||
+                                dtype == DataType::Bool());
+        if (!op->is_scalar() || !is_simple_const) {
+          VirtualDevice virtual_device = GetVirtualDevice(field);
+          ICHECK(!virtual_device->IsFullyUnconstrained());
+          Var const_var("const", Type(nullptr));
+          new_field = scope.Push(const_var, MaybeOnDeviceFixed(new_field, virtual_device));
+        }
       }
       new_fields.push_back(new_field);
     }
-    return WithFields(GetRef<Tuple>(tuple_node), std::move(new_fields));
+    return WithFields(GetRef<Tuple>(tuple_node), new_fields);
   }
 
   void PreVisitLetBlock_(const LetNode* let_node) final { scopes_.emplace_back(); }
@@ -134,6 +140,9 @@ class DialectRewriter : public transform::DeviceAwareExprMutator {
 
     VirtualDevice virtual_device = GetVirtualDevice(call);
     ICHECK(!virtual_device->IsFullyUnconstrained());
+    ICHECK(!scopes_.empty())
+        << "Calls out of a let block are not supported, do you forget to transform "
+        << "with ToANormalForm or set opt_level >= 1 in the pass context?";
     LetList& scope = scopes_.back();
 
     std::vector<Expr> new_args;

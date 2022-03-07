@@ -254,6 +254,7 @@ TVM_REGISTER_TARGET_KIND("llvm", kDLCPU)
     .add_attr_option<String>("mabi")
     .add_attr_option<Bool>("system-lib")
     .add_attr_option<String>("runtime")
+    .add_attr_option<Integer>("num-cores")
     .add_attr_option<Bool>("link-params", Bool(false))
     .add_attr_option<Bool>("unpacked-api")
     .add_attr_option<String>("interface-api")
@@ -285,11 +286,11 @@ TVM_REGISTER_TARGET_KIND("cuda", kDLCUDA)
     .add_attr_option<String>("mcpu")
     .add_attr_option<String>("arch")
     .add_attr_option<Bool>("system-lib")
-    .add_attr_option<Integer>("max_num_threads", Integer(1024))
-    .add_attr_option<Integer>("thread_warp_size", Integer(32))
-    .add_attr_option<Integer>("shared_memory_per_block")
-    .add_attr_option<Integer>("registers_per_block")
+    .add_attr_option<Integer>("max_shared_memory_per_block")
     .add_attr_option<Integer>("max_threads_per_block")
+    .add_attr_option<Integer>("thread_warp_size", Integer(32))
+    .add_attr_option<Integer>("registers_per_block")
+    .add_attr_option<Integer>("max_num_threads", Integer(1024))  // TODO(@zxybazh): deprecate it
     .set_default_keys({"cuda", "gpu"})
     .set_attrs_preprocessor(UpdateCUDAAttrs);
 
@@ -400,10 +401,20 @@ TVM_REGISTER_TARGET_KIND("ext_dev", kDLExtDev)  // line break
 TVM_REGISTER_TARGET_KIND("hybrid", kDLCPU)  // line break
     .add_attr_option<Bool>("system-lib");
 
-TVM_REGISTER_TARGET_KIND("composite", kDLCPU).add_attr_option<Array<Target>>("devices");
+TVM_REGISTER_TARGET_KIND("composite", kDLCPU)  // line break
+    .add_attr_option<Array<Target>>("devices");
 
 /**********  Registry  **********/
 
+TVM_REGISTER_GLOBAL("target.TargetKindGetAttr")
+    .set_body_typed([](TargetKind kind, String attr_name) -> TVMRetValue {
+      auto target_attr_map = TargetKind::GetAttrMap<TVMRetValue>(attr_name);
+      TVMRetValue rv;
+      if (target_attr_map.count(kind)) {
+        rv = target_attr_map[kind];
+      }
+      return rv;
+    });
 TVM_REGISTER_GLOBAL("target.ListTargetKinds").set_body_typed(TargetKindRegEntry::ListTargetKinds);
 TVM_REGISTER_GLOBAL("target.ListTargetKindOptions")
     .set_body_typed(TargetKindRegEntry::ListTargetKindOptions);

@@ -264,7 +264,6 @@ Stmt GenerateStmtFromExternOp(const te::ExternOp& extern_op, CreateFuncInfo* inf
                             /*annotations=*/extern_op->attrs));
 }
 
-/*! \brief Use Tensor Expression to create a schedulable TensorIR func. */
 PrimFunc CreatePrimFunc(const Array<te::Tensor>& arg_list) {
   // Step 1. Create tensor read graph.
   Array<te::Operation> arg_ops;
@@ -282,7 +281,7 @@ PrimFunc CreatePrimFunc(const Array<te::Tensor>& arg_list) {
                  << "Only te.placeholder and te.compute are allowed for now.";
   }
 
-  // Infomations used in CreatePrimFunc and its sub-funtions.
+  // Infomations used in CreatePrimFunc and its sub-functions.
   CreateFuncInfo info(arg_list);
   // Root body stmts.
   Array<Stmt> root_stmts;

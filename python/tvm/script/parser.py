@@ -47,6 +47,7 @@ from .tir.intrin import Intrin
 from .tir.node import Slice, BufferSlice
 from .tir.scope_handler import ScopeHandler, WithScopeHandler, ForScopeHandler
 from .tir.special_stmt import SpecialStmt
+from .tir import ty
 
 
 class CallArgumentReader(object):
@@ -447,7 +448,9 @@ class TVMScriptParser(Transformer):
         # add parameters of function
         for arg in node.params:
             # Note that this case is for T.match_buffer syntax sugar
-            if isinstance(arg.ty, (ast.TypeCall, ast.TypeApply)):
+            if isinstance(arg.ty, (ast.TypeCall, ast.TypeApply)) and isinstance(
+                self.transform(arg.ty.func_name), ty.GenericBufferType
+            ):
                 result = self.handle_match_buffer_type(arg.ty, arg.name)
                 if not isinstance(result, buffer.Buffer):
                     self.report_error(
@@ -481,6 +484,7 @@ class TVMScriptParser(Transformer):
             body,
             ret_type,
             buffer_map=self.context.func_buffer_map,
+            preflattened_buffer_map=self.context.func_preflattened_buffer_map,
             attrs=tvm.ir.make_node("DictAttrs", **dict_attr) if dict_attr else None,
             span=tvm_span_from_synr(node.span),
         )
@@ -549,7 +553,11 @@ class TVMScriptParser(Transformer):
 
         if isinstance(node.rhs, ast.Call):
             # Pattern 1 & Pattern 4
-            func = self.transform(node.rhs.func_name)
+            if isinstance(node.rhs.func_name, ast.Op):
+                func = None
+            else:
+                func = self.transform(node.rhs.func_name)
+
             if isinstance(func, WithScopeHandler):
                 if not func.concise_scope or not func.def_symbol:
                     self.report_error(
@@ -607,6 +615,12 @@ class TVMScriptParser(Transformer):
         rhs = self.transform(node.params[2])
         rhs_span = tvm_span_from_synr(node.params[2].span)
         if isinstance(symbol, tvm.tir.Buffer):
+            if len(indexes) != len(symbol.shape):
+                self.report_error(
+                    f"Buffer {symbol.name} is {len(symbol.shape)}-dimensional, "
+                    f"cannot be indexed by {len(indexes)}-dimensional indices.",
+                    node.params[1].span,
+                )
             # BufferStore
             return tvm.tir.BufferStore(
                 symbol,
@@ -626,14 +640,28 @@ class TVMScriptParser(Transformer):
                     f"Store is only allowed with one index, but {len(indexes)} were provided.",
                     node.params[1].span,
                 )
-            # Store
-            return tvm.tir.Store(
-                symbol,
-                tvm.runtime.convert(rhs, span=rhs_span),
-                indexes[0],
-                tvm.runtime.convert(True, span=tvm_span_from_synr(node.span)),
-                span=tvm_span_from_synr(node.span),
+            self.report_error(
+                "Use of tir.Store has been deprecated in favor of tir.BufferStore.", node.span
             )
+
+    def transform_AttrAssign(self, node):
+        """Visitor for statements of the form :code:`x.y = 2`."""
+        obj = self.transform(node.params[0])
+        field = node.params[1]
+        value = self.transform(node.params[2])
+
+        if not hasattr(obj, field.name):
+            self.error(f"Field {field.name} does not exist", field.span)
+
+        var = getattr(obj, field.name)
+
+        if not isinstance(var, tvm.tir.Var):
+            self.error(
+                f"Can only assign to tir.Var attributes, not {type(var).__name__}", node.span
+            )
+
+        body = self.parse_body(node)
+        return tvm.tir.LetStmt(var, value, body, span=tvm_span_from_synr(node.span))
 
     def transform_Assert(self, node):
         """Assert visitor
@@ -673,7 +701,10 @@ class TVMScriptParser(Transformer):
         self.current_col_offset = node.span.start_column
         self.context.enter_scope(nodes=node.body.stmts)
         # for scope handler process the scope
-        arg_list = self.parse_arg_list(func, node.rhs)
+        arg_list = [
+            tvm.runtime.convert(arg, span=node.rhs.span)
+            for arg in self.parse_arg_list(func, node.rhs)
+        ]
         func.enter_scope(node, self.context, arg_list, node.rhs.func_name.span)
         func.body = self.parse_body(node)
         res = func.exit_scope(node, self.context, arg_list, node.rhs.func_name.span)
@@ -860,12 +891,15 @@ class TVMScriptParser(Transformer):
         """
         # Only allowed builtin operator that can be a statement is x[1] = 3 i.e. subscript assign.
         if isinstance(node.call.func_name, ast.Op):
-            if node.call.func_name.name != ast.BuiltinOp.SubscriptAssign:
-                self.report_error(
-                    "Binary and unary operators are not allowed as a statement", node.span
-                )
-            else:
+            if node.call.func_name.name == ast.BuiltinOp.SubscriptAssign:
                 return self.transform_SubscriptAssign(node.call)
+
+            if node.call.func_name.name == ast.BuiltinOp.AttrAssign:
+                return self.transform_AttrAssign(node.call)
+
+            self.report_error(
+                "Binary and unary operators are not allowed as a statement", node.span
+            )
 
         # handle a regular function call
         func = self.transform(node.call.func_name)
@@ -946,15 +980,8 @@ class TVMScriptParser(Transformer):
                     node.span,
                 )
 
-            return call_with_error_reporting(
-                self.report_error,
-                node.span,
-                tvm.tir.Load,
-                "float32",
-                symbol,
-                index,
-                True,
-                span=tvm_span_from_synr(node.span),
+            self.report_error(
+                "Use of tir.Load has been deprecated in favor of tir.BufferLoad", node.span
             )
         elif isinstance(symbol, tvm.tir.Buffer):
             return BufferSlice(
@@ -1138,6 +1165,33 @@ class TVMScriptParser(Transformer):
         """
         return [self.transform(value) for value in node.values]
 
+    def transform_TypeApply(self, node):
+        """Visitor for Type[Type] expressions.
+
+        Mostly used for ``T.Ptr`` expressions.
+        """
+        func = self.transform(node.func_name)
+
+        if not isinstance(func, ty.TypeGeneric) or not hasattr(func, "__getitem__"):
+            self.report_error(
+                f"Use of type arguments requires a type that accepts type arguments (e.g. T.Ptr), "
+                f"but found {type(func).__name__} instead.",
+                node.span,
+            )
+
+        param_types = []
+        for param in node.params:
+            param_type = self.transform(param)
+            if not isinstance(param_type, ty.TypeGeneric):
+                self.report_error(f"Expected a type but found {type(param).__name__}", param.span)
+
+            param_types.append(param_type)
+
+        if len(param_types) == 1:
+            return func[param_types[0]]
+        else:
+            return func[param_types]
+
     def handle_match_buffer_type(self, node, buffer_name):
         """special function to handle syntax sugar for match buffer.
 
@@ -1196,7 +1250,7 @@ def from_source(
     elif inspect.isfunction(input_func):
         _, start_line = inspect.getsourcelines(input_func)
         env: Dict[str, Any] = input_func.__globals__
-        namespace = [key for key in env.keys() if env[key] == tir]
+        namespace = [key for key in env.keys() if env[key] is tir]
         parser = TVMScriptParser(start_line, namespace)
         result = to_ast(input_func, TVMDiagnosticCtx(), parser)
         return result

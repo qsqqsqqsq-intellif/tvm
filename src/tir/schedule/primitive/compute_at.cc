@@ -202,6 +202,10 @@ struct BlockVarDomainInfo {
     if (analyzer->CanProveEqual(dom.min(), intersect.min()) &&
         analyzer->CanProveEqual(dom.max(), intersect.max())) {
       bound = arith::IntSet::Nothing();
+    } else if (analyzer->CanProveEqual(bound.min(), intersect.min()) &&
+               analyzer->CanProveEqual(bound.max(), intersect.max())) {
+      dom = bound;
+      bound = arith::IntSet::Nothing();
     }
   }
 };
@@ -237,23 +241,25 @@ class ScopeReconstructor : private StmtMutator {
     PrimExpr predicate = const_true();
     for (int i = 0; i < n_iters; ++i) {
       Range iter_dom = iter_doms[i].dom.CoverRange(block_->iter_vars[i]->dom);
-      const arith::IntSet& pred_bound = iter_doms[i].bound;
-      if (preserve_unit_loops || !is_one(iter_dom->extent) || !pred_bound.IsNothing()) {
+      if (preserve_unit_loops || !is_one(iter_dom->extent)) {
         Var var("ax" + std::to_string(loop_vars.size()), DataType::Int(32));
         loop_vars.push_back(var);
         loop_extents.push_back(iter_dom->extent);
         iter_values.push_back(iter_dom->min + var);
         analyzer->Bind(var, Range::FromMinExtent(0, iter_dom->extent));
+      } else {
+        iter_values.push_back(iter_dom->min);
+      }
+      const arith::IntSet& pred_bound = iter_doms[i].bound;
+      if (!pred_bound.IsNothing()) {
         if (pred_bound.HasLowerBound()) {
-          PrimExpr lower_bound = iter_dom->min + var >= pred_bound.min();
+          PrimExpr lower_bound = iter_values[i] >= pred_bound.min();
           predicate = predicate && lower_bound;
         }
         if (pred_bound.HasUpperBound()) {
-          PrimExpr upper_bound = iter_dom->min + var < pred_bound.max() + 1;
+          PrimExpr upper_bound = iter_values[i] < pred_bound.max() + 1;
           predicate = predicate && upper_bound;
         }
-      } else {
-        iter_values.push_back(iter_dom->min);
       }
     }
     this->new_block_realize_ =
@@ -547,14 +553,15 @@ void ComputeAtOrReverseComputeAtImpl(ScheduleState self, const StmtSRef& block_s
   const BlockNode* block = TVM_SREF_TO_BLOCK(block, block_sref);
   const ForNode* loop = TVM_SREF_TO_FOR(loop, loop_sref);
   // Step 1. Bunch of checks
-  // Check condition 1) and 2): stage pipeline and subtree compact dataflow
+  // Check condition 1) : scope stage pipeline
   StmtSRef scope_root_sref = GetScopeRoot(self, block_sref,
-                                          /*require_stage_pipeline=*/true,
-                                          /*require_subtree_compact_dataflow=*/true);
+                                          /*require_stage_pipeline=*/true);
   Block scope_root = GetRef<Block>(scope_root_sref->StmtAs<BlockNode>());
   BlockScope scope = self->GetBlockScope(scope_root_sref);
   Array<StmtSRef> producer_srefs = GetProducers(block_sref, scope);
   Array<StmtSRef> consumer_srefs = GetConsumers(block_sref, scope);
+  // Check condition 2) : `block` is a complete or reduction block
+  CheckCompleteOrReductionBlock(self, block_sref, scope_root_sref);
   // Check condition 3): `block` and `loop` are under the same scope,
   // and `loop` is not the ancestor of `block`
   NotInSameScopeError::CheckAndBindLoopDomain(self, block_sref, loop_sref, scope_root_sref,

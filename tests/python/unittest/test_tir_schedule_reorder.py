@@ -153,7 +153,7 @@ def opaque_access(a: T.handle, b: T.handle) -> None:
             vi, vj = T.axis.remap("SS", [i, j])
             T.reads([])
             T.writes([A[0:16, 0:16]])
-            T.store(A.data, vi * 16 + vj, 1)
+            A[vi, vj] = 1
     for i, j in T.grid(16, 16):
         with T.block("B"):
             vi, vj = T.axis.remap("SS", [i, j])
@@ -171,7 +171,7 @@ def opaque_access_reorder(a: T.handle, b: T.handle) -> None:
             vi, vj = T.axis.remap("SS", [i, j])
             T.reads([])
             T.writes([A[0:16, 0:16]])
-            T.store(A.data, vi * 16 + vj, 1)
+            A[vi, vj] = 1
     for j, i in T.grid(16, 16):
         with T.block("B"):
             vi, vj = T.axis.remap("SS", [i, j])
@@ -217,9 +217,8 @@ def test_reorder_with_predicate():
     sch = tir.Schedule(elementwise_predicate, debug_mask="all")
     block_b = sch.get_block("B")
     i, j, k, l = sch.get_loops(block_b)
-    sch.reorder(l, i)
-    tvm.ir.assert_structural_equal(elementwise_reordered_with_predicate, sch.mod["main"])
-    verify_trace_roundtrip(sch=sch, mod=elementwise_predicate)
+    with pytest.raises(tvm.tir.ScheduleError):
+        sch.reorder(l, i)
 
 
 def test_reorder_fail_with_multi_appearance_loops():

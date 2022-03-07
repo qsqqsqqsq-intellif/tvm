@@ -59,14 +59,6 @@ class AttachType(IntEnum):
     kScanUpdate = 5
 
 
-class VelaArtifacts:
-    def __init__(self):
-        self.cs = dict()
-        self.flash = dict()
-        self.sram = dict()
-        self.npu_ops = set()
-
-
 def print_payload(payload):
     cmds = deserialize_command_stream(payload)
     for cmd_val in cmds:
@@ -90,84 +82,6 @@ def parse_cmd(binary_cmd):
     return command, value
 
 
-def check_cmms_equivalency(vela_cmd, vela_value, tvm_value, ignore_cmds=None):
-    if ignore_cmds is None:
-        ignore_cmds = []
-    if vela_value != tvm_value and vela_cmd not in ignore_cmds:
-        raise RuntimeError(
-            "ValueMismatch :: vela={}, tvm={} for command:{}".format(
-                vela_value, tvm_value, vela_cmd
-            )
-        )
-
-
-def verify_cmms(cmms_tvm_blob, cmms_vela_blob):
-    vela_cmm = deserialize_command_stream(cmms_vela_blob)
-    tvm_cmm = deserialize_command_stream(cmms_tvm_blob)
-    cmms_zip = zip(vela_cmm, tvm_cmm)
-
-    first_ifm_found = False
-    last_ofm_found = False
-
-    ignore_commands = (
-        cmd1.NPU_SET_DMA0_SRC,
-        cmd1.NPU_SET_DMA0_DST,
-        cmd1.NPU_SET_WEIGHT_BASE,
-        cmd1.NPU_SET_OFM_BASE0,
-        cmd1.NPU_SET_IFM_BASE0,
-        cmd1.NPU_SET_SCALE_BASE,
-    )
-
-    ofm_region_params = []
-    ofm_bases = []
-    for vela_cmm, tvm_cmm in cmms_zip:
-        vela_cmd, vela_value = parse_cmd(vela_cmm)
-        tvm_cmd, tvm_value = parse_cmd(tvm_cmm)
-
-        assert vela_cmd == tvm_cmd
-
-        # The first IFM region could be different, but it needs to be 1 and 3.
-        if vela_cmd == cmd0.NPU_SET_IFM_REGION and not first_ifm_found:
-            if vela_value == 1 and tvm_value == 3:
-                first_ifm_found = True
-                continue
-
-        if vela_cmd == cmd1.NPU_SET_IFM_BASE0 and not first_ifm_found:
-            if tvm_value != 0:
-                raise RuntimeError("ValueError :: tvm primary ifm base should be zero")
-            continue
-
-        # OFM regions should be cached to be checked later
-        if vela_cmd == cmd0.NPU_SET_OFM_REGION:
-            ofm_region_params.append((vela_value, tvm_value))
-            continue
-
-        # OFM bases should be cached to be checked later
-        if vela_cmd == cmd1.NPU_SET_OFM_BASE0:
-            ofm_bases.append((vela_value, tvm_value))
-            continue
-
-        check_cmms_equivalency(vela_cmd, vela_value, tvm_value, ignore_commands)
-
-    # The last OFM region could be different but it should be 1 and 4.
-    last_vela_ofm_region, last_tvm_ofm_region = ofm_region_params.pop(-1)
-    if not (last_vela_ofm_region == 1 and last_tvm_ofm_region == 4):
-        raise RuntimeError(
-            "ValueMismatch :: vela={}, tvm={} for last ofm region it should be 1 and 4 respectively".format(
-                last_vela_ofm_region, last_tvm_ofm_region
-            )
-        )
-
-    # The rest of the OFM regions should be the same.
-    for vela_value, tvm_value in ofm_region_params:
-        check_cmms_equivalency(vela_cmd, vela_value, tvm_value, ignore_commands)
-
-    # The last OFM base should be zero for tvm
-    _, last_tvm_ofm_base = ofm_bases.pop(-1)
-    if not last_tvm_ofm_base == 0:
-        raise RuntimeError("ValueError :: tvm primary ofm base should be zero")
-
-
 def deserialize_command_stream(blob):
     assert isinstance(blob, bytes)
     payload_bytes = struct.unpack("<{0}I".format(len(blob) // 4), blob)
@@ -189,10 +103,11 @@ def deserialize_command_stream(blob):
     return cmms
 
 
-def create_test_runner(accel="ethos-u55-256"):
+def create_test_runner(accel="ethos-u55-256", enable_usmp=True):
     file_dir = os.path.dirname(os.path.abspath(__file__))
     test_root = os.path.join(file_dir, "reference_system")
-    ethosu_macs = accel[accel.rfind("-") + 1 :]
+    _, ethosu_variant, ethosu_macs = accel.split("-")
+    ethosu_variant = ethosu_variant.upper()
     return AOTTestRunner(
         makefile="corstone300",
         prologue="""
@@ -205,17 +120,26 @@ def create_test_runner(accel="ethos-u55-256"):
         ethosu_release_driver(ethos_u);
         """,
         includes=["uart.h", "ethosu_55.h", "ethosu_mod.h", "hard_fault.h"],
-        parameters={"ETHOSU_TEST_ROOT": test_root, "NPU_VARIANT": ethosu_macs},
+        parameters={
+            "ETHOSU_TEST_ROOT": test_root,
+            "NPU_MACS": ethosu_macs,
+            "NPU_VARIANT": ethosu_variant,
+        },
         pass_config={
             "relay.ext.ethos-u.options": {
                 "accelerator_config": accel,
-            }
+            },
+            "tir.usmp.enable": enable_usmp,
+            "tir.usmp.algorithm": "hill_climb",
+            "tir.disable_storage_rewrite": enable_usmp,
         },
     )
 
 
-def build_source(module, inputs, outputs, accel="ethos-u55-256", output_tolerance=0):
-    test_runner = create_test_runner(accel)
+def build_source(
+    module, inputs, outputs, accel="ethos-u55-256", output_tolerance=0, enable_usmp=True
+):
+    test_runner = create_test_runner(accel, enable_usmp)
     return compile_models(
         models=AOTTestModel(
             module=module,
@@ -234,12 +158,13 @@ def build_source(module, inputs, outputs, accel="ethos-u55-256", output_toleranc
 def verify_source(
     models: List[AOTCompiledTestModel],
     accel="ethos-u55-256",
+    enable_usmp=True,
 ):
     """
     This method verifies the generated source from an NPU module by building it and running on an FVP.
     """
     interface_api = "c"
-    test_runner = create_test_runner(accel)
+    test_runner = create_test_runner(accel, enable_usmp)
     run_and_check(
         models,
         test_runner,
@@ -247,13 +172,6 @@ def verify_source(
         workspace_byte_alignment=16,
         data_linkage=AOTDataLinkage(section="ethosu_scratch", alignment=16),
     )
-
-
-def flatten_numpy_data(data):
-    """Flatten the numpy tensor to be single dimensional"""
-    total_elements = data.size
-    reshaped_data = numpy.reshape(data, [total_elements])
-    return reshaped_data
 
 
 class InputGenerator:
@@ -301,9 +219,10 @@ def generate_ref_data_tflite(model):
         interpreter.set_tensor(index, value)
     interpreter.invoke()
 
-    expected_output_data = [
-        interpreter.get_tensor(output_detail["index"]) for output_detail in output_details
-    ]
+    expected_output_data = {
+        output_detail["name"]: interpreter.get_tensor(output_detail["index"])
+        for output_detail in output_details
+    }
 
     return input_data, expected_output_data
 
@@ -357,8 +276,8 @@ def get_convolutional_args(call, include_buffers=False, remove_constants=False):
             continue
         elif isinstance(arg, tvm.tir.expr.IntImm) or isinstance(arg, tvm.tir.expr.FloatImm):
             conv_args.append(arg.value)
-        elif isinstance(arg, tvm.tir.expr.Load) and not include_buffers:
-            conv_args.append(arg.index)
+        elif isinstance(arg, tvm.tir.expr.BufferLoad) and not include_buffers:
+            conv_args.append(arg.indices[0])
         else:
             conv_args.append(arg)
 
@@ -418,6 +337,7 @@ def make_ethosu_conv2d(
     weight_dtype="int8",
     scale_bias_dtype="uint8",
     rounding_mode="TFL",
+    upscale="NONE",
 ):
     # conv params
     weight_shape = (ofm_channels, kernel_shape[0], kernel_shape[1], ifm_channels)
@@ -446,7 +366,7 @@ def make_ethosu_conv2d(
         clip_min=10 if activation == "CLIP" else 0,
         clip_max=100 if activation == "CLIP" else 0,
         rounding_mode=rounding_mode,
-        upscale="NONE",
+        upscale=upscale,
         ifm_layout=ifm_layout,
         ofm_layout=ofm_layout,
     )
@@ -508,8 +428,8 @@ def get_pooling_args(call, include_buffers=False):
     for i, arg in enumerate(args):
         if isinstance(arg, tvm.tir.expr.IntImm) or isinstance(arg, tvm.tir.expr.FloatImm):
             pooling_args.append(arg.value)
-        elif isinstance(arg, tvm.tir.expr.Load) and not include_buffers:
-            pooling_args.append(arg.index)
+        elif isinstance(arg, tvm.tir.expr.BufferLoad) and not include_buffers:
+            pooling_args.append(arg.indices[0])
         else:
             pooling_args.append(arg)
 
@@ -527,6 +447,7 @@ def make_ethosu_pooling(
     ifm_layout="NHWC",
     ofm_layout="NHWC",
     rounding_mode="TFL",
+    upscale="NONE",
 ):
     pooling = ethosu_ops.ethosu_pooling(
         ifm,
@@ -544,7 +465,7 @@ def make_ethosu_pooling(
         clip_min=10 if activation == "CLIP" else 0,
         clip_max=100 if activation == "CLIP" else 0,
         rounding_mode=rounding_mode,
-        upscale="NONE",
+        upscale=upscale,
         ifm_layout=ifm_layout,
         ofm_layout=ofm_layout,
     )
@@ -558,8 +479,8 @@ def get_binary_elementwise_args(call, include_buffers=False):
     for i, arg in enumerate(args):
         if isinstance(arg, tvm.tir.expr.IntImm) or isinstance(arg, tvm.tir.expr.FloatImm):
             binary_elementwise_args.append(arg.value)
-        elif isinstance(arg, tvm.tir.expr.Load) and not include_buffers:
-            binary_elementwise_args.append(arg.index)
+        elif isinstance(arg, tvm.tir.expr.BufferLoad) and not include_buffers:
+            binary_elementwise_args.append(arg.indices[0])
         else:
             binary_elementwise_args.append(arg)
 
