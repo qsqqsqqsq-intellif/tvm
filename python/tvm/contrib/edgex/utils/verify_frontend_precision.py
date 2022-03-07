@@ -153,6 +153,7 @@ def model_verify(
     f_model, baseline_outputs = get_framework_infer(model_config["framework"])(
         model_config["model_file"], baseline_inputs
     )
+    logger.info("model_file = %s", model_config["framework"])
 
     # tvm processing
     frontend_kwargs = frontend_args(
