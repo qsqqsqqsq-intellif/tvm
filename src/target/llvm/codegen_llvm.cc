@@ -1005,7 +1005,7 @@ llvm::Value* CodeGenLLVM::CreateIntrinsic(const CallNode* op) {
     const BufferLoadNode* load = op->args[0].as<BufferLoadNode>();
     ICHECK(op->args.size() == 1 && load);
     ICHECK_EQ(load->indices.size(), 1) << "LLVM only supports flat memory allocations.";
-    PrimExpr index = load->indices[0];
+    PrimExpr index = analyzer_->Simplify(load->buffer->elem_offset + load->indices[0]);
     if (const RampNode* r = index.as<RampNode>()) {
       index = r->base;
     }
@@ -1343,7 +1343,7 @@ llvm::Value* CodeGenLLVM::VisitExpr_(const BufferLoadNode* op) {
   ICHECK_EQ(op->indices.size(), 1) << "CodeGenLLVM expects flattened 1-d buffers.";
 
   DataType value_dtype = op->dtype;
-  PrimExpr index = op->indices[0];
+  PrimExpr index = analyzer_->Simplify(op->buffer->elem_offset + op->indices[0]);
 
   std::vector<llvm::Value*> loads;
 
@@ -1445,7 +1445,7 @@ void CodeGenLLVM::VisitStmt_(const BufferStoreNode* op) {
 
   DataType value_dtype = op->value.dtype();
   Var buffer_var = op->buffer->data;
-  PrimExpr buffer_index = op->indices[0];
+  PrimExpr buffer_index = analyzer_->Simplify(op->buffer->elem_offset + op->indices[0]);
 
   llvm::Value* value = MakeValue(op->value);
 
