@@ -21,7 +21,7 @@ import logging
 from tvm import relay
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
-from ..analyze import _conv_counter, oneargdeal
+from ..analyze import oneargdeal
 from ..realize import _realize_core, operate
 from ..calibrate import _calibrate_core
 
@@ -55,13 +55,12 @@ class Relu:
     controlable = False
 
     def __init__(self, node, vertex_config, config):
-        cnt = _conv_counter()
 
+        LOGGER.debug("[anaylze] relu start")
         self.quantized = True
-        if "skip_conv_layers" in config and cnt in config["skip_conv_layers"]:
-            self.quantized = False
+        if "quantized" in config:
+            self.quantized = config["quantized"]
 
-        # todo ci0 can get outside
         ci0 = config["input0"]
 
         oneargdeal(self, node, vertex_config, ci0)

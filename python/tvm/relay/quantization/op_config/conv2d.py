@@ -22,7 +22,7 @@ import numpy
 from tvm import relay
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType, _get_dtype_info
-from ..analyze import _conv_counter, _set_conv_counter, _quantized_judge
+from ..analyze import _quantized_judge
 from ..calibrate import _calibrate_core
 from ..realize import _realize_core, operate
 
@@ -56,17 +56,14 @@ class Conv2D:
     controlable = True
 
     def __init__(self, node, vertex_config, config):
-        cnt = _conv_counter()
-        LOGGER.debug("[analyze] conv2d_%d start...", cnt)
         # todo add judge to modify self.quantized to be false
         # todo -- ex: strides info, conv2d_idx, get from outside config
         # todo get config to support partial-quantize
 
+        LOGGER.debug("[analyze] conv2d start")
         self.quantized = True
-        if "skip_conv_layers" in config and cnt in config["skip_conv_layers"]:
-            self.quantized = False
-
-        _set_conv_counter(cnt + 1)
+        if "quantized" in config:
+            self.quantized = config["quantized"]
 
         # todo get outside
         ci0 = config["input0"]
@@ -150,7 +147,7 @@ class Conv2D:
             output0_config.update(_get_dtype_info(output0_config["dtype"]))
 
         self.output_config = output0_config
-        LOGGER.debug("[analyze] conv2d_%d finish", cnt)
+        LOGGER.debug("[analyze] conv2d finish")
 
     @classmethod
     def get_config(cls, call, config):

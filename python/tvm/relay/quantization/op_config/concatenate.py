@@ -23,7 +23,6 @@ from tvm import relay
 from ..threshold import Threshold
 from ..method_dtype import _get_dtype_info, DataType, Method
 from ..realize import operate
-from ..analyze import _conv_counter
 
 LOGGER = logging.getLogger("quantize")
 
@@ -56,12 +55,9 @@ class Concatenate:
 
     def __init__(self, node, vertex_config, config):
         LOGGER.debug("[analyze] concatenate start")
-        cnt = _conv_counter()
         arg = node.args[0]
 
         self.quantized = vertex_config[arg].quantized
-        if cnt in []:
-            self.quantized = False
 
         vertex_config[arg].output_config["ref_count"] = (
             vertex_config[arg].output_config["ref_count"] + 1

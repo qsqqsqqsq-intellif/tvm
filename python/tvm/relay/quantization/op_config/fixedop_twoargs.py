@@ -24,7 +24,7 @@ from tvm._ffi import runtime_ctypes
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType, _get_dtype_info
 from ..realize import operate, pair_node
-from ..analyze import _conv_counter, _quantized_judge
+from ..analyze import _quantized_judge
 from ..calibrate import _calibrate_core
 
 LOGGER = logging.getLogger("quantize")
@@ -61,16 +61,17 @@ class FixedOpTwoArgs:
         self.name = node.op.name
         self.op = node.op
 
-        cnt = _conv_counter()
-        LOGGER.debug("[analyze] %s start...", self.name.upper())
         self.quantized = True
 
-        if ("skip_conv_layers" in config and cnt - 1 in config["skip_conv_layers"]) or (
+        if (
             not vertex_config[node.args[0]].quantized
             and not vertex_config[node.args[1]].quantized
             and self.name not in ["nn.bias_add"]
         ):
             self.quantized = False
+
+        if "quantized" in config:
+            self.quantized = config["quantized"]
 
         ci0 = config["input0"]
         ci1 = config["input1"]
@@ -92,8 +93,8 @@ class FixedOpTwoArgs:
         elif isinstance(node.args[1], relay.Constant) and node.args[1].data.asnumpy().size == 1:
             input0_axis, input1_axis = -1, -1
 
-        if node.op.name == "nn.bias_add" and node.attrs.axis == 1:
-            input0_axis, input1_axis = 1, 0
+        if node.op.name == "nn.bias_add" and node.attrs.axis == 1 and input0_axis > -1:
+            input1_axis = 0
 
         # set input config
         input0_config = _quantized_judge(
@@ -105,6 +106,7 @@ class FixedOpTwoArgs:
         self.input_config = {node.args[0]: input0_config, node.args[1]: input1_config}
 
         self.axis = max(input0_axis, input1_axis)
+
         output0_config = {
             "dtype": DataType.Int32 if self.quantized else DataType.Float16,
             "axis": self.axis,
@@ -213,9 +215,14 @@ class FixedOpTwoArgs:
             new_y = {}
             new_y["scale"] = scale_max
             new_y["zero_point"] = zero_point
+
             new_y["axis"] = max(
                 self.input_config[node.args[0]]["axis"], self.input_config[node.args[1]]["axis"]
             )
+
+            if new_y["axis"] == 0:
+                new_y["axis"] = 1
+
             self.output_config.update(new_y)
 
     def realize(self, old_node, new_node, vertex_config, n2o):
@@ -325,11 +332,7 @@ class FixedOpTwoArgs:
             )
 
             # 400 no support output_dtype
-            if (
-                self.quantized
-                and self.name in ["add", "subtract"]
-                and "ir_pass" not in relay.__dict__
-            ):
+            if self.quantized and "ir_pass" not in relay.__dict__:
                 if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
                     new_arg = relay.cast(new_arg, DataType.Int32)
 

@@ -29,21 +29,7 @@ from .realize import operate
 
 LOGGER = logging.getLogger("quantize")
 
-
-CONV_COUNTER = 0
 REF_CNT_G = {}
-
-
-def _conv_counter():
-    """Get the global counter for conv2d."""
-    return CONV_COUNTER
-
-
-def _set_conv_counter(n):
-    """Set the value of the global conv2d counter."""
-    global CONV_COUNTER
-    CONV_COUNTER = n
-
 
 # todo add more ops
 # only support per-tensor
@@ -390,6 +376,9 @@ class Tuple:
         else:
             self.quantized = False
 
+        if "quantized" in config:
+            self.quantized = config["quantized"]
+
         output_axis = max(_axis)
 
         len_arg = len(node.fields)
@@ -511,10 +500,6 @@ class AnalyzeGraph(ExprVisitor):
         LOGGER.info("[analyze] idx is %d << %s >> ", self.idx, name)
 
         config = self.config[self.node_id[call]]
-        if "skip_conv_layers" in self.config:
-            config["skip_conv_layers"] = self.config["skip_conv_layers"]
-        if "target" in self.config:
-            config["target"] = self.config["target"]
 
         if name in FIXED_OP_TWOARGS_LIST:
             self.vertex_config[call] = OPCONFIGS["FixedOpTwoArgs"](call, self.vertex_config, config)

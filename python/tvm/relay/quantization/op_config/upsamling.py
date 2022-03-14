@@ -21,7 +21,7 @@ import logging
 from tvm import relay
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType, _get_dtype_info
-from ..analyze import _conv_counter, oneargdeal
+from ..analyze import oneargdeal
 from ..realize import _realize_core, operate
 from ..calibrate import _calibrate_core
 
@@ -55,14 +55,14 @@ class UpSampling:
     controlable = False
 
     def __init__(self, node, vertex_config, config):
-        cnt = _conv_counter()
 
         arg = node.args[0]
         self.quantized = True
-        if not vertex_config[arg].quantized or (
-            "skip_conv_layers" in config and cnt - 1 in config["skip_conv_layers"]
-        ):
+        if not vertex_config[arg].quantized:
             self.quantized = False
+
+        if "quantized" in config:
+            self.quantized = config["quantized"]
 
         ci0 = config["input0"]
 

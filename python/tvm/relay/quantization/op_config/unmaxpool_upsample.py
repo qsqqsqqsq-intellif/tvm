@@ -21,7 +21,7 @@ import logging
 from tvm import relay
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
-from ..analyze import _conv_counter, _quantized_judge
+from ..analyze import _quantized_judge
 from ..calibrate import _calibrate_core
 from ..realize import _realize_core
 
@@ -55,12 +55,13 @@ class UnmaxpoolUpsamle:
     controlable = False
 
     def __init__(self, node, vertex_config, config):
-        cnt = _conv_counter()
 
         arg = node.args[0]
         self.quantized = True
-        if not vertex_config[arg].quantized or cnt - 1 in []:
+        if not vertex_config[arg].quantized:
             self.quantized = False
+        if "quantized" in config:
+            self.quantized = config["quantized"]
 
         ci0 = config["input0"]
 

@@ -19,3 +19,5 @@
 
 from .search import QuantizeSearch
 from .quantize import run_quantization
+from .quantize import quantize300
+from .default_process import default_data

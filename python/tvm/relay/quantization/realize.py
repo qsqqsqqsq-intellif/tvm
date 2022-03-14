@@ -37,7 +37,10 @@ from .method_dtype import _get_dtype_info, DataType
 LOGGER = logging.getLogger("quantize")
 
 global TARGET_NNP
+global ADA_QUANT_EN
+
 TARGET_NNP = "nnp400"
+ADA_QUANT_EN = False
 
 
 def _quantize(node, input_config):
@@ -188,7 +191,7 @@ def operate(op_type, node, output_config, input_config, convert, multiplier=0):
     # node = eliminate_quantize_dequantize(node)
     node = eliminate_dequantize_quantize(node)
 
-    if convert:
+    if not ADA_QUANT_EN:
         node = convert_operate(op_type, node, output_config, input_config, multiplier)
     return node
 
@@ -644,7 +647,9 @@ class Realize(ExprMutator):
             dtype_list.append(relay.frontend.common.infer_type(arg_).checked_type.dtype)
 
         realized_args_new = []
-        if not config.quantized and len(set(dtype_list)) != 1:
+        if not config.quantized and not (
+            len(set(dtype_list)) == 1 and dtype_list[0] not in ["int8", "int16"]
+        ):
             for old_arg, new_arg in zip(tup.fields, realized_args):
                 tmp = relay.frontend.common.infer_type(new_arg)
                 if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
@@ -718,12 +723,15 @@ class Realize(ExprMutator):
             else:
                 new_body = relay.Tuple(tup_new_fields)
 
-            pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
+            # comment for tuple output num > 1, statistic is wrong
+            # pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
         else:
 
             new_body = new_fn.body
             # todo tuple uncomment this, yolov5 run similarity assert
             # pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
+            if isinstance(new_body, relay.Call):
+                pair_node(fn.body, new_body, {}, {"operate": "none"}, self.new2old, False)
 
         new_body = relay.frontend.common.infer_type(new_body)
 
@@ -740,10 +748,14 @@ class Realize(ExprMutator):
 
 
 def realize_graph(cls):
+    """realize_graph"""
     LOGGER.info("[realize] start......")
     global TARGET_NNP
+    global ADA_QUANT_EN
     if "target" in cls.config:
         TARGET_NNP = cls.config["target"]
+    if "adaquant_enable" in cls.config:
+        ADA_QUANT_EN = cls.config["adaquant_enable"]
 
     realize = Realize(cls.pre_processed_mod, cls.vertex_config)
     LOGGER.info("[realize] finish ")

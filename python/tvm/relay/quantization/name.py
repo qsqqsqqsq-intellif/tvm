@@ -18,6 +18,7 @@
 """name"""
 
 import logging
+from graphviz import Digraph
 from tvm import relay
 from tvm.relay.expr_functor import ExprVisitor
 
@@ -34,12 +35,16 @@ class GetName(ExprVisitor):
         self.id_node = {}
         self.op_num = {}
         self.tuple_num = 0
+        self.dot = Digraph(name="optimize", comment="the test", format="png")
+
         LOGGER.info("  ")
         LOGGER.info("--model after pre_process structure:")
         if isinstance(mod, relay.Function):
             self.visit(mod)
         else:
             self.visit(mod["main"])
+
+        # self.dot.render(filename="optimize", directory="/home/yhh/Desktop/tmp")
 
     def visit_call(self, call):
         for arg in call.args:
@@ -56,9 +61,19 @@ class GetName(ExprVisitor):
         LOGGER.info(">> Call, %s, checked_type is:", name)
         LOGGER.info(call.checked_type)
         LOGGER.info(">> inputs:")
+
+        tmp = str(self.id_count) + "_" + name
+        self.id_count = self.id_count + 1
+        self.node_id[call] = tmp
+
+        self.dot.node(name=self.node_id[call], label=self.node_id[call], color="green")
+
         for arg in call.args:
             arg_id = self.node_id[arg]
             LOGGER.info(arg_id)
+
+            self.dot.node(name=arg_id, label=arg_id, color="green")
+            self.dot.edge(arg_id, self.node_id[call])
 
         if name not in self.op_num:
             self.op_num.update({name: 1})
@@ -67,10 +82,6 @@ class GetName(ExprVisitor):
         log_value = ">> " + str(self.op_num[name]) + "th of all " + name
         LOGGER.info(log_value)
 
-        tmp = str(self.id_count) + "_" + name
-
-        self.id_count = self.id_count + 1
-        self.node_id[call] = tmp
         self.id_node[tmp] = call
 
     def visit_var(self, var):
@@ -107,27 +118,34 @@ class GetName(ExprVisitor):
         LOGGER.info(">> Tuple, checked_type is:")
         LOGGER.info(tup.checked_type)
         LOGGER.info(">> inputs:")
+        self.id_count = self.id_count + 1
+        self.node_id[tup] = tmp
         for arg in tup.fields:
             arg_id = self.node_id[arg]
             LOGGER.info(arg_id)
+
+            self.dot.node(name=arg_id, label=arg_id, color="green")
+            self.dot.edge(arg_id, self.node_id[tup])
 
         self.tuple_num = self.tuple_num + 1
         log_value = ">> " + str(self.tuple_num) + "th of all tuple"
         LOGGER.info(log_value)
 
-        self.id_count = self.id_count + 1
-
-        self.node_id[tup] = tmp
         self.id_node[tmp] = tup
 
     def visit_tuple_getitem(self, t):
         super().visit_tuple_getitem(t)
 
         name = type(t).__name__
-        tmp = str(self.id_count) + "_" + name
+        tmp = str(self.id_count) + "_" + name + "_i" + str(t.index)
+
+        tup_id = self.node_id[t.tuple_value]
         self.id_count = self.id_count + 1
         self.node_id[t] = tmp
         self.id_node[tmp] = t
+
+        self.dot.node(name=tup_id, label=tup_id, color="green")
+        self.dot.edge(tup_id, tmp)
 
     def visit_function(self, fn):
         super().visit_function(fn)
