@@ -114,6 +114,17 @@ def RewriteVcuOps():
     return _ffi_api.RewriteVcuOps()
 
 
+def IsolateVcuI64Ops():
+    """Isolate round_right_shift input with let binding to prevent PushCastToChildren simplify.
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.IsolateVcuI64Ops()
+
+
 def InlinePrimFuncCalls(extern_primfuncs=None):
     """Inline calls to primfuncs.
 

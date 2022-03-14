@@ -184,7 +184,7 @@ def do_test_reshape(shapes, use_auto_vu_strategy):
     else:
         edgex_schedule = schedule_memcpy_style_edgex_impl(primfunc, target)
         cpu_schedule = schedule_memcpy_style_edgex_impl(primfunc, target)
-    check_edgex_tir_build("concat", edgex_schedule, cpu_prim_func=cpu_schedule, check_cpu=True)
+    check_edgex_tir_build("reshape", edgex_schedule, cpu_prim_func=cpu_schedule, check_cpu=True)
 
 
 def do_test_transpose(shapes, use_auto_vu_strategy):
@@ -203,7 +203,7 @@ def do_test_transpose(shapes, use_auto_vu_strategy):
     else:
         edgex_schedule = schedule_memcpy_style_edgex_impl(primfunc, target)
         cpu_schedule = schedule_memcpy_style_edgex_impl(primfunc, target)
-    check_edgex_tir_build("concat", edgex_schedule, cpu_prim_func=cpu_schedule, check_cpu=True)
+    check_edgex_tir_build("transpose", edgex_schedule, cpu_prim_func=cpu_schedule, check_cpu=True)
 
 
 def do_test_split(shapes, use_auto_vu_strategy):
@@ -223,7 +223,7 @@ def do_test_split(shapes, use_auto_vu_strategy):
     else:
         edgex_schedule = schedule_memcpy_style_edgex_impl(primfunc, target)
         cpu_schedule = schedule_memcpy_style_edgex_impl(primfunc, target)
-    check_edgex_tir_build("concat", edgex_schedule, cpu_prim_func=cpu_schedule, check_cpu=True)
+    check_edgex_tir_build("split", edgex_schedule, cpu_prim_func=cpu_schedule, check_cpu=True)
 
 
 def test_concat():

@@ -14,6 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+import pytest
 import tvm
 from tvm import tir
 from tvm.ir.expr import GlobalVar, PrimExpr
@@ -25,6 +26,117 @@ import numpy as np
 
 
 # fmt: off
+@T.prim_func
+def qat_quantize_pattern1_func(input_0: T.handle, input_1: T.handle, input_2: T.handle, placeholder_3: T.Buffer[(1, 1, 1, 1), "int64"], placeholder_4: T.Buffer[(1, 1, 1, 1), "int64"], out: T.handle) -> None:
+    # body
+    # with T.block("root")
+    h = T.var("int32")
+    w = T.var("int32")    
+    c = T.var("int32")    
+    placeholder_0 = T.match_buffer(input_0, [1, h, w, c], dtype="int32")
+    placeholder_1 = T.match_buffer(input_1, [1, h, w, c], dtype="int32")
+    placeholder_2 = T.match_buffer(input_2, [c], dtype="int32")
+    T_cast = T.match_buffer(out, [1, h, w, c], dtype="uint8")
+
+    T_round_right_shift_intrin = T.alloc_buffer([1, h, w, c], dtype="int64")
+    T_multiply = T.alloc_buffer([1, h, w, c], dtype="int64")
+    compute = T.alloc_buffer([1, h, w, c], dtype="int64")
+    T_add = T.alloc_buffer([1, h, w, c], dtype="int32")
+    T_cast_1 = T.alloc_buffer([1, h, w, c], dtype="int64")
+    T_subtract = T.alloc_buffer([1, h, w, c], dtype="int32")
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_subtract"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(placeholder_0[ax0, ax1, ax2, ax3], placeholder_1[ax0, ax1, ax2, ax3])
+            T.writes(T_subtract[ax0, ax1, ax2, ax3])
+            T_subtract[ax0, ax1, ax2, ax3] = placeholder_0[ax0, ax1, ax2, ax3] - placeholder_1[ax0, ax1, ax2, ax3]
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_add"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_subtract[ax0, ax1, ax2, ax3], placeholder_2[ax3])
+            T.writes(T_add[ax0, ax1, ax2, ax3])
+            T_add[ax0, ax1, ax2, ax3] = T_subtract[ax0, ax1, ax2, ax3] + placeholder_2[ax3]
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_cast"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_add[ax0, ax1, ax2, ax3])
+            T.writes(T_cast_1[ax0, ax1, ax2, ax3])
+            T_cast_1[ax0, ax1, ax2, ax3] = T.cast(T_add[ax0, ax1, ax2, ax3], "int64")
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_multiply"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_cast_1[ax0, ax1, ax2, ax3], placeholder_3[ax0, 0, 0, 0])
+            T.writes(T_multiply[ax0, ax1, ax2, ax3])
+            T_multiply[ax0, ax1, ax2, ax3] = T_cast_1[ax0, ax1, ax2, ax3] * placeholder_3[ax0, 0, 0, 0]
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_round_right_shift_intrin"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_multiply[ax0, ax1, ax2, ax3], placeholder_4[ax0, 0, 0, 0])
+            T.writes(T_round_right_shift_intrin[ax0, ax1, ax2, ax3])
+            T_round_right_shift_intrin[ax0, ax1, ax2, ax3] = T.nnp_round_right_shift(T_multiply[ax0, ax1, ax2, ax3], placeholder_4[ax0, 0, 0, 0], dtype="int64")
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("compute"):
+            i0_1, i1_1, i2_1, i3_1 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_round_right_shift_intrin[i0_1, i1_1, i2_1, i3_1])
+            T.writes(compute[i0_1, i1_1, i2_1, i3_1])
+            compute[i0_1, i1_1, i2_1, i3_1] = T.max(T.min(T_round_right_shift_intrin[i0_1, i1_1, i2_1, i3_1], T.int64(255)), T.int64(0))
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_cast_1"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(compute[ax0, ax1, ax2, ax3])
+            T.writes(T_cast[ax0, ax1, ax2, ax3])
+            T_cast[ax0, ax1, ax2, ax3] = T.cast(compute[ax0, ax1, ax2, ax3], "uint8")
+
+
+
+
+@T.prim_func
+def qat_quantize_pattern2_func(input: T.handle, placeholder_1: T.Buffer[(1, 1, 1, 1), "int32"], placeholder_2: T.Buffer[(1, 1, 1, 1), "int64"], placeholder_3: T.Buffer[(1, 1, 1, 1), "int64"], output: T.handle) -> None:
+    # body
+    # with T.block("root")
+    h = T.var("int32")
+    w = T.var("int32")    
+    c = T.var("int32")
+    placeholder_0 = T.match_buffer(input, [1, h, w, c], dtype="int32")
+    T_cast = T.match_buffer(output, [1, h, w, c], dtype="int32")
+    T_round_right_shift_intrin = T.alloc_buffer([1, h, w, c], dtype="int64")
+    T_cast_1 = T.alloc_buffer([1, h, w, c], dtype="int64")
+    T_subtract = T.alloc_buffer([1, h, w, c], dtype="int32")
+    T_multiply = T.alloc_buffer([1, h, w, c], dtype="int64")
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_subtract"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(placeholder_0[ax0, ax1, ax2, ax3], placeholder_1[ax0, 0, 0, 0])
+            T.writes(T_subtract[ax0, ax1, ax2, ax3])
+            T.block_attr({"relay_op_name":"subtract"})
+            T_subtract[ax0, ax1, ax2, ax3] = placeholder_0[ax0, ax1, ax2, ax3] - placeholder_1[ax0, 0, 0, 0]
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_cast"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_subtract[ax0, ax1, ax2, ax3])
+            T.writes(T_cast_1[ax0, ax1, ax2, ax3])
+            T_cast_1[ax0, ax1, ax2, ax3] = T.cast(T_subtract[ax0, ax1, ax2, ax3], "int64")
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_multiply"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_cast_1[ax0, ax1, ax2, ax3], placeholder_2[ax0, 0, 0, 0])
+            T.writes(T_multiply[ax0, ax1, ax2, ax3])
+            T_multiply[ax0, ax1, ax2, ax3] = T_cast_1[ax0, ax1, ax2, ax3] * placeholder_2[ax0, 0, 0, 0]
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_round_right_shift_intrin"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_multiply[ax0, ax1, ax2, ax3], placeholder_3[ax0, 0, 0, 0])
+            T.writes(T_round_right_shift_intrin[ax0, ax1, ax2, ax3])
+            T_round_right_shift_intrin[ax0, ax1, ax2, ax3] = T.nnp_round_right_shift(T_multiply[ax0, ax1, ax2, ax3], placeholder_3[ax0, 0, 0, 0], dtype="int64")
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_cast_1"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_round_right_shift_intrin[ax0, ax1, ax2, ax3])
+            T.writes(T_cast[ax0, ax1, ax2, ax3])
+            T_cast[ax0, ax1, ax2, ax3] = T.cast(T_round_right_shift_intrin[ax0, ax1, ax2, ax3], "int32")
+
+
+
 @T.prim_func
 def veltadd_binary_relu(a: T.handle, b: T.handle, mullt_norm: T.handle, shift_norm: T.handle, c: T.handle) -> None:
     n = T.var("int32")
@@ -459,6 +571,50 @@ def test_setmode_side_effect():
     check_edgex_tir_build("veltadd_relu_and_norelu", func, check_cpu=True, input_data=[x, m, s])
 
 
+@pytest.mark.skip("skip because llvm not support yet.")
+# mobilenet_v2_qat quantize pattern1: # cast_i64 -> multiply -> shift -> clip(0,255) -> cast_u8
+def test_qat_quantize_pattern1():
+    shape = [1, 7, 7, 960]
+    primfunc = qat_quantize_pattern1_func
+    primfunc = primfunc.specialize({primfunc.params[0]: tir.decl_buffer(shape)})
+    edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
+    cpu_schedule = naive_vu_schedule(primfunc, is_cpu=True, allow_multi_block=True)
+
+    x = np.random.randint(-10000, 10000, shape).astype("int32")
+    y = np.random.randint(-10000, 10000, shape).astype("int32")
+    z = np.random.randint(-10000, 10000, shape[-1]).astype("int32")
+    m = np.random.randint(0, 5, [1, 1, 1, 1]).astype("uint8")
+    s = np.random.randint(0, 9, [1, 1, 1, 1]).astype("uint8")
+    check_edgex_tir_build(
+        "qat_quantize_pattern1",
+        edgex_schedule,
+        cpu_prim_func=cpu_schedule,
+        check_cpu=True,
+        input_data=[x, y, z, m, s],
+    )
+
+
+# mobilenet_v2_qat quantize pattern2: cast_i64 -> multiply -> shift -> cast_i32
+def test_qat_quantize_pattern2():
+    shape = [1, 28, 28, 32]
+    primfunc = qat_quantize_pattern2_func
+    primfunc = primfunc.specialize({primfunc.params[0]: tir.decl_buffer(shape)})
+    edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
+    cpu_schedule = naive_vu_schedule(primfunc, is_cpu=True, allow_multi_block=True)
+
+    x = np.random.randint(-10000, 10000, shape).astype("int32")
+    y = np.random.randint(-10000, 10000, [1, 1, 1, 1]).astype("int32")
+    m = np.random.randint(0, 5, [1, 1, 1, 1]).astype("uint8")
+    s = np.random.randint(0, 9, [1, 1, 1, 1]).astype("uint8")
+    check_edgex_tir_build(
+        "qat_quantize_pattern2",
+        edgex_schedule,
+        cpu_prim_func=cpu_schedule,
+        check_cpu=True,
+        input_data=[x, y, m, s],
+    )
+
+
 if __name__ == "__main__":
     test_i32_quantize()
     test_veltadd_binary_with_relu()
@@ -466,3 +622,5 @@ if __name__ == "__main__":
     test_veltadd_unary_with_relu()
     test_veltadd_unary_no_relu()
     test_setmode_side_effect()
+    test_qat_quantize_pattern2()
+    # test_qat_quantize_pattern1()

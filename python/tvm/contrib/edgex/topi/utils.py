@@ -179,11 +179,38 @@ class PostConvOpMatcher:
         self.relu_block = None
         self.last_block = None
 
+    def __init_blocks(self):
+        self.bias_add_block = None
+        self.pre_quantize_block = None
+        self.quantize_multiply_block = None
+        self.quantize_shift_block = None
+        self.relu_block = None
+        self.last_block = None
+
     def match(self, head_block):
         """match entrance"""
-        self.last_block = None
+        return (
+            self.__match_quant_patter0(head_block)
+            or self.__match_quant_patter1(head_block)
+            or self.__match_quant_patter2(head_block)
+        )
+
+    def __match_quant_patter0(self, head_block):
+        self.__init_blocks()
         next_block = self.__match_bias_add(head_block)
         next_block = self.__match_multiply_round_right_shift(next_block)
+        next_block = self.__match_relu(next_block)
+        return self.last_block is not None
+
+    def __match_quant_patter1(self, head_block):
+        self.__init_blocks()
+        next_block = self.__match_qat_pattern1_multiply_round_right_shift(head_block)
+        next_block = self.__match_relu(next_block)
+        return self.last_block is not None
+
+    def __match_quant_patter2(self, head_block):
+        self.__init_blocks()
+        next_block = self.__match_qat_pattern2_multiply_round_right_shift(head_block)
         next_block = self.__match_relu(next_block)
         return self.last_block is not None
 
@@ -197,6 +224,7 @@ class PostConvOpMatcher:
             return self.__next_block(block)
         return block
 
+    # symmetric quantize pattern0: # cast_i64 -> multiply -> shift -> clip(-128,127) -> cast_i8
     def __match_multiply_round_right_shift(self, input_block):
         if input_block is None:
             return None
@@ -238,6 +266,98 @@ class PostConvOpMatcher:
             return input_block
         block_stmt = self.sched.get_sref(output_block).stmt
         if not self.__is_elemwise(block_stmt, "const") or not self.__is_cast(block_stmt, "int8"):
+            return input_block
+
+        self.pre_quantize_block = input_block
+        self.quantize_multiply_block = multiply_block
+        self.quantize_shift_block = shift_block
+        self.last_block = output_block
+        return self.__next_block(output_block)
+
+    # mobilenet_v2_qat quantize pattern1: # cast_i64 -> multiply -> shift -> clip(0,255) -> cast_u8
+    def __match_qat_pattern1_multiply_round_right_shift(self, input_block):
+        if input_block is None:
+            return None
+
+        # cast i64
+        block_stmt = self.sched.get_sref(input_block).stmt
+        if not self.__is_elemwise(block_stmt, "const") or not self.__is_cast(block_stmt, "int64"):
+            return input_block
+
+        # multiply
+        multiply_block = self.__next_block(input_block)
+        if multiply_block is None:
+            return input_block
+        block_stmt = self.sched.get_sref(multiply_block).stmt
+        if not self.__is_elemwise(block_stmt, "per_channel") or not self.__is_multiply(block_stmt):
+            return input_block
+
+        # round right shift
+        shift_block = self.__next_block(multiply_block)
+        if shift_block is None:
+            return input_block
+        block_stmt = self.sched.get_sref(shift_block).stmt
+        if not self.__is_elemwise(block_stmt, "per_channel") or not self.__is_round_right_shift(
+            block_stmt
+        ):
+            return input_block
+
+        # clip
+        clip_block = self.__next_block(shift_block)
+        if clip_block is None:
+            return input_block
+        block_stmt = self.sched.get_sref(clip_block).stmt
+        if not self.__is_elemwise(block_stmt, "const") or not self.__is_clip_u8(block_stmt):
+            return input_block
+
+        # cast u8
+        output_block = self.__next_block(clip_block)
+        if output_block is None:
+            return input_block
+        block_stmt = self.sched.get_sref(output_block).stmt
+        if not self.__is_elemwise(block_stmt, "const") or not self.__is_cast(block_stmt, "uint8"):
+            return input_block
+
+        self.pre_quantize_block = input_block
+        self.quantize_multiply_block = multiply_block
+        self.quantize_shift_block = shift_block
+        self.last_block = output_block
+        return self.__next_block(output_block)
+
+    # mobilenet_v2_qat quantize pattern2: cast_i64 -> multiply -> shift -> cast_i32
+    def __match_qat_pattern2_multiply_round_right_shift(self, input_block):
+        if input_block is None:
+            return None
+
+        # cast i64
+        block_stmt = self.sched.get_sref(input_block).stmt
+        if not self.__is_elemwise(block_stmt, "const") or not self.__is_cast(block_stmt, "int64"):
+            return input_block
+
+        # multiply
+        multiply_block = self.__next_block(input_block)
+        if multiply_block is None:
+            return input_block
+        block_stmt = self.sched.get_sref(multiply_block).stmt
+        if not self.__is_elemwise(block_stmt, "per_channel") or not self.__is_multiply(block_stmt):
+            return input_block
+
+        # round right shift
+        shift_block = self.__next_block(multiply_block)
+        if shift_block is None:
+            return input_block
+        block_stmt = self.sched.get_sref(shift_block).stmt
+        if not self.__is_elemwise(block_stmt, "per_channel") or not self.__is_round_right_shift(
+            block_stmt
+        ):
+            return input_block
+
+        # cast i32
+        output_block = self.__next_block(shift_block)
+        if output_block is None:
+            return input_block
+        block_stmt = self.sched.get_sref(output_block).stmt
+        if not self.__is_elemwise(block_stmt, "const") or not self.__is_cast(block_stmt, "int32"):
             return input_block
 
         self.pre_quantize_block = input_block
@@ -353,6 +473,22 @@ class PostConvOpMatcher:
             expr = expr.a
             return (
                 isinstance(expr, tir.Min) and isinstance(expr.a, tir.BufferLoad) and expr.b == 127
+            )
+        return False
+
+    def __is_clip_u8(self, block_stmt):
+        expr = block_stmt.body.value
+        if isinstance(expr, tir.Min):
+            if expr.b != 255:
+                return False
+            expr = expr.a
+            return isinstance(expr, tir.Max) and isinstance(expr.a, tir.BufferLoad) and expr.b == 0
+        if isinstance(expr, tir.Max):
+            if expr.b != 0:
+                return False
+            expr = expr.a
+            return (
+                isinstance(expr, tir.Min) and isinstance(expr.a, tir.BufferLoad) and expr.b == 255
             )
         return False
 

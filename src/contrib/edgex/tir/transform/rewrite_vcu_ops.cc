@@ -29,9 +29,8 @@
 #include <tvm/tir/stmt_functor.h>
 #include <tvm/tir/transform.h>
 
-#include "../../../../arith/pattern_match.h"
 #include "../edgex_ir_utils.h"
-#include "../op/builtin.h"
+#include "./edgex_pattern_match.h"
 
 namespace tvm {
 namespace tir {
@@ -44,13 +43,6 @@ using tvm::arith::PVecDataType;
 
 constexpr const int VELTADD_ASR_MODE_ROUNDING = 4;
 constexpr const int VELTADD_RELU_MODE_ENABLE = 1;
-
-// define match pattern of round right shift intrin
-namespace builtin {
-using tvm::tir::edgex::builtin::nnp_round_right_shift;
-}  // namespace builtin
-using arith::PCallExpr;
-TVM_PATTERN_BINARY_INTRIN(round_right_shift, PRoundRightShiftOp, nnp_round_right_shift);
 
 /*! \brief detect vectorized relu */
 static bool MatchVectorizedInt8Relu(const PrimExpr& expr) {

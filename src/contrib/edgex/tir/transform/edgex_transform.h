@@ -97,6 +97,12 @@ TVM_DLL Pass LiftGlobalAllocation();
 TVM_DLL Pass RewriteVcuOps();
 
 /*!
+ * \brief Isolate round_right_shift input with let binding to prevent PushCastToChildren simplify.
+ * \return The pass.
+ */
+TVM_DLL Pass IsolateVcuI64Ops();
+
+/*!
  * \brief Split cu/vcu control flow codes into separate code segments.
  * \return The pass.
  */
