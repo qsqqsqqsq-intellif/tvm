@@ -113,7 +113,9 @@ def conv_schedule_with_simu_layout_rewrite(attrs, func, target):
     s = EdgexSchedule(func)
     relay_rewrite_mgr = PostScheduleArgumentRewriteManager(s)
     rewrite_quantize_params_to_u8(s, relay_rewrite_mgr)
-    rewrite_conv_weight_layout_ochw(s, s.get_block("compute"), relay_rewrite_mgr)
+    rewrite_conv_weight_layout_ochw(
+        s, s.get_child_blocks(s.get_block("root"))[1], relay_rewrite_mgr
+    )
     return relay_rewrite_mgr.create_annotated_func()
 
 

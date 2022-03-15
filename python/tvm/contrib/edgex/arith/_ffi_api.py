@@ -14,9 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+"""FFI APIs for tvm.edgex.arith"""
+import tvm
 
-# newlib needed for math.h
-CONFIG_NEWLIB_LIBC=y
-
-# Enables architecture extensions
-CONFIG_FPU=y
+tvm._ffi._init_api("edgex.arith", __name__)

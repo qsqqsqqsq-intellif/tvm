@@ -28,10 +28,9 @@ from tvm.contrib import utils, ndk
 from tvm.contrib.hexagon.build import HexagonLauncher
 import tvm.contrib.hexagon.hexagon as hexagon
 
-from ..conftest import requires_rpc_tracker, requires_hexagon_toolchain
+from ..conftest import requires_hexagon_toolchain
 
 
-@requires_rpc_tracker
 @requires_hexagon_toolchain
 def test_add(tvm_tracker_host, tvm_tracker_port, android_serial_number):
     dtype = "int8"
@@ -76,7 +75,6 @@ def test_add(tvm_tracker_host, tvm_tracker_port, android_serial_number):
     launcher.close()
 
 
-@requires_rpc_tracker
 @requires_hexagon_toolchain
 def test_add_vtcm(tvm_tracker_host, tvm_tracker_port, android_serial_number):
     dtype = "int8"
@@ -129,7 +127,6 @@ class TestMatMul:
     N = tvm.testing.parameter(32)
     K = tvm.testing.parameter(32)
 
-    @requires_rpc_tracker
     @requires_hexagon_toolchain
     def test_matmul(self, tvm_tracker_host, tvm_tracker_port, android_serial_number, M, N, K):
         X = te.placeholder((M, K), dtype="float32")
@@ -185,7 +182,6 @@ class TestMatMul:
         tvm.testing.assert_allclose(zt.numpy(), ztcpu.numpy(), rtol=1e-4)
 
 
-@requires_rpc_tracker
 @requires_hexagon_toolchain
 def test_graph_executor(tvm_tracker_host, tvm_tracker_port, android_serial_number):
     dtype = "float32"

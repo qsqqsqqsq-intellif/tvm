@@ -24,7 +24,6 @@ from . import postproc
 from . import schedule_rule
 from . import space_generator
 from . import search_strategy
-from . import schedule_rule
 from . import integration
 from . import feature_extractor
 from . import cost_model

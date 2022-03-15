@@ -743,17 +743,17 @@ void ReplaceBuffer(ScheduleState self, StmtSRef stmt_sref, Buffer origin_buffer,
   spec.origin_buffer = container->buffer.get();
   spec.new_buffer = new_buffer;
 
-  if (load_rewrite_func.body()) {
+  if (load_rewrite_func.defined()) {
     spec.load_rewrite_func = [&load_rewrite_func](const BufferLoad& load) {
       return TypedPackedFunc<PrimExpr(const BufferLoad&)>(load_rewrite_func)(load);
     };
   }
-  if (store_rewrite_func.body()) {
+  if (store_rewrite_func.defined()) {
     spec.store_rewrite_func = [&store_rewrite_func](const BufferStore& store) {
       return TypedPackedFunc<Stmt(const BufferStore&)>(store_rewrite_func)(store);
     };
   }
-  if (region_rewrite_func.body()) {
+  if (region_rewrite_func.defined()) {
     spec.region_rewrite_func = [&region_rewrite_func](const Array<Range>& region) {
       return TypedPackedFunc<Array<Range>(const Array<Range>&)>(region_rewrite_func)(region);
     };

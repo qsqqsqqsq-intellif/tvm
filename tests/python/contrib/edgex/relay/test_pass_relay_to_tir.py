@@ -104,7 +104,7 @@ def test_relay_annotation_on_tir_block():
     mod = EdgeXRelayToTIR(post_schedule_rewrite=False)(mod)
     primfunc = mod["edgex_fused_nn_conv2d"]
     s = tvm.tir.schedule.Schedule(primfunc)
-    block_stmt = s.get_sref(s.get_block("compute")).stmt
+    block_stmt = s.get_sref(s.get_child_blocks(s.get_block("root"))[1]).stmt
     assert block_stmt.annotations["relay_op_name"] == "nn.conv2d"
     assert block_stmt.annotations["relay_op_attrs.kernel_size"][0] == 3
     assert block_stmt.annotations["relay_op_attrs.kernel_size"][1] == 3

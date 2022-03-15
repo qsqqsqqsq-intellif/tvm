@@ -159,9 +159,9 @@ def schedule_max_pool2d_s2_p1_3_3_tiling(func, is_cpu):
         for blk in blks:
             if blk == block:
                 continue
-            c, h, w = s.get_loops(blk)[-3:]
-            c_o, c_i = s.split(c, factors=[None, 8])
-            s.reorder(c_o, h, w, c_i)
+            c, _, _ = s.get_loops(blk)[-3:]
+            s.split(c, factors=[None, 8])
+            # s.reorder(c_o, h, w, c_i)
         for blk in blks:
             bn, bc, bh, bw = s.get_write_buffer_axes(blk, 0)[:4]
             bc_o, bc_i = s.split_buffer(bc, factor=8)

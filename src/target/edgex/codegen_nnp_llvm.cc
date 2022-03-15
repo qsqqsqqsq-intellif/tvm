@@ -746,21 +746,22 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
    *                          scope's base address. i64 for ddr and i32 for other scopes.
    */
   llvm::Value* VisitTVMAccessPtr(const CallNode* op, bool in_dma_intrinsic) {
-    DataType dtype = op->args[0].dtype();
+    DataType i8_type = DataType::Int(8);
+    DataType elemtype = op->args[0].dtype();
     llvm::Value* buffer = MakeValue(op->args[1]);
     bool is_ddr = IsDDRBuffer(op->args[1]);
     llvm::Value* index = MakeValue(op->args[2]);
     ICHECK(index->getType()->isIntegerTy());
     if (in_dma_intrinsic) {
       if (is_ddr) {
-        llvm::Value* ddr_addr = CreateBufferPtr(dtype, buffer, index).addr;
+        llvm::Value* ddr_addr = CreateBufferPtr(buffer, elemtype, index, i8_type).addr;
         return builder_->CreatePtrToInt(ddr_addr, builder_->getInt64Ty());
       } else {
-        int elem_bytes = dtype.bytes() * dtype.lanes();
+        int elem_bytes = op->args[0].dtype().bytes() * op->args[0].dtype().lanes();
         return builder_->CreateMul(index, llvm::ConstantInt::get(index->getType(), elem_bytes));
       }
     } else {
-      return CreateBufferPtr(dtype, buffer, index).addr;
+      return CreateBufferPtr(buffer, elemtype, index, i8_type).addr;
     }
   }
 

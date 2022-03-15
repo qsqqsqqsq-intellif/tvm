@@ -335,7 +335,7 @@ class ScheduleBuilder : public ExprVisitor {
           schedule = Downcast<te::Schedule>(obj);
         }
       }
-      
+
       if (Op::HasAttrMap("FEdgeXSchedule")) {
         using FEdgeXSchedule = GenericFunc;
         static auto edgex_sched_map_ = Op::GetAttrMap<FEdgeXSchedule>("FEdgeXSchedule");

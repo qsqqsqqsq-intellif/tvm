@@ -71,6 +71,8 @@ class NNP400LinearAccessPatternFinder final : public StmtExprVisitor {
     size_t align_bytes{0};
     // allocation stmt
     const AllocateNode* alloc{nullptr};
+    // associated buffer
+    Buffer buffer;
   };
 
   // linearized access sequence.
@@ -87,20 +89,23 @@ class NNP400LinearAccessPatternFinder final : public StmtExprVisitor {
     entry.level = level;
     StmtExprVisitor::VisitStmt_(op);
   }
-  void VisitBufferAccess(const VarNode* buf) {
-    auto it = alloc_info_.find(buf);
+  void VisitBufferAccess(const VarNode* buffer_var, Buffer buffer = Buffer()) {
+    auto it = alloc_info_.find(buffer_var);
     if (it != alloc_info_.end() && it->second.alloc) {
       CHECK_LT(it->second.level, scope_.size()) << "Access memory buffer out of allocation scope.";
-      scope_[it->second.level].touched.push_back(buf);
+      scope_[it->second.level].touched.push_back(buffer_var);
+      if (buffer.defined() && !it->second.buffer.defined()) {
+        it->second.buffer = buffer;  // fill first accociated buffer
+      }
     }
   }
-  void VisitStmt_(const StoreNode* op) final {
+  void VisitStmt_(const BufferStoreNode* op) final {
     scope_.push_back(StmtEntry());
     // visit subexpr
     StmtExprVisitor::VisitStmt_(op);
     // Add write access.
-    const VarNode* buf = op->buffer_var.get();
-    VisitBufferAccess(buf);
+    const VarNode* buffer_var = op->buffer->data.get();
+    VisitBufferAccess(buffer_var, op->buffer);
     StmtEntry e = scope_.back();
     scope_.pop_back();
     if (e.touched.size() != 0) {
@@ -112,6 +117,7 @@ class NNP400LinearAccessPatternFinder final : public StmtExprVisitor {
     scope_.push_back(StmtEntry());
     // visit subexpr
     StmtExprVisitor::VisitStmt_(op);
+    ICHECK(!scope_.empty());
     StmtEntry e = scope_.back();
     scope_.pop_back();
     if (!e.touched.empty()) {
@@ -119,16 +125,17 @@ class NNP400LinearAccessPatternFinder final : public StmtExprVisitor {
       linear_seq_.push_back(e);
     }
   }
-  void VisitExpr_(const LoadNode* op) final {
+  void VisitExpr_(const BufferLoadNode* op) final {
     // Add read access.
     StmtExprVisitor::VisitExpr_(op);
-    const VarNode* buf = op->buffer_var.get();
-    VisitBufferAccess(buf);
+    const VarNode* buffer_var = op->buffer->data.get();
+    VisitBufferAccess(buffer_var, op->buffer);
   }
   void VisitExpr_(const CallNode* op) final {
     if (op->op.same_as(builtin::address_of())) {
-      const LoadNode* l = op->args[0].as<LoadNode>();
-      this->VisitExpr(l->index);
+      const BufferLoadNode* l = op->args[0].as<BufferLoadNode>();
+      ICHECK(l);
+      this->VisitExpr(l->indices[0]);
     } else if (op->op.same_as(builtin::tvm_access_ptr())) {
       const VarNode* v = op->args[1].as<VarNode>();
       CHECK(v);
@@ -180,6 +187,7 @@ class NNP400LinearAccessPatternFinder final : public StmtExprVisitor {
     linear_seq_.push_back(e);
     // record the pointer to end index.
     ICHECK_NE(end_index, 0U);
+    ICHECK_LT(begin_index, linear_seq_.size());
     linear_seq_[begin_index].scope_pair_offset = end_index - begin_index;
   }
   void VisitStmt_(const AttrStmtNode* op) final {
@@ -243,7 +251,7 @@ class NNP400LinearAccessPatternFinder final : public StmtExprVisitor {
 //
 // The code after inplace transformation is no longer idempotent.
 //
-class InplaceOpVerifier : public StmtExprVisitor {
+class NNP400InplaceOpVerifier : public StmtExprVisitor {
  public:
   bool Check(const Object* stmt, const VarNode* dst, const VarNode* src) {
     dst_ = dst;
@@ -257,8 +265,8 @@ class InplaceOpVerifier : public StmtExprVisitor {
       VisitStmt_(static_cast<const IfThenElseNode*>(stmt));
     } else if (stmt->IsInstance<WhileNode>()) {
       VisitStmt_(static_cast<const WhileNode*>(stmt));
-    } else if (stmt->IsInstance<StoreNode>()) {
-      VisitStmt_(static_cast<const StoreNode*>(stmt));
+    } else if (stmt->IsInstance<BufferStoreNode>()) {
+      VisitStmt_(static_cast<const BufferStoreNode*>(stmt));
     } else {
       return false;
     }
@@ -284,18 +292,17 @@ class InplaceOpVerifier : public StmtExprVisitor {
     }
   }
 
-  void VisitStmt_(const StoreNode* op) final {
+  void VisitStmt_(const BufferStoreNode* op) final {
     ++mem_nest_;
-    this->VisitExpr(op->index);
+    ICHECK(!op->indices.empty());
+    this->VisitExpr(op->indices[0]);
     --mem_nest_;
-    if (op->buffer_var.get() == dst_) {
+    if (op->buffer->data.get() == dst_) {
       store_ = op;
       this->VisitExpr(op->value);
-      this->VisitExpr(op->predicate);
       store_ = nullptr;
     } else {
       this->VisitExpr(op->value);
-      this->VisitExpr(op->predicate);
     }
   }
 
@@ -308,8 +315,9 @@ class InplaceOpVerifier : public StmtExprVisitor {
     StmtExprVisitor::VisitStmt_(op);
   }
 
-  void VisitExpr_(const LoadNode* op) final {
-    const VarNode* buf = op->buffer_var.get();
+  void VisitExpr_(const BufferLoadNode* op) final {
+    ICHECK(!op->indices.empty());
+    const VarNode* buf = op->buffer->data.get();
     // cannot read from dst_ (no reduction)
     if (buf == dst_) {
       result_ = false;
@@ -322,7 +330,7 @@ class InplaceOpVerifier : public StmtExprVisitor {
     }
     if (src_ == buf) {
       if (store_ == nullptr || store_->value.dtype() != op->dtype ||
-          !tir::ExprDeepEqual()(store_->index, op->index)) {
+          !tir::ExprDeepEqual()(store_->indices[0], op->indices[0])) {
         result_ = false;
         return;
       }
@@ -343,7 +351,7 @@ class InplaceOpVerifier : public StmtExprVisitor {
   // it is not safe to inplace when there is nested load like A[B[i]]
   int mem_nest_{0};
   // The current store to be inspected
-  const StoreNode* store_{nullptr};
+  const BufferStoreNode* store_{nullptr};
 };
 
 // Planner to plan and rewrite memory allocation.
@@ -362,6 +370,29 @@ class NNP400StoragePlanRewriter : public StmtExprMutator {
     this->LivenessAnalysis(finder.linear_seq_);
     this->PlanMemory(finder.linear_seq_, finder.alloc_info_);
     this->PrepareNewAlloc();
+
+    // update buffer var to buffer mapping
+    for (const auto& kv : finder.alloc_info_) {
+      Buffer buffer = kv.second.buffer;
+      if (!buffer.defined()) {
+        const AllocateNode* alloc = kv.second.alloc;
+        ICHECK(alloc);
+        buffer = Buffer(GetRef<Var>(kv.first), alloc->dtype, alloc->extents, Array<PrimExpr>(),
+                        PrimExpr(), kv.first->name_hint, kv.second.align_bytes, 0, kDefault);
+      }
+      auto it = alloc_map_.find(kv.first);
+      if (it != alloc_map_.end()) {
+        buffer.CopyOnWrite()->data = it->second->alloc_var;
+        if (it->second->bits_offset > 0) {
+          ICHECK_EQ(it->second->bits_offset % (buffer->dtype.bits() * buffer->dtype.lanes()), 0);
+          size_t elem_offset =
+              it->second->bits_offset / (buffer->dtype.bits() * buffer->dtype.lanes());
+          buffer.CopyOnWrite()->elem_offset = make_const(DataType::Int(32), elem_offset);
+        }
+      }
+      buffer_map_[kv.first] = buffer;
+    }
+
     // start rewrite
     stmt = operator()(std::move(stmt));
     if (attach_map_.count(nullptr)) {
@@ -369,22 +400,25 @@ class NNP400StoragePlanRewriter : public StmtExprMutator {
     }
     return stmt;
   }
-  Stmt VisitStmt_(const StoreNode* op) final {
+  Stmt VisitStmt_(const BufferStoreNode* op) final {
     Stmt stmt = StmtExprMutator::VisitStmt_(op);
-    op = stmt.as<StoreNode>();
+    op = stmt.as<BufferStoreNode>();
     ICHECK(op != nullptr);
-    auto it = alloc_map_.find(op->buffer_var.get());
-    if (it == alloc_map_.end()) return stmt;
-    return Store(it->second->alloc_var, op->value,
-                 RemapIndex(op->value.dtype(), op->index, it->second), op->predicate);
+
+    auto it = buffer_map_.find(op->buffer->data.get());
+    if (it == buffer_map_.end()) {
+      return stmt;
+    }
+    return BufferStore(it->second, op->value, op->indices);
   }
-  PrimExpr VisitExpr_(const LoadNode* op) final {
+  PrimExpr VisitExpr_(const BufferLoadNode* op) final {
     PrimExpr expr = StmtExprMutator::VisitExpr_(op);
-    op = expr.as<LoadNode>();
-    auto it = alloc_map_.find(op->buffer_var.get());
-    if (it == alloc_map_.end()) return expr;
-    return Load(op->dtype, it->second->alloc_var, RemapIndex(op->dtype, op->index, it->second),
-                op->predicate);
+    op = expr.as<BufferLoadNode>();
+    auto it = buffer_map_.find(op->buffer->data.get());
+    if (it == buffer_map_.end()) {
+      return expr;
+    }
+    return BufferLoad(it->second, op->indices);
   }
   PrimExpr VisitExpr_(const VarNode* op) final {
     auto it = alloc_map_.find(op);
@@ -799,6 +833,7 @@ class NNP400StoragePlanRewriter : public StmtExprMutator {
         for (auto v : events.gen) ss << GetRef<Var>(v) << ", ";
         ss << "\n[KILL] ";
         for (auto v : events.kill) ss << GetRef<Var>(v) << ", ";
+        ss << "\n";
       }
       LOG(INFO) << ss.str();
     }
@@ -854,15 +889,14 @@ class NNP400StoragePlanRewriter : public StmtExprMutator {
             bool inplace_found = false;
             for (const VarNode* src : it->second.kill) {
               if (!inplace_flag.count(src) && alloc_map_.count(src)) {
-                InplaceOpVerifier visitor;
+                NNP400InplaceOpVerifier visitor;
                 StorageEntry* src_entry = alloc_map_.at(src);
                 if (src_entry->scope == ae.storage_scope &&
                     src_entry->attach_scope_ == thread_scope_ &&
                     src_entry->elem_type == ae.alloc->dtype.element_of() &&
                     visitor.Check(s.stmt, var, src)) {
-                  uint64_t const_nbits =
-                      static_cast<uint64_t>(ae.alloc->constant_allocation_size()) *
-                      ae.alloc->dtype.bits() * ae.alloc->dtype.lanes();
+                  uint64_t const_nbits = static_cast<uint64_t>(ae.alloc->ConstantAllocationSize()) *
+                                         ae.alloc->dtype.bits() * ae.alloc->dtype.lanes();
                   if (src_entry->const_nbits == const_nbits &&
                       src_entry->align_bytes == ae.align_bytes && !inplace_found) {
                     // successfully inplace
@@ -936,7 +970,7 @@ class NNP400StoragePlanRewriter : public StmtExprMutator {
     // compiler can do a better job with register allocation.
     const uint64_t match_range = 16;
     uint64_t op_elem_bits = op->dtype.bits() * op->dtype.lanes();
-    uint64_t const_nbits = static_cast<uint64_t>(op->constant_allocation_size() * op_elem_bits);
+    uint64_t const_nbits = static_cast<uint64_t>(op->ConstantAllocationSize() * op_elem_bits);
     uint64_t align_bytes = alloc_entry.align_bytes;
     // disable reuse of small arrays, they will be lowered to registers in LLVM
     // This rules only apply if we are using non special memory
@@ -1037,6 +1071,8 @@ class NNP400StoragePlanRewriter : public StmtExprMutator {
   std::unordered_map<const VarNode*, StorageEntry*> alloc_map_;
   // The allocations
   std::vector<std::unique_ptr<StorageEntry> > alloc_vec_;
+  // The mapping from buffer var to buffer object
+  std::unordered_map<const VarNode*, Buffer> buffer_map_;
   // analyzer
   arith::Analyzer analyzer_;
   // verbosity

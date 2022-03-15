@@ -14,7 +14,6 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-<<<<<<< HEAD:python/tvm/relay/quantization/pre_processes/fuse_add.py
 # pylint: disable=unused-argument,inconsistent-return-statements
 """Automatic quantization toolkit."""
 
@@ -34,20 +33,3 @@ def fuse_add(mod):
     with tvm.transform.PassContext(opt_level=3):
         mod = optimize(mod)
     return mod
-=======
-"""A postprocessor that verifies if the GPU code is correct"""
-
-from tvm._ffi.registry import register_object
-from .. import _ffi_api
-from .postproc import Postproc
-
-
-@register_object("meta_schedule.VerifyGPUCode")
-class VerifyGPUCode(Postproc):
-    """A postprocessor that verifies if the GPU code is correct"""
-
-    def __init__(self) -> None:
-        self.__init_handle_by_constructor__(
-            _ffi_api.PostprocVerifyGPUCode,  # type: ignore # pylint: disable=no-member
-        )
->>>>>>> community/main:python/tvm/meta_schedule/postproc/verify_gpu_code.py

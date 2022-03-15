@@ -29,11 +29,11 @@ def intermediate_ddr_allocation(a: T.handle, b: T.handle) -> None:
     T0 = T.allocate([64], dtype="int32", scope="global")
     T1 = T.allocate([64], dtype="int32", scope="global")
     for i in T.serial(0, 64):
-        T.store(T0, i, T.load("int32", A.data, i) + 1)
+        T0[i] = A[i] + 1
     for i in T.serial(0, 64):
-        T.store(T1, i, T.load("int32", T0, i) + 1)
+        T1[i] = T0[i] + 1
     for i in T.serial(0, 64):
-        T.store(B.data, i, T.load("int32", T1, i) + 1)
+        B[i] = T1[i] + 1
 
 
 @T.prim_func
@@ -44,11 +44,11 @@ def intermediate_ddr_allocation_lifted(a: T.handle, b: T.handle) -> None:
     T1 = T.allocate([64], "int32", "global")
     T.attr(0, "device_scope", 0)
     for i in T.serial(0, 64):
-        T.store(T0, i, (T.load("int32", A.data, i) + 1), 1)
+        T0[i] = A[i] + 1
     for i in T.serial(0, 64):
-        T.store(T1, i, (T.load("int32", T0, i) + 1), 1)
+        T1[i] = T0[i] + 1
     for i in T.serial(0, 64):
-        T.store(B.data, i, (T.load("int32", T1, i) + 1), 1)
+        B[i] = T1[i] + 1
 # fmt: on
 
 

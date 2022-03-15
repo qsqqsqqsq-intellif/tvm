@@ -1085,7 +1085,7 @@ def conv2d_nchw_tir_schedule(attrs, prim_func, tgt):
     kernel_layout = attrs.kernel_layout
     sched = EdgexSchedule(prim_func)
     relay_rewrite_mgr = PostScheduleArgumentRewriteManager(sched)
-    conv_block = sched.get_block("compute" if layout == "NCHW" else "conv2d_NCHWc")
+    conv_block = sched.get_child_blocks(sched.get_block("root"))[1]
     schedule_edgex_conv_block(
         sched,
         conv_block,

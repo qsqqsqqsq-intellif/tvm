@@ -188,7 +188,13 @@ class PostScheduleArgumentRewriteManager:
 
         dict_attr = tvm.ir.make_node("DictAttrs", **attrs)
         return tir.PrimFunc(
-            func.params, func.body, func.ret_type, func.buffer_map, dict_attr, func.span
+            func.params,
+            func.body,
+            func.ret_type,
+            func.buffer_map,
+            func.preflattened_buffer_map,
+            dict_attr,
+            func.span,
         )
 
     def update_func_info(self):

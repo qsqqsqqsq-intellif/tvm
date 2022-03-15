@@ -142,19 +142,23 @@ class VcuControlFlowMarker : public StmtExprFunctor<CodeState> {
     return MarkStmt(op, CodeState::ALL);
   }
 
-  CodeState VisitStmt_(const StoreNode* op) final {
+  CodeState VisitStmt_(const BufferStoreNode* op) final {
     CodeState value_state = VisitExpr(op->value);
-    CodeState index_state = VisitExpr(op->index);
-    CodeState pred_state = VisitExpr(op->predicate);
-    if (GetStorageScope(op->buffer_var).rank == StorageRank::kVM) {
+    std::vector<CodeState> indices_states;
+    for (const auto& e : op->indices) {
+      indices_states.push_back(VisitExpr(e));
+    }
+    if (GetStorageScope(op->buffer->data).rank == StorageRank::kVM) {
       CHECK_NE(value_state, CodeState::CU);
-      CHECK_NE(index_state, CodeState::CU);
-      CHECK_NE(pred_state, CodeState::CU);
+      for (const auto& st : indices_states) {
+        CHECK_NE(st, CodeState::CU);
+      }
       return MarkStmt(op, CodeState::VCU);
     } else {
       CHECK_NE(value_state, CodeState::VCU);
-      CHECK_NE(index_state, CodeState::VCU);
-      CHECK_NE(pred_state, CodeState::VCU);
+      for (const auto& st : indices_states) {
+        CHECK_NE(st, CodeState::VCU);
+      }
       return MarkStmt(op, CodeState::CU);
     }
   }
@@ -192,24 +196,20 @@ class VcuControlFlowMarker : public StmtExprFunctor<CodeState> {
 
   CodeState VisitExpr_(const VarNode* op) final { return GetVarState(op); }
 
-  CodeState VisitExpr_(const LoadNode* op) final {
-    CodeState index_state = VisitExpr(op->index);
-    CodeState pred_state = VisitExpr(op->predicate);
-    if (GetStorageScope(op->buffer_var).rank == StorageRank::kVM) {
-      CHECK_NE(index_state, CodeState::CU);
-      CHECK_NE(pred_state, CodeState::CU);
-      return CodeState::VCU;
-    } else {
-      CHECK_NE(index_state, CodeState::VCU);
-      CHECK_NE(pred_state, CodeState::VCU);
-      return CodeState::CU;
-    }
-  }
-
   CodeState VisitExpr_(const BufferLoadNode* op) final {
-    if (op->buffer.scope() == "vm") {
+    std::vector<CodeState> indices_states;
+    for (const auto& e : op->indices) {
+      indices_states.push_back(VisitExpr(e));
+    }
+    if (GetStorageScope(op->buffer->data).rank == StorageRank::kVM) {
+      for (const auto& st : indices_states) {
+        CHECK_NE(st, CodeState::CU);
+      }
       return CodeState::VCU;
     } else {
+      for (const auto& st : indices_states) {
+        CHECK_NE(st, CodeState::VCU);
+      }
       return CodeState::CU;
     }
   }
@@ -321,7 +321,7 @@ class VcuControlFlowMarker : public StmtExprFunctor<CodeState> {
   }
 
   UNSUPPORTED_STMT(WhileNode);
-  UNSUPPORTED_STMT(BufferStoreNode);
+  UNSUPPORTED_STMT(StoreNode);
   UNSUPPORTED_STMT(BufferRealizeNode);
   UNSUPPORTED_STMT(ProducerStoreNode);
   UNSUPPORTED_STMT(ProducerRealizeNode);
@@ -330,6 +330,7 @@ class VcuControlFlowMarker : public StmtExprFunctor<CodeState> {
   UNSUPPORTED_STMT(BlockRealizeNode);
 
   UNSUPPORTED_EXPR(SizeVarNode);
+  UNSUPPORTED_EXPR(LoadNode);
   UNSUPPORTED_EXPR(ProducerLoadNode);
   DEFAULT_STATE_EXPR(AnyNode);
   DEFAULT_STATE_EXPR(IntImmNode);

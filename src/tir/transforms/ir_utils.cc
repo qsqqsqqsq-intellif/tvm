@@ -311,6 +311,7 @@ class IRConvertSSA final : public StmtExprMutator {
   std::unordered_map<const VarNode*, std::vector<Var>> scope_;
   std::unordered_set<const VarNode*> defined_;
   std::unordered_map<const BufferNode*, std::vector<Buffer>> buf_remap_;
+  std::unordered_map<std::string, size_t> block_name_cnt_;
 };
 
 Stmt ConvertSSA(Stmt stmt) { return IRConvertSSA()(std::move(stmt)); }

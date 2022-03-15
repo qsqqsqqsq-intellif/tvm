@@ -39,7 +39,7 @@ def vcu_example(a: T.handle, b: T.handle, c: T.handle) -> None:
         T.evaluate(T.nnp_vidma_load(dtype="handle"))
         T.evaluate(T.nnp_sync("vidma", "wo", "eidma", dtype="handle"))
         for j in T.serial(64, 1):
-            A_vm[j] = (T.load("int32", A_vm, j) + T.load("int32", A_vm, (64 + j)))
+            A_vm[j] = A_vm[j] + A_vm[64 + j]
         T.evaluate(T.nnp_vodma_store(dtype="handle"))
         if (i == 0):
             T.evaluate(T.nnp_sync("vodma", "ub", "vidma", dtype="handle"))
@@ -75,7 +75,7 @@ def vcu_splitted(a: T.handle, b: T.handle, c: T.handle) -> None:
             T.evaluate(T.nnp_vidma_load(dtype="handle"))
             T.evaluate(T.nnp_sync("vidma", "wo", "eidma", dtype="handle"))
             for j in T.serial(64, 1):
-                A_vm[j] = (T.load("int32", A_vm, j) + T.load("int32", A_vm, (64 + j)))
+                A_vm[j] = A_vm[j] + A_vm[64 + j]
             T.evaluate(T.nnp_vodma_store(dtype="handle"))
             if (i_1 == 0):
                 T.evaluate(T.nnp_sync("vodma", "ub", "vidma", dtype="handle"))

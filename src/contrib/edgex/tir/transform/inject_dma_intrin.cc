@@ -200,7 +200,7 @@ class DMAIntrinScopeRewriter : public StmtExprMutator {
       // we only support a limit set of stmt within dma scope
       ICHECK(stmt->IsInstance<SeqStmtNode>() || stmt->IsInstance<AttrStmtNode>() ||
              stmt->IsInstance<ForNode>() || stmt->IsInstance<IfThenElseNode>() ||
-             stmt->IsInstance<StoreNode>())
+             stmt->IsInstance<BufferStoreNode>())
           << "Do not support stmt type " << stmt->GetTypeKey() << " under dma scope";
     }
     return StmtExprMutator::VisitStmt(stmt);
@@ -251,7 +251,7 @@ class DMAIntrinScopeRewriter : public StmtExprMutator {
     }
   }
 
-  Stmt VisitStmt_(const StoreNode* store) final {
+  Stmt VisitStmt_(const BufferStoreNode* store) final {
     if (in_scope_) {
       DMAIntrinRewriter rewriter(loop_vars_, dom_map_, extra_dma_attrs_, verbose_);
       return rewriter.RewriteDMA(GetRef<Stmt>(store), intrin_hint_name_);
@@ -759,9 +759,9 @@ Stmt DMAIntrinRewriter::RewriteDMA(const Stmt& body, const std::string& intrin_h
     LOG(INFO) << "Try rewrite dma scope: \n" << body;
   }
   Stmt target_stmt = WithNormalizedDomain(body);
-  const StoreNode* store = target_stmt.as<StoreNode>();
+  const BufferStoreNode* store = target_stmt.as<BufferStoreNode>();
   ICHECK(store) << "Unsupported dma stmt " << target_stmt;
-  const LoadNode* load = store->value.as<LoadNode>();
+  const BufferLoadNode* load = store->value.as<BufferLoadNode>();
   PrimExpr cond;
   if (load == nullptr) {
     if (intrin_hint_name == "idma") {
@@ -770,14 +770,14 @@ Stmt DMAIntrinRewriter::RewriteDMA(const Stmt& body, const std::string& intrin_h
       ICHECK(ifthen && ifthen->op.same_as(builtin::if_then_else()))
           << "Unsupported idma stmt " << target_stmt;
       cond = ifthen->args[0];
-      load = ifthen->args[1].as<LoadNode>();
+      load = ifthen->args[1].as<BufferLoadNode>();
       auto pad_value = ifthen->args[2].as<IntImmNode>();
       ICHECK(pad_value) << "Idma do not support non-const padding value: " << ifthen->args[2];
     } else if (intrin_hint_name == "odma") {
       // for odma, the load pattern could be fused with post computations
       PostOrderVisit(store->value, [&load, this](const ObjectRef& obj) {
-        if (const LoadNode* cur_load = obj.as<LoadNode>()) {
-          StorageScope scope = GetStorageScope(cur_load->buffer_var);
+        if (const BufferLoadNode* cur_load = obj.as<BufferLoadNode>()) {
+          StorageScope scope = GetStorageScope(cur_load->buffer->data);
           if (scope.rank == StorageRank::kCUBE) {
             load = cur_load;
           }
@@ -788,49 +788,49 @@ Stmt DMAIntrinRewriter::RewriteDMA(const Stmt& body, const std::string& intrin_h
   ICHECK(load) << "Unsupported dma stmt, fail to fetch load pattern: \n" << target_stmt;
 
   // get base + offset division for src
-  auto p_src = GetIndiceDivision(dom_analyzer_.Simplify(load->index), loop_vars_);
+  auto p_src = GetIndiceDivision(dom_analyzer_.Simplify(load->indices[0]), loop_vars_);
   PrimExpr src_base = dom_analyzer_.Simplify(p_src.first);
   PrimExpr src_offset = dom_analyzer_.Simplify(p_src.second);
 
   // get base + offset division for dst
-  auto p_dst = GetIndiceDivision(dom_analyzer_.Simplify(store->index), loop_vars_);
+  auto p_dst = GetIndiceDivision(dom_analyzer_.Simplify(store->indices[0]), loop_vars_);
   PrimExpr dst_base = dom_analyzer_.Simplify(p_dst.first);
   PrimExpr dst_offset = dom_analyzer_.Simplify(p_dst.second);
 
   // detect dma type
-  StorageScope src_scope = GetStorageScope(load->buffer_var);
-  StorageScope dst_scope = GetStorageScope(store->buffer_var);
-  DataType src_dtype = GetBufferElementType(load->buffer_var);
-  DataType dst_dtype = GetBufferElementType(store->buffer_var);
+  StorageScope src_scope = GetStorageScope(load->buffer->data);
+  StorageScope dst_scope = GetStorageScope(store->buffer->data);
+  DataType src_dtype = GetBufferElementType(load->buffer->data);
+  DataType dst_dtype = GetBufferElementType(store->buffer->data);
 
   if (src_scope.rank == StorageRank::kGlobal && dst_scope.rank == StorageRank::kDM) {
     if (intrin_hint_name == "ewdma") {
-      return CreateEwdmaLoad(load->buffer_var, src_dtype, src_base, src_offset, store->buffer_var,
-                             dst_dtype, dst_base, dst_offset);
+      return CreateEwdmaLoad(load->buffer->data, src_dtype, src_base, src_offset,
+                             store->buffer->data, dst_dtype, dst_base, dst_offset);
     } else {
-      return CreateEidmaLoad(load->buffer_var, src_dtype, src_base, src_offset, store->buffer_var,
-                             dst_dtype, dst_base, dst_offset);
+      return CreateEidmaLoad(load->buffer->data, src_dtype, src_base, src_offset,
+                             store->buffer->data, dst_dtype, dst_base, dst_offset);
     }
   } else if (src_scope.rank == StorageRank::kDM && dst_scope.rank == StorageRank::kGlobal) {
-    return CreateEodmaStore(load->buffer_var, src_dtype, src_base, src_offset, store->buffer_var,
-                            dst_dtype, dst_base, dst_offset);
+    return CreateEodmaStore(load->buffer->data, src_dtype, src_base, src_offset,
+                            store->buffer->data, dst_dtype, dst_base, dst_offset);
   } else if (src_scope.rank == StorageRank::kDM && dst_scope.rank == StorageRank::kVM) {
-    return CreateVidmaLoad(load->buffer_var, src_dtype, src_base, src_offset, store->buffer_var,
+    return CreateVidmaLoad(load->buffer->data, src_dtype, src_base, src_offset, store->buffer->data,
                            dst_dtype, dst_base, dst_offset);
   } else if (src_scope.rank == StorageRank::kVM && dst_scope.rank == StorageRank::kDM) {
-    return CreateVodmaStore(load->buffer_var, src_dtype, src_base, src_offset, store->buffer_var,
-                            dst_dtype, dst_base, dst_offset);
+    return CreateVodmaStore(load->buffer->data, src_dtype, src_base, src_offset,
+                            store->buffer->data, dst_dtype, dst_base, dst_offset);
   } else if (src_scope.rank == StorageRank::kDM && dst_scope.rank == StorageRank::kIOBUF) {
-    return CreateIdmaLoad(load->buffer_var, src_dtype, src_base, src_offset, store->buffer_var,
+    return CreateIdmaLoad(load->buffer->data, src_dtype, src_base, src_offset, store->buffer->data,
                           dst_dtype, dst_base, dst_offset, cond);
   } else if (src_scope.rank == StorageRank::kDM && dst_scope.rank == StorageRank::kWBUF) {
-    return CreateWdmaLoad(load->buffer_var, src_dtype, src_base, src_offset, store->buffer_var,
+    return CreateWdmaLoad(load->buffer->data, src_dtype, src_base, src_offset, store->buffer->data,
                           dst_dtype, dst_base, dst_offset);
   } else if (src_scope.rank == StorageRank::kDM && dst_scope.rank == StorageRank::kBBUF) {
-    return CreateBdmaLoad(load->buffer_var, src_dtype, src_base, src_offset, store->buffer_var,
+    return CreateBdmaLoad(load->buffer->data, src_dtype, src_base, src_offset, store->buffer->data,
                           dst_dtype, dst_base, dst_offset);
   } else if (src_scope.rank == StorageRank::kCUBE && dst_scope.rank == StorageRank::kDM) {
-    return CreateOdmaStore(load->buffer_var, src_dtype, src_base, src_offset, store->buffer_var,
+    return CreateOdmaStore(load->buffer->data, src_dtype, src_base, src_offset, store->buffer->data,
                            dst_dtype, dst_base, dst_offset);
   } else {
     LOG(FATAL) << "No DMA intrinsic supported from " << src_scope.to_string() << " to "
