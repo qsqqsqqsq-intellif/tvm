@@ -36,28 +36,6 @@
 namespace tvm {
 namespace runtime {
 
-// TODO(@yiheng): kMaxNumGPUs, edgex_source
-// TODO(@yiheng): name(edgex, dcl) and their format
-/*! \brief Maximum number of GPU supported in EdgeXModule */
-static constexpr const int kMaxNumGPUs = 32;
-
-/*! \brief function information needed by device */
-struct EdgeXFunctionInfo {
-  std::string name;
-  std::vector<DLDataType> input_types;
-  std::vector<std::vector<uint64_t>> input_shapes;
-  std::vector<DLDataType> output_types;
-  std::vector<std::vector<uint64_t>> output_shapes;
-
-  void AddInput(DLDataType dtype) {}
-  void AddOutput(DLDataType dtype) {}
-
-  void Save(dmlc::JSONWriter* writer) const {}
-  void Load(dmlc::JSONReader* reader) {}
-  void Save(dmlc::Stream* writer) const {}
-  bool Load(dmlc::Stream* reader) { return false; }
-};
-
 /*!
  * \brief create a edgex module from data.
  *
@@ -69,7 +47,7 @@ struct EdgeXFunctionInfo {
  */
 Module EdgeXModuleCreate(const std::string& bin_data, const std::string& lst_data,
                          const std::string& fmt,
-                         const std::unordered_map<std::string, EdgeXFunctionInfo>& fmap,
+                         const std::unordered_map<std::string, FunctionInfo>& fmap,
                          const std::string& edgex_source);
 
 /*!
@@ -97,7 +75,4 @@ Module EdgeXModuleCreateFromObjects(tvm::IRModule mod,
 }  // namespace runtime
 }  // namespace tvm
 
-namespace dmlc {
-DMLC_DECLARE_TRAITS(has_saveload, ::tvm::runtime::EdgeXFunctionInfo, true);
-}  // namespace dmlc
 #endif  // TVM_RUNTIME_EDGEX_EDGEX_MODULE_H_

@@ -21,12 +21,27 @@ import sys
 import tempfile
 import subprocess
 import threading
-import logging
 import shutil
 import struct
 import numpy as np
 import tvm
 from tvm.contrib.edgex.edgex import build_config_nnp
+from tvm.contrib.edgex.base.edgexlog import EdgexLog as el
+
+
+def get_max_pm_size():
+    MAXIMUM_PM_SIZE = int(((4096 - 200) * 256) / 8)
+    return MAXIMUM_PM_SIZE
+
+
+@tvm._ffi.register_func("tvm.edgex.get_iss_start_pc")
+def get_iss_start_pc(mode="pm"):
+    PM_ISS_START_PC = 0x640
+    ICACHE_ISS_START_PC = 0x3C400000
+
+    if mode == "icache":
+        return ICACHE_ISS_START_PC
+    return PM_ISS_START_PC
 
 
 @tvm._ffi.register_func("tvm.edgex.invoke_assembler")
@@ -49,6 +64,7 @@ def edgex_invoke_assembler(
 
     start_pc : int
         Start pc parameter for ass.
+        0 for obj format; 0x640/0x3c400000 for asm format.
 
     output_dir : str
         Specify directory of output files. If not specified,
@@ -99,16 +115,26 @@ def edgex_invoke_assembler(
         raise IOError("%s not exists, check EDGEX_ROOT_DIR" % hex2bin_path)
 
     if start_pc < 0:
-        start_pc = tvm.get_global_func("tvm.edgex.get_iss_start_pc")()
-    ass_cmd_args = ["python3", ass_path, asm_name, "-cpp", "-start_pc", str(start_pc)]
-    status = subprocess.call(ass_cmd_args, cwd=output_dir)
-    if status != 0:
-        raise RuntimeError(f"Invoke assembler failed: {ass_cmd_args}")
-    hex_path = os.path.join(output_dir, "output", "%s.hex" % op_name)
-    bin_path = os.path.join(output_dir, "output", "%s.bin" % op_name)
-    status = subprocess.call(["python3", hex2bin_path, hex_path, bin_path])
-    if status != 0:
-        raise RuntimeError("Invoke hex2bin failed")
+        start_pc = get_iss_start_pc()
+
+    def invoke_assembler(start_pc):
+        ass_cmd_args = ["python3", ass_path, asm_name, "-cpp", "-start_pc", str(start_pc)]
+        status = subprocess.call(ass_cmd_args, cwd=output_dir)
+        if status != 0:
+            raise RuntimeError(f"Invoke assembler failed: {ass_cmd_args}")
+        hex_path = os.path.join(output_dir, "output", "%s.hex" % op_name)
+        bin_path = os.path.join(output_dir, "output", "%s.bin" % op_name)
+        status = subprocess.call(["python3", hex2bin_path, hex_path, bin_path])
+        if status != 0:
+            raise RuntimeError("Invoke hex2bin failed")
+        return bin_path
+
+    bin_path = invoke_assembler(start_pc)
+    if start_pc == get_iss_start_pc("pm") and os.path.getsize(bin_path) > get_max_pm_size():
+        # Use icache mode
+        start_pc = get_iss_start_pc("icache")
+        invoke_assembler(start_pc)
+        el.i("icache mode enabled")
     if not keep_tmp_dir and tmp_file_dir is not None:
         shutil.rmtree(tmp_file_dir)
     return os.path.join(output_dir, "output")
@@ -290,7 +316,7 @@ def edgex_launch_iss(
         outf.write("\n".join(tensor_addr_cfg_magic))
 
     # reference to dcl server init
-    start_pc = tvm.get_global_func("tvm.edgex.get_iss_start_pc")()
+    start_pc = get_iss_start_pc()
     start_lines = start_pc / 4
     nu_breakpoint_lines = "0x170"
     nnp_main_cmds = [
@@ -400,7 +426,7 @@ def edgex_launch_iss(
     for i, t in enumerate(tensors):
         output_tensor_path = "%s/output_tensor_%d.dat" % (output_dir, i)
         if not os.path.exists(output_tensor_path):
-            logging.warning("Output %d not found: %s", i, output_tensor_path)
+            el.w("Output %d not found: %s" % (i, output_tensor_path))
             continue
         with open(output_tensor_path) as tfile:
             data = bytearray(tensor_sizes[i])

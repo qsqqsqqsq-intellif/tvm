@@ -25,16 +25,10 @@ from tvm.contrib.edgex.edgex import build_config_nnp
 from tvm.contrib.edgex.relay.op.strategy import fschedule_general_vu
 from tvm.contrib.edgex.testing import *
 from tvm.relay.build_module import bind_params_by_name
+from tvm.relay.quantization.relay_ops import round_right_shift
 
 
-def verify_mod_export(single_op=False):
-    # prepare model and data
-    mod, params = get_fs_fused_workload("resnet50", fix_norm=True)
-    func = mod["main"]
-    if single_op:
-        functions = get_fused_functions(mod, params)
-        # todo(bxq): fix fused function name
-        func, params = functions["fused_0_72"]
+def verify_mod_export(func, params):
     input_shape = [int(x) for x in func.params[0].type_annotation.shape]
     input_dtype = func.params[0].type_annotation.dtype
     if input_dtype.startswith("i") or input_dtype.startswith("u"):
@@ -42,11 +36,17 @@ def verify_mod_export(single_op=False):
     else:
         data = np.random.uniform(-128, 127, size=input_shape).astype(input_dtype)
 
+    edgex_target = tvm.target.edgex()
+    cpu_target = tvm.target.Target("llvm")
+    targets = edgex_target
+    ctxs = [tvm.edgex()]
     if UnsupportedDetector()(func):
         # if has unsupported op, offload them to cpu temporarily
         mod = tvm.IRModule.from_expr(OffloadUnsupported().visit_function(func))
         mod = relay.transform.InferType()(mod)
         func = mod["main"]
+        targets = {"edgex": edgex_target, "cpu": cpu_target}
+        ctxs = [tvm.edgex(), tvm.cpu()]
 
     # build an edgex model
     with TempOpStrategy(
@@ -55,8 +55,6 @@ def verify_mod_export(single_op=False):
         fschedule=fschedule_general_vu,
     ):
         pass_ctx = build_config_nnp()
-        edgex_target = tvm.target.edgex()
-        cpu_target = tvm.target.Target("llvm")
         plan_device_cfg = get_edgex_plan_device_config(pass_ctx)
         edgex_mod = IRModule.from_expr(func)
         edgex_mod = relay.transform.InferType()(edgex_mod)
@@ -66,9 +64,7 @@ def verify_mod_export(single_op=False):
             edgex_mod = tvm.ir.IRModule.from_expr(func_with_params)
         function = RelayToTIRAnnotator().visit(edgex_mod["main"])
         edgex_mod = IRModule.from_expr(function)
-        print(edgex_mod["main"])
         with pass_ctx:
-            targets = edgex_target if single_op else {"edgex": edgex_target, "cpu": cpu_target}
             lib = relay.build_module.build(edgex_mod, target=targets, params=params)
 
     # export model
@@ -81,10 +77,51 @@ def verify_mod_export(single_op=False):
     os.remove(path_lib)
 
     # graph executor wrapper
-    ctxs = [tvm.edgex()] if single_op else [tvm.edgex(), tvm.cpu()]
     expect = get_graph_runtime_output(lib, data, ctxs)
     outs = get_graph_runtime_output(loaded_lib, data, ctxs)
     tvm.testing.assert_allclose(outs, expect, atol=1e-5)
+
+
+def verify_op_mod_export():
+    # prepare model and data
+    mod, params = get_fs_fused_workload("resnet50", fix_norm=True)
+    functions = get_fused_functions(mod, params)
+    # todo(bxq): fix fused function name
+    func, params = functions["fused_0_72"]
+    verify_mod_export(func, params)
+
+
+def verify_icache():
+    iss_debug_mode = os.getenv("EDGEX_DEBUG_ISS", "off")
+    os.environ["EDGEX_DEBUG_ISS"] = "off"
+    input_shape = [1, 192, 28, 28]
+    input_dtype = "int8"
+    x = relay.var("input", shape=input_shape, dtype=input_dtype)
+    mulnorm = relay.var("mulnorm", shape=[1, 1, 1, 1], dtype="int64")
+    shiftnorm = relay.var("shiftnorm", shape=[1, 1, 1, 1], dtype="int64")
+    y = relay.nn.max_pool2d(x, pool_size=(3, 3), padding=(1, 1))
+    y = relay.cast(y, dtype="int64")
+    y = relay.multiply(y, mulnorm)
+    y = round_right_shift(y, shiftnorm)
+    y = relay.clip(y, -128, 127)
+    y = relay.cast(y, "int8")
+    attrs = tvm.ir.make_node("DictAttrs", **{"Primitive": 1})
+    fused_func = relay.Function([x, mulnorm, shiftnorm], y, attrs=attrs)
+
+    def wrap_relay_fused_function(relay_function):
+        new_args = [relay.Var(p.name_hint, p.type_annotation) for p in relay_function.params]
+        return relay.Function(new_args, relay.Call(relay_function, new_args))
+
+    function = wrap_relay_fused_function(fused_func)
+    mod = tvm.IRModule.from_expr(function)
+    mod = relay.transform.InferType()(mod)
+
+    params = {}
+    params["mulnorm"] = np.random.randint(0, 128, [1, 1, 1, 1]).astype("int64")
+    params["shiftnorm"] = np.random.randint(0, 9, [1, 1, 1, 1]).astype("int64")
+
+    verify_mod_export(mod["main"], params)
+    os.environ["EDGEX_DEBUG_ISS"] = iss_debug_mode
 
 
 def test_edgex_add():
@@ -115,16 +152,36 @@ def test_edgex_add():
     tvm.testing.assert_allclose(d.numpy(), expect, rtol=1e-4)
 
 
-def test_op_mod_export():
-    verify_mod_export(single_op=True)
+def test_op_mod_export_using_asm():
+    verify_op_mod_export()
+
+
+def test_op_mod_export_using_obj():
+    f_type = os.getenv("EDGEX_LLVM_OUTPUT_FILETYPE", "")
+    os.environ["EDGEX_LLVM_OUTPUT_FILETYPE"] = "obj"
+    verify_op_mod_export()
+    os.environ["EDGEX_LLVM_OUTPUT_FILETYPE"] = f_type
 
 
 @pytest.mark.edgex_slow
 def test_mod_export():
-    verify_mod_export()
+    # prepare model and data
+    mod, params = get_fs_fused_workload("resnet50", fix_norm=True)
+    verify_mod_export(mod["main"], params)
+
+
+@pytest.mark.skip
+def test_icache_using_asm():
+    verify_icache()
+
+
+@pytest.mark.skip
+def test_icache_using_obj():
+    f_type = os.getenv("EDGEX_LLVM_OUTPUT_FILETYPE", "")
+    os.environ["EDGEX_LLVM_OUTPUT_FILETYPE"] = "obj"
+    verify_icache()
+    os.environ["EDGEX_LLVM_OUTPUT_FILETYPE"] = f_type
 
 
 if __name__ == "__main__":
-    test_edgex_add()
-    test_op_mod_export()
-    test_mod_export()
+    pytest.main([__file__])

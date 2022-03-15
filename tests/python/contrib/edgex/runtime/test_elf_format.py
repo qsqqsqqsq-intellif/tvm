@@ -14,6 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+import shutil
 import subprocess
 import os
 import tempfile
@@ -100,6 +101,7 @@ def test_merge_kernel_objects():
     merge_relocatable_object([obj1_fused, obj2_fused], [], obj_final)
     status = subprocess.call([f"{llvm_bin_dir}/llvm-readelf", "-a", obj_final])
     assert status == 0
+    shutil.rmtree(dir_prefix)
 
 
 if __name__ == "__main__":

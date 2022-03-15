@@ -45,12 +45,19 @@ extern "C" {
 namespace tvm {
 namespace runtime {
 
-const int DEFAULT_ISS_START_PC = 0x640;
+/*! \brief Get edgex global function */
+const tvm::runtime::PackedFunc* EdgexFuncGetGlobal(const char* name) {
+  auto* func = tvm::runtime::Registry::Get(name);
+  CHECK(func) << "Cannot find " << name;
+  return func;
+}
 
 /*! \brief Get iss start pc constant */
-static int GetIssStartPC() { return dmlc::GetEnv<int>("EDGEX_ISS_START_PC", DEFAULT_ISS_START_PC); }
-
-TVM_REGISTER_GLOBAL("tvm.edgex.get_iss_start_pc").set_body_typed(GetIssStartPC);
+const int GetIssStartPC() {
+  auto* func = EdgexFuncGetGlobal("tvm.edgex.get_iss_start_pc");
+  int pc = (*func)("pm");
+  return pc;
+}
 
 class EdgeXModuleNode : public runtime::ModuleNode {
  public:
@@ -66,8 +73,7 @@ class EdgeXModuleNode : public runtime::ModuleNode {
         f_map_(fmap),
         asm_map_(asm_map),
         full_obj_(full_obj) {
-    debug_iss_ = dmlc::GetEnv("EDGEX_DEBUG_ISS", std::string("")) == "true";
-    // std::fill(module_.begin(), module_.end(), nullptr);
+    debug_iss_ = dmlc::GetEnv("EDGEX_DEBUG_ISS", std::string("off")) != "off";
   }
 
   // destructor
@@ -120,65 +126,8 @@ class EdgeXModuleNode : public runtime::ModuleNode {
     return "";
   }
 
-  // get a EXfunction from primary context in device_id
-  // EXfunction GetFunc(int device_id, const std::string& func_name) {
-  //   std::lock_guard<std::mutex> lock(mutex_);
-  //   // TODO(@yiheng): dclmdlLoadData, dclmdlGetFunction, EXfunction, EXmodule
-  //   // must recheck under the lock scope
-  //   if (module_[device_id] == nullptr) {
-  //     EDGEX_DRIVER_CALL(dclmdlLoadData(&(module_[device_id]), data_.c_str()));
-  //   }
-  //   EXfunction func;
-  //   dclError result = dclmdlGetFunction(&func, module_[device_id], func_name.c_str());
-  //   if (result != DCL_ERROR_NONE) {
-  //     const char* msg;
-  //     LOG(FATAL) << "EdgeX Error: dclmdlGetFunction " << func_name << " failed with error: " <<
-  //     dclGetErrorString(result);
-  //   }
-  //   return func;
-  // }
-
  private:
-  void ISSDebugRun(const std::string& name, const TVMArgs& args, TVMRetValue* rv) {
-    const std::string debug_mode = dmlc::GetEnv<std::string>("EDGEX_DEBUG_ISS", "");
-    bool interactive = debug_mode == "interactive";
-    std::string working_dir = dmlc::GetEnv<std::string>("EDGEX_DEBUG_WORKING_DIR", "");
-
-    std::string iss_funcname = "tvm.edgex.launch_iss";
-    auto* iss_func = tvm::runtime::Registry::Get(iss_funcname);
-    CHECK(iss_func) << "Cannot find " << iss_funcname;
-
-    const std::string& bin_data = bin_map_[name];
-    const std::string& lst_data = lst_map_[name];
-
-    TVMByteArray bin_bytes({bin_data.data(), bin_data.size()});
-    Array<NDArray> tensor_arr;
-    for (auto i = 0; i < args.size(); ++i) {
-      if (args[i].type_code() == kTVMNDArrayHandle) {
-        tensor_arr.push_back(args[i]);
-      } else if (args[i].type_code() == kTVMOpaqueHandle) {
-        void* addr = args[i];
-        std::pair<void*, size_t> addr_info = EdgeXQueryDeviceAddress(addr);
-        CHECK(addr_info.first) << "Illegal device address " << addr;
-        int64_t offset =
-            reinterpret_cast<int64_t>(addr) - reinterpret_cast<int64_t>(addr_info.first);
-        int64_t shape[1] = {static_cast<int64_t>(addr_info.second) - offset};
-        DLTensor t;
-        t.data = addr;
-        t.ndim = 1;
-        t.shape = shape;
-        t.dtype = DLDataType{0, 8, 1};
-        t.strides = nullptr;
-        t.byte_offset = 0;
-        t.device = Device{kDLCPU, 0};
-        DLManagedTensor dl{t, nullptr};
-        tensor_arr.push_back(NDArray::FromDLPack(&dl));
-      } else {
-        LOG(FATAL) << "Illegal iss run argument type " << ArgTypeCode2Str(args[i].type_code());
-      }
-    }
-    (*iss_func)(bin_bytes, lst_data, tensor_arr, interactive, name, working_dir);
-  }
+  void ISSDebugRun(const std::string& name, const TVMArgs& args, TVMRetValue* rv);
 
   // the binary bin data
   std::unordered_map<std::string, std::string> bin_map_;
@@ -193,49 +142,7 @@ class EdgeXModuleNode : public runtime::ModuleNode {
   // The full elf object contains all functions
   std::string full_obj_;
 
-  // TODO(@yiheng): check this
-  // the internal modules per GPU, to be lazily initialized.
-  // std::array<EXmodule, kMaxNumGPUs> module_;
-  // internal mutex when updating the module
-  std::mutex mutex_;
-
   bool debug_iss_;
-};
-
-class EdgeXWrappedFunc {
- public:
-  // initialize the EdgeX function.
-  // TODO(@yiheng): thread
-  void Init(EdgeXModuleNode* m, ObjectPtr<Object> sptr, const std::string& func_name,
-            size_t num_void_args, const std::vector<std::string>& thread_axis_tags) {
-    m_ = m;
-    sptr_ = sptr;
-    func_name_ = func_name;
-    // std::fill(fcache_.begin(), fcache_.end(), nullptr);
-  }
-  // invoke the function with void arguments
-  void operator()(TVMArgs args, TVMRetValue* rv, void** void_args) const {
-    int device_id;
-    EDGEX_CALL(dclrtGetDevice(&device_id));
-    // if (fcache_[device_id] == nullptr) {
-    //   fcache_[device_id] = m_->GetFunc(device_id, func_name_);
-    // }
-
-    // TODO(@yiheng): dclopLaunchKernel
-    // EDGEX_DRIVER_CALL(dclopLaunchKernel(fcache_[device_id], void_args));
-  }
-
- private:
-  // internal module
-  EdgeXModuleNode* m_;
-  // the resource holder
-  ObjectPtr<Object> sptr_;
-  // The name of the function.
-  std::string func_name_;
-  // Device function cache per device.
-  // mark as mutable, to enable lazy initialization
-  // TODO(@yiheng): EXfunction
-  // mutable std::array<EXfunction, kMaxNumGPUs> fcache_;
 };
 
 PackedFunc EdgeXModuleNode::GetFunction(const std::string& name,
@@ -244,6 +151,20 @@ PackedFunc EdgeXModuleNode::GetFunction(const std::string& name,
   ICHECK_NE(name, symbol::tvm_module_main) << "Device function do not have main";
   if (f_map_.find(name) == f_map_.end()) {
     return PackedFunc();
+  }
+
+  if (full_obj_ != "") {
+    const int start_pc = GetIssStartPC();
+    auto* extract_bin = EdgexFuncGetGlobal("tvm.edgex.extract_bin_data");
+    auto* bin2lst = EdgexFuncGetGlobal("tvm.edgex.bin2lst");
+
+    TVMByteArray linked_obj_bytes{full_obj_.c_str(), full_obj_.size()};
+    std::string kernel_bin = (*extract_bin)(linked_obj_bytes, name);
+    CHECK_EQ(kernel_bin, bin_map_[name]) << "Mismatched kernel bin";
+
+    TVMByteArray bin_bytes{kernel_bin.c_str(), kernel_bin.size()};
+    std::string kernel_lst = (*bin2lst)(bin_bytes, start_pc);
+    CHECK_EQ(kernel_bin, bin_map_[name]) << "Mismatched kernel lst";
   }
 
   if (EdgeXIsISSDebugMode()) {
@@ -274,6 +195,43 @@ PackedFunc EdgeXModuleNode::GetFunction(const std::string& name,
   });
 }
 
+void EdgeXModuleNode::ISSDebugRun(const std::string& name, const TVMArgs& args, TVMRetValue* rv) {
+  const std::string debug_mode = dmlc::GetEnv<std::string>("EDGEX_DEBUG_ISS", "");
+  bool interactive = debug_mode == "interactive";
+  std::string working_dir = dmlc::GetEnv<std::string>("EDGEX_DEBUG_WORKING_DIR", "");
+
+  const std::string& bin_data = bin_map_[name];
+  const std::string& lst_data = lst_map_[name];
+
+  TVMByteArray bin_bytes({bin_data.data(), bin_data.size()});
+  Array<NDArray> tensor_arr;
+  for (auto i = 0; i < args.size(); ++i) {
+    if (args[i].type_code() == kTVMNDArrayHandle) {
+      tensor_arr.push_back(args[i]);
+    } else if (args[i].type_code() == kTVMOpaqueHandle) {
+      void* addr = args[i];
+      std::pair<void*, size_t> addr_info = EdgeXQueryDeviceAddress(addr);
+      CHECK(addr_info.first) << "Illegal device address " << addr;
+      int64_t offset = reinterpret_cast<int64_t>(addr) - reinterpret_cast<int64_t>(addr_info.first);
+      int64_t shape[1] = {static_cast<int64_t>(addr_info.second) - offset};
+      DLTensor t;
+      t.data = addr;
+      t.ndim = 1;
+      t.shape = shape;
+      t.dtype = DLDataType{0, 8, 1};
+      t.strides = nullptr;
+      t.byte_offset = 0;
+      t.device = Device{kDLCPU, 0};
+      DLManagedTensor dl{t, nullptr};
+      tensor_arr.push_back(NDArray::FromDLPack(&dl));
+    } else {
+      LOG(FATAL) << "Illegal iss run argument type " << ArgTypeCode2Str(args[i].type_code());
+    }
+  }
+  auto* iss_func = EdgexFuncGetGlobal("tvm.edgex.launch_iss");
+  (*iss_func)(bin_bytes, lst_data, tensor_arr, interactive, name, working_dir);
+}
+
 Module EdgeXModuleCreate(const std::unordered_map<std::string, std::string>& bin_map,
                          const std::unordered_map<std::string, std::string>& lst_map,
                          const std::string& fmt,
@@ -288,21 +246,10 @@ Module EdgeXModuleCreateFromObjects(tvm::IRModule mod,
                                     const std::unordered_map<std::string, std::string>& obj_map,
                                     const std::string& working_dir) {
   const int start_pc = GetIssStartPC();
-  const std::string link_funcname = "tvm.edgex.get_linked_obj";
-  auto* get_linked_obj = tvm::runtime::Registry::Get(link_funcname);
-  CHECK(get_linked_obj) << "Cannot find " << link_funcname;
-
-  const std::string extract_bin_funcname = "tvm.edgex.extract_bin_data";
-  auto* extract_bin = tvm::runtime::Registry::Get(extract_bin_funcname);
-  CHECK(extract_bin) << "Cannot find " << extract_bin_funcname;
-
-  const std::string bin2lst_funcname = "tvm.edgex.bin2lst";
-  auto* bin2lst = tvm::runtime::Registry::Get(bin2lst_funcname);
-  CHECK(bin2lst) << "Cannot find " << bin2lst_funcname;
-
-  const std::string merge_funcname = "tvm.edgex.create_full_kernels_obj";
-  auto* merge_objs = tvm::runtime::Registry::Get(merge_funcname);
-  CHECK(merge_objs) << "Cannot find " << merge_funcname;
+  auto* get_linked_obj = EdgexFuncGetGlobal("tvm.edgex.get_linked_obj");
+  auto* extract_bin = EdgexFuncGetGlobal("tvm.edgex.extract_bin_data");
+  auto* bin2lst = EdgexFuncGetGlobal("tvm.edgex.bin2lst");
+  auto* merge_objs = EdgexFuncGetGlobal("tvm.edgex.create_full_kernels_obj");
 
   std::unordered_map<std::string, FunctionInfo> f_map;
   std::unordered_map<std::string, std::string> bin_map;
@@ -362,9 +309,7 @@ Module EdgeXModuleCreateFromAsm(tvm::IRModule mod,
                                 const std::string& working_dir) {
   // try extract op info from ir module
   // use function name as op name
-  const std::string ass_funcname = "tvm.edgex.invoke_assembler";
-  auto* ass_func = tvm::runtime::Registry::Get(ass_funcname);
-  CHECK(ass_func) << "Cannot find " << ass_funcname;
+  auto* ass_func = EdgexFuncGetGlobal("tvm.edgex.invoke_assembler");
   const int start_pc = GetIssStartPC();
 
   std::unordered_map<std::string, FunctionInfo> f_map;
@@ -377,12 +322,13 @@ Module EdgeXModuleCreateFromAsm(tvm::IRModule mod,
 
     // invoke assembler
     std::string bin_dir = (*ass_func)(kernel_name, asm_code, start_pc, working_dir);
-
-    // load bin and lst data
-    std::string bin_path = bin_dir + "/" + kernel_name + ".bin";
+    // load bin data
+    const std::string bin_path = bin_dir + "/" + kernel_name + ".bin";
     std::ifstream bin_file(bin_path);
     std::ostringstream bin_buffer;
     bin_buffer << bin_file.rdbuf();
+
+    // load lst data
     const std::string lst_path = bin_dir + "/" + kernel_name + "_cpp.lst";
     std::ifstream lst_file(lst_path);
     std::ostringstream lst_buffer;

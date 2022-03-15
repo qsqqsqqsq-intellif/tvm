@@ -21,6 +21,8 @@ import struct
 import re
 import tempfile
 import tvm
+from tvm.contrib.edgex.base.edgexlog import EdgexLog as el
+from .edgex_runtime import get_max_pm_size, get_iss_start_pc
 
 
 class ELFHeader:
@@ -798,6 +800,9 @@ def bin2lst(bin_data, start_pc):
     lst_str = ""
     bin_offset = 0
     pc = start_pc
+    if len(bin_data) > get_max_pm_size():
+        pc = get_iss_start_pc("icache")
+        el.i("icache mode enabled")
     lines = []
     while bin_offset < len(bin_data):
         inst_list = []

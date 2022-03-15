@@ -205,7 +205,8 @@ class EdgeXDeviceAPI final : public DeviceAPI {
       LOG(INFO) << "Use edgex client config file " << cfg_file;
       EDGEX_CALL(dclInit(cfg_file.c_str()));
     }
-    iss_debug_mode_ = dmlc::GetEnv("EDGEX_DEBUG_ISS", std::string("false")) != "false";
+    // EDGEX_DEBUG_ISS could be on/off/interactive
+    iss_debug_mode_ = dmlc::GetEnv("EDGEX_DEBUG_ISS", std::string("off")) != "off";
     atexit(EdgeXDeviceAPI::Finalize);
   }
 

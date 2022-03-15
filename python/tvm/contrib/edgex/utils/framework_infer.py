@@ -19,8 +19,8 @@
 """ framework inference """
 import os
 import onnx
-import onnxruntime
 import tflite
+import onnxruntime
 
 
 def onnx_model_infer(model_file, baseline_inputs):
