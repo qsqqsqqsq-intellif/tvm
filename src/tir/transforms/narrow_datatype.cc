@@ -167,6 +167,16 @@ class DataTypeVisitor final : public StmtExprVisitor {
     StmtExprVisitor::VisitExpr_(op);
   }
 
+  void VisitExpr_(const BufferLoadNode* op) {
+    VisitExpr(op->buffer->elem_offset);
+    StmtExprVisitor::VisitExpr_(op);
+  }
+
+  void VisitStmt_(const BufferStoreNode* op) {
+    VisitExpr(op->buffer->elem_offset);
+    StmtExprVisitor::VisitStmt_(op);
+  }
+
   // the narrowed datatype of Var and IntImm
   std::unordered_map<const PrimExprNode*, DataType> vmap;
 
@@ -217,11 +227,13 @@ class DataTypeRewriter : public StmtExprMutator {
   Stmt VisitStmt_(const BufferStoreNode* op) final {
     BufferStore store = GetRef<BufferStore>(op);
 
+    auto buffer = VisitBuffer(op->buffer);
     auto value = this->VisitExpr(op->value);
     auto indices = VisitIndices(op->indices);
 
-    if (!value.same_as(op->value) || !indices.same_as(op->indices)) {
+    if (!buffer.same_as(op->buffer) || !value.same_as(op->value) || !indices.same_as(op->indices)) {
       auto writer = store.CopyOnWrite();
+      writer->buffer = buffer;
       writer->value = value;
       writer->indices = indices;
     }
@@ -232,10 +244,12 @@ class DataTypeRewriter : public StmtExprMutator {
   PrimExpr VisitExpr_(const BufferLoadNode* op) final {
     BufferLoad load = GetRef<BufferLoad>(op);
 
+    auto buffer = VisitBuffer(op->buffer);
     auto indices = VisitIndices(op->indices);
 
-    if (!indices.same_as(op->indices)) {
+    if (!buffer.same_as(op->buffer) || !indices.same_as(op->indices)) {
       auto writer = load.CopyOnWrite();
+      writer->buffer = buffer;
       writer->indices = indices;
     }
 
@@ -251,6 +265,23 @@ class DataTypeRewriter : public StmtExprMutator {
     is_index_ = false;
 
     return indices;
+  }
+
+  Buffer VisitBuffer(const Buffer& origin_buffer) {
+    auto it = buffer_remap_.find(origin_buffer);
+    if (it != buffer_remap_.end()) {
+      return it->second;
+    }
+    is_index_ = true;
+    PrimExpr elem_offset = VisitExpr(origin_buffer->elem_offset);
+    is_index_ = false;
+    Buffer updated_buffer = origin_buffer;
+    if (!elem_offset.same_as(origin_buffer->elem_offset)) {
+      auto n = updated_buffer.CopyOnWrite();
+      n->elem_offset = elem_offset;
+    }
+    buffer_remap_.insert(it, {origin_buffer, updated_buffer});
+    return updated_buffer;
   }
 
   Stmt VisitStmt_(const ForNode* op) final {
@@ -375,6 +406,9 @@ class DataTypeRewriter : public StmtExprMutator {
   PrimExpr VisitExpr_(const GENode* op) final;
   PrimExpr VisitExpr_(const CallNode* op) final;
 
+  // buffer remapping dict
+  std::unordered_map<Buffer, Buffer, ObjectPtrHash, ObjectPtrEqual> buffer_remap_;
+
  private:
   // the internal visitor to deduce the narrowed dtype
   DataTypeVisitor visitor_;
@@ -449,7 +483,17 @@ namespace transform {
 Pass NarrowDataType(int target_bits) {
   auto pass_func = [target_bits](PrimFunc f, IRModule m, PassContext ctx) {
     auto* n = f.CopyOnWrite();
-    n->body = DataTypeRewriter(target_bits)(std::move(n->body));
+    DataTypeRewriter rewriter(target_bits);
+    n->body = rewriter(std::move(n->body));
+    for (const Var& param : f->params) {
+      auto it = n->buffer_map.find(param);
+      if (it != n->buffer_map.end()) {
+        auto remap_it = rewriter.buffer_remap_.find((*it).second);
+        if (remap_it != rewriter.buffer_remap_.end()) {
+          n->buffer_map.Set(param, remap_it->second);
+        }
+      }
+    }
     return f;
   };
   return CreatePrimFuncPass(pass_func, 0, "tir.NarrowDataType", {});

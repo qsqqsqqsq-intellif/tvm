@@ -287,13 +287,12 @@ spirv::Value CodeGenSPIRV::VisitExpr_(const SelectNode* op) {
 spirv::Value CodeGenSPIRV::VisitExpr_(const LetNode* op) {
   auto it = let_binding_.find(op->var);
   if (it != let_binding_.end()) {
-    ICHECK(deep_equal_(it->second->value, op->value))
+    ICHECK(deep_equal_(it->second, op->value))
         << "Let cannot bind the same var to two different values";
   } else {
-    let_binding_[op->var] = op;
+    let_binding_[op->var] = op->value;
   }
   var_map_[op->var.get()] = MakeValue(op->value);
-  analyzer_->Bind(op->var, op->value);
   return MakeValue(op->body);
 }
 
@@ -428,7 +427,7 @@ spirv::Value CodeGenSPIRV::VisitExpr_(const BroadcastNode* op) {
 spirv::Value CodeGenSPIRV::VisitExpr_(const BufferLoadNode* op) {
   ICHECK_EQ(op->indices.size(), 1) << "SPIR-V codegen expects flat memory buffers";
   Var buffer_var = op->buffer->data;
-  PrimExpr prim_index = op->indices[0];
+  PrimExpr prim_index = analyzer_->Simplify(op->buffer->elem_offset + op->indices[0]);
 
   DataType desired_read_type = op->dtype;
   if (desired_read_type == DataType::Bool()) {
@@ -501,7 +500,7 @@ void CodeGenSPIRV::Scalarize(const PrimExpr& e, std::function<void(int i, spirv:
 void CodeGenSPIRV::VisitStmt_(const BufferStoreNode* op) {
   ICHECK_EQ(op->indices.size(), 1) << "SPIR-V codegen expects flat memory buffers";
   Var buffer_var = op->buffer->data;
-  PrimExpr prim_index = op->indices[0];
+  PrimExpr prim_index = analyzer_->Simplify(op->buffer->elem_offset + op->indices[0]);
 
   auto it = storage_info_.find(buffer_var.get());
   ICHECK(it != storage_info_.end());
@@ -716,7 +715,6 @@ void CodeGenSPIRV::VisitStmt_(const LetStmtNode* op) {
   ICHECK(!var_map_.count(op->var.get()));
   ICHECK(!op->var.dtype().is_handle());
   var_map_[op->var.get()] = MakeValue(op->value);
-  analyzer_->Bind(op->var, op->value);
   this->VisitStmt(op->body);
 }
 

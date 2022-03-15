@@ -24,6 +24,7 @@
 #ifndef TVM_TARGET_SOURCE_CODEGEN_C_H_
 #define TVM_TARGET_SOURCE_CODEGEN_C_H_
 
+#include <tvm/arith/analyzer.h>
 #include <tvm/ir/op.h>
 #include <tvm/target/codegen.h>
 #include <tvm/tir/analysis.h>
@@ -280,7 +281,9 @@ class CodeGenC : public ExprFunctor<void(const PrimExpr&, std::ostream&)>,
   // deep comparison of PrimExpr
   ExprDeepEqual deep_equal_;
   // binding of let variables. Enables duplicate var defs that map to same value
-  std::unordered_map<Var, const LetNode*, ObjectPtrHash, ObjectPtrEqual> let_binding_;
+  std::unordered_map<Var, PrimExpr, ObjectPtrHash, ObjectPtrEqual> let_binding_;
+  // analyzer
+  arith::Analyzer analyzer_;
 };
 
 }  // namespace codegen

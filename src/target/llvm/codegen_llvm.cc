@@ -1005,7 +1005,7 @@ llvm::Value* CodeGenLLVM::CreateIntrinsic(const CallNode* op) {
     const BufferLoadNode* load = op->args[0].as<BufferLoadNode>();
     ICHECK(op->args.size() == 1 && load);
     ICHECK_EQ(load->indices.size(), 1) << "LLVM only supports flat memory allocations.";
-    PrimExpr index = load->indices[0];
+    PrimExpr index = analyzer_->Simplify(load->buffer->elem_offset + load->indices[0]);
     if (const RampNode* r = index.as<RampNode>()) {
       index = r->base;
     }
@@ -1249,15 +1249,14 @@ llvm::Value* CodeGenLLVM::VisitExpr_(const SelectNode* op) {
 llvm::Value* CodeGenLLVM::VisitExpr_(const LetNode* op) {
   auto it = let_binding_.find(op->var);
   if (it != let_binding_.end()) {
-    ICHECK(deep_equal_(it->second->value, op->value))
+    ICHECK(deep_equal_(it->second, op->value))
         << "Let cannot bind the same var to two different values";
   } else {
-    let_binding_[op->var] = op;
+    let_binding_[op->var] = op->value;
   }
   auto var_value = MakeValue(op->value);
   var_map_[op->var.get()] = var_value;
   var_value->setName(op->var->name_hint.c_str());
-  analyzer_->Bind(op->var, op->value);
   return MakeValue(op->body);
 }
 
@@ -1343,7 +1342,7 @@ llvm::Value* CodeGenLLVM::VisitExpr_(const BufferLoadNode* op) {
   ICHECK_EQ(op->indices.size(), 1) << "CodeGenLLVM expects flattened 1-d buffers.";
 
   DataType value_dtype = op->dtype;
-  PrimExpr index = op->indices[0];
+  PrimExpr index = analyzer_->Simplify(op->buffer->elem_offset + op->indices[0]);
 
   std::vector<llvm::Value*> loads;
 
@@ -1445,7 +1444,7 @@ void CodeGenLLVM::VisitStmt_(const BufferStoreNode* op) {
 
   DataType value_dtype = op->value.dtype();
   Var buffer_var = op->buffer->data;
-  PrimExpr buffer_index = op->indices[0];
+  PrimExpr buffer_index = analyzer_->Simplify(op->buffer->elem_offset + op->indices[0]);
 
   llvm::Value* value = MakeValue(op->value);
 
@@ -1604,7 +1603,6 @@ void CodeGenLLVM::VisitStmt_(const LetStmtNode* op) {
   llvm::Value* value = MakeValue(op->value);
   value->setName(v->name_hint.c_str());
   var_map_[v] = value;
-  analyzer_->Bind(op->var, op->value);
   if (alloc_storage_info_.count(v) && alloc_storage_info_[v].alignment > 1) {
     builder_->CreateAlignmentAssumption(*data_layout_, GetVarValue(v),
                                         alloc_storage_info_[v].alignment);
