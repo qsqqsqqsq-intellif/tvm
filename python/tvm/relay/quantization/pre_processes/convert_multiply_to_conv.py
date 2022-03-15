@@ -36,17 +36,34 @@ class ConvertMultiplyToConv(ExprMutator):
             if shape0:
                 shape0 = [x.value for x in shape0]
 
-            if len(shape0) != 4:
-                return visited
-
             shape1 = call.args[1].checked_type.shape
             if shape1:
                 shape1 = [x.value for x in shape1]
             weight = visited.args[1].data.asnumpy()
             layout = None
 
+            if not layout and shape1:
+                if (
+                    len(shape0) == 4
+                    and len(shape1) == 3
+                    and shape1[1] == shape1[2] == 1
+                    and shape0[1] == shape1[0]
+                ):
+                    layout = "NCHW"
+
+                if len(shape0) == 4 and len(shape1) == 1 and shape0[3] == shape1[0]:
+                    layout = "NHWC"
+
+                if (
+                    len(shape0) == 5
+                    and len(shape1) == 4
+                    and shape1[1] == shape1[2] == shape1[3] == 1
+                    and shape0[1] == shape1[0]
+                ):
+                    layout = "NCDHW"
+
             # find layout
-            if not shape1 or not layout:
+            if not shape1 and not layout:
                 pre_expr = call.args[0]
 
                 while isinstance(pre_expr, relay.Call) and pre_expr.op.name not in [
