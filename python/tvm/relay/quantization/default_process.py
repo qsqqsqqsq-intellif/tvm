@@ -69,7 +69,6 @@ def process_image(path, net_size, channel_last, rgb, im_info=None):
     else:
         img = [img]
 
-    im_scale_factors = []
     if im_info is not None:
         im_h_ratio = float(net_size[0]) / float(im_h_size)
         im_w_ratio = float(net_size[1]) / float(im_w_size)
@@ -80,10 +79,9 @@ def process_image(path, net_size, channel_last, rgb, im_info=None):
             im_scale_factors = np.array(
                 [[net_size[0], net_size[1], im_w_ratio, im_h_ratio]], dtype=np.float32
             )
+        return [img, im_scale_factors]
 
-    if len(im_scale_factors) == 0:
-        return img
-    return [img, im_scale_factors]
+    return img
 
 
 def default_data(cls):

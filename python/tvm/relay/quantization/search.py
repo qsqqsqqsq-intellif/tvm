@@ -255,7 +255,7 @@ class QuantizeSearch:
         """evaluate"""
 
         def tmp(mod):
-
+            """tmp"""
             if "transform" in relay.__dict__:
                 with tvm.transform.PassContext(opt_level=2):
                     graph, lib, params = relay.build(mod, self.target)
