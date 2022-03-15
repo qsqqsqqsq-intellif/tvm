@@ -356,14 +356,13 @@ class TECompilerImpl : public TECompilerNode {
     }
 
     if (value->cached_func->prim_func.defined()) {
-      VLOG(1) << "already have PrimFunc";
-      tir::PrimFunc prim_func = value->cached_func->prim_func.value();
-      if (!prim_func->GetAttr<String>(tvm::attr::kGlobalSymbol).defined()) {
-        String prim_func_name = value->cached_func->prim_fn_var->name_hint;
-        IRModule lowered = tvm::LowerPrimFunc(prim_func, prim_func_name);
-        prim_func = Downcast<tvm::tir::PrimFunc>(lowered->Lookup(prim_func_name));
+      VLOG(1) << "Lowering PrimFunc";
+      IRModule lowered = tvm::LowerPrimFunc(value->cached_func->prim_func.value(),
+                                            value->cached_func->prim_fn_var->name_hint, false);
+      ICHECK_EQ(lowered->functions.size(), 1);
+      for (const auto& kv : lowered->functions) {
+        value->cached_func->funcs->Add(value->cached_func->prim_fn_var, kv.second);
       }
-      value->cached_func->funcs->Add(value->cached_func->prim_fn_var, prim_func);
     } else {
       // NOTE: array will copy on write.
       Array<te::Tensor> all_args = Array<te::Tensor>(value->cached_func->inputs);
@@ -389,7 +388,14 @@ class TECompilerImpl : public TECompilerNode {
         GlobalVar global_var = kv.first->name_hint == value->cached_func->prim_fn_var->name_hint
                                    ? value->cached_func->prim_fn_var
                                    : kv.first;
-        value->cached_func->funcs->Add(global_var, kv.second);
+        auto func = kv.second;
+        // Propagate the structural hash of the relay function to the tir
+        // function so associations can be made between the two.
+        Optional<String> hash = key->source_func->attrs.GetAttr<String>("hash");
+        if (hash) {
+          func = WithAttrs(Downcast<tir::PrimFunc>(func), {{String("hash"), hash.value()}});
+        }
+        value->cached_func->funcs->Add(global_var, func);
       }
       ICHECK(value->cached_func->funcs->Lookup(value->cached_func->prim_fn_var)
                  .as<tir::PrimFuncNode>());
