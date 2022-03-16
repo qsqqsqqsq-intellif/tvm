@@ -21,7 +21,7 @@ import logging
 from tvm import relay
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
-from ..analyze import _conv_counter, oneargdeal
+from ..analyze import oneargdeal
 from ..calibrate import _calibrate_core
 from ..realize import operate, _realize_core
 
@@ -56,12 +56,10 @@ class Clip:
 
     def __init__(self, node, vertex_config, config):
 
-        cnt = _conv_counter()
-
-        arg = node.args[0]
+        LOGGER.debug("[anaylze] clip start")
         self.quantized = True
-        if not vertex_config[arg].quantized or node.attrs.a_min < 0 or cnt - 1 in []:
-            self.quantized = False
+        if "quantized" in config:
+            self.quantized = config["quantized"]
 
         ci0 = config["input0"]
 

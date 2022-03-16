@@ -57,7 +57,7 @@ class QuantizeSearch:
         norm=None,
         image_path=None,
         image_size=None,
-        channel_last=True,
+        channel_last=False,
         rgb="rgb",
         quantize_config=None,
         compare_statistics=False,
@@ -118,6 +118,8 @@ class QuantizeSearch:
                 self.pre_processed_mod = tvm.relay.frontend.common.infer_type(
                     self.pre_processed_mod
                 )
+                # todo support origin float mode
+                self.origin_mod = self.pre_processed_mod
             else:
                 self.origin_mod = relay.transform.InferType()(mod)
                 if self.ori_path is not None:
@@ -126,18 +128,6 @@ class QuantizeSearch:
         else:
             with open(self.ori_path, "r") as f:
                 self.origin_mod = tvm.ir.load_json(json.load(f))
-
-        if dataset:
-            self.dataset = dataset
-        else:
-            self.dataset = default_data(self)
-
-        if eval_func:
-            self.eval_func = eval_func
-            self.use_default_eval = False
-        else:
-            self.eval_func = default_eval(self)
-            self.use_default_eval = True
 
         self.ctx = ctx
         self.target = target
@@ -151,6 +141,18 @@ class QuantizeSearch:
             if self.pre_path is not None:
                 with open(self.pre_path, "w") as f:
                     json.dump(tvm.ir.save_json(self.pre_processed_mod), f)
+
+        if dataset:
+            self.dataset = dataset
+        else:
+            self.dataset = default_data(self)
+
+        if eval_func:
+            self.eval_func = eval_func
+            self.use_default_eval = False
+        else:
+            self.eval_func = default_eval(self)
+            self.use_default_eval = True
 
         get_name(self)
         config_space(self)
@@ -187,13 +189,18 @@ class QuantizeSearch:
                 for one_arg in args:
                     new_arg[one_arg["name"]] = one_arg["default"]
                 default_config[one].update({"threshold_arg": new_arg})
+            if "quantized" in v:
+                default_config.update({"quantized": v["quantized"]})
             config[name] = default_config
-        if isinstance(self.quantize_config, dict) and "skip_conv_layers" in self.quantize_config:
-            config["skip_conv_layers"] = self.quantize_config["skip_conv_layers"]
 
         config["target"] = "nnp400"
         if isinstance(self.quantize_config, dict) and "target" in self.quantize_config:
             config["target"] = self.quantize_config["target"]
+
+        config["adaquant_enable"] = False
+        if isinstance(self.quantize_config, dict) and "adaquant_enable" in self.quantize_config:
+            config["adaquant_enable"] = self.quantize_config["adaquant_enable"]
+
         return config
 
     def quantize(self, config):
@@ -223,6 +230,7 @@ class QuantizeSearch:
                     return
 
         quantize = Quantize(self, config)
+        self.quantize_instance = quantize
 
         self.quantized_func = quantize.post_processed_mod
         # with open("/home/yhh/Desktop/tmp/nnp400/mobilenet_edgeput.json", "w") as f:
@@ -247,9 +255,16 @@ class QuantizeSearch:
         """evaluate"""
 
         def tmp(mod):
-            with tvm.transform.PassContext(opt_level=2):
-                graph, lib, params = relay.build(mod, self.target)
-            runtime = tvm.contrib.graph_executor.create(graph, lib, self.ctx)
+            """tmp"""
+            if "transform" in relay.__dict__:
+                with tvm.transform.PassContext(opt_level=2):
+                    graph, lib, params = relay.build(mod, self.target)
+                runtime = tvm.contrib.graph_executor.create(graph, lib, self.ctx)
+            else:
+                with relay.build_config(opt_level=2):
+                    graph, lib, params = relay.build(mod, target=self.target)
+                runtime = tvm.contrib.graph_runtime.create(graph, lib, self.ctx)
+
             runtime.set_input(**params)
             return runtime
 
@@ -261,7 +276,7 @@ class QuantizeSearch:
             self.pre_processed_performance = self.eval_func(runtime)
         elif name == "post_process":
             if self.use_default_eval:
-                runtime1 = tmp(self.origin_mod)
+                runtime1 = tmp(self.pre_processed_mod)
                 result1 = self.eval_func(runtime1)
 
                 mod = None
@@ -275,6 +290,7 @@ class QuantizeSearch:
 
                 tmp3 = []
                 for tmp1, tmp2 in zip(result1, result2):
+                    print("one image similairy:", cosine(tmp1, tmp2))
                     tmp3.append(cosine(tmp1, tmp2))
                 tmp3 = numpy.array(tmp3).mean()
                 self.post_processed_performance = tmp3

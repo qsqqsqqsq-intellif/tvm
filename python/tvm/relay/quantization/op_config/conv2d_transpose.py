@@ -22,7 +22,7 @@ import numpy
 from tvm import relay
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType, _get_dtype_info
-from ..analyze import _conv_counter, _set_conv_counter, _quantized_judge
+from ..analyze import _quantized_judge
 from ..calibrate import _calibrate_core
 from ..realize import _realize_core, operate
 
@@ -56,14 +56,11 @@ class Conv2DTranspose:
     controlable = True
 
     def __init__(self, node, vertex_config, config):
-        cnt = _conv_counter()
-        LOGGER.debug("[analyze] conv2d_transpose_%d start...", cnt)
 
+        LOGGER.debug("[analyze] conv2d_transpose start")
         self.quantized = True
-        if "skip_conv_layers" in config and cnt in config["skip_conv_layers"]:
-            self.quantized = False
-
-        _set_conv_counter(cnt + 1)
+        if "quantized" in config:
+            self.quantized = config["quantized"]
 
         ci0 = config["input0"]
         ci1 = config["input1"]
@@ -120,7 +117,7 @@ class Conv2DTranspose:
             output0_config.update(_get_dtype_info(output0_config["dtype"]))
 
         self.output_config = output0_config
-        LOGGER.debug("[analyze] conv2d_%d finish", cnt)
+        LOGGER.debug("[analyze] conv2d_transpose finish")
 
     @classmethod
     def get_config(cls, call, config):

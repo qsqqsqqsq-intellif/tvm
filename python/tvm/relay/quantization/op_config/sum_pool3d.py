@@ -22,7 +22,7 @@ from tvm import relay
 from tvm._ffi import runtime_ctypes
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType
-from ..analyze import _conv_counter, oneargdeal
+from ..analyze import oneargdeal
 from ..calibrate import _calibrate_core
 from ..realize import _realize_core, operate
 
@@ -56,11 +56,9 @@ class SumPool3D:
     controlable = False
 
     def __init__(self, node, vertex_config, config):
-        cnt = _conv_counter()
-
         self.quantized = True
-        if "skip_conv_layers" in config and cnt in config["skip_conv_layers"]:
-            self.quantized = False
+        if "quantized" in config:
+            self.quantized = config["quantized"]
 
         ci0 = config["input0"]
 

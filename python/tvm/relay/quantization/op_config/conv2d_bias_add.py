@@ -22,7 +22,7 @@ import numpy
 from tvm import relay
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType, _get_dtype_info
-from ..analyze import _conv_counter, _set_conv_counter, _quantized_judge
+from ..analyze import _quantized_judge
 from ..calibrate import _calibrate_core
 from ..realize import _realize_core, operate
 
@@ -56,18 +56,14 @@ class Conv2DBiasAdd:
     controlable = True
 
     def __init__(self, node, vertex_config, config):
-
-        cnt = _conv_counter()
-        LOGGER.debug("[analyze] conv2d_%d start...", cnt)
         # todo add judge to modify self.quantized to be false
         # todo -- ex: strides info, conv2d_idx, get from outside config
         # todo get config to support partial-quantize
 
+        LOGGER.debug("[analyze] conv2dBiasAdd start")
         self.quantized = True
-        if "skip_conv_layers" in config and cnt in config["skip_conv_layers"]:
-            self.quantized = False
-
-        _set_conv_counter(cnt + 1)
+        if "quantized" in config:
+            self.quantized = config["quantized"]
 
         # todo get outside
         ci0 = config["input0"]
@@ -174,11 +170,8 @@ class Conv2DBiasAdd:
             input2_config.update(_get_dtype_info(input2_config["dtype"]))
 
         input3_axis = 0
-        bias_dtype = DataType.Int32
-        if "target" in config and config["target"].startswith("nnp3"):
-            bias_dtype = DataType.Int24
         input3_config = {
-            "dtype": bias_dtype if self.quantized else DataType.Float16,
+            "dtype": config["input2"]["dtype"] if self.quantized else DataType.Float16,
             "axis": input3_axis,
             "method": None,
             "threshold": None,
@@ -234,7 +227,7 @@ class Conv2DBiasAdd:
             output0_config.update(_get_dtype_info(output0_config["dtype"]))
 
         self.output_config = output0_config
-        LOGGER.debug("[analyze] conv2d_%d finish", cnt)
+        LOGGER.debug("[analyze] conv2dBiasAdd finish")
 
     @classmethod
     def get_config(cls, call, config):

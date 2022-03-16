@@ -24,7 +24,7 @@ from tvm._ffi import runtime_ctypes
 from ..threshold import Threshold
 from ..method_dtype import Method, DataType, _get_dtype_info
 from ..realize import _realize_core, operate, pair_node
-from ..analyze import _conv_counter, _quantized_judge
+from ..analyze import _quantized_judge
 from ..calibrate import _calibrate_core
 
 LOGGER = logging.getLogger("quantize")
@@ -57,21 +57,15 @@ class Multiply:
     controlable = True
 
     def __init__(self, node, vertex_config, config):
-        cnt = _conv_counter()
+
         LOGGER.debug("[analyze] MULTIPLY start...")
         self.quantized = True
 
-        if ("skip_conv_layers" in config and cnt - 1 in config["skip_conv_layers"]) or (
-            not vertex_config[node.args[0]].quantized and not vertex_config[node.args[1]].quantized
-        ):
+        if not vertex_config[node.args[0]].quantized and not vertex_config[node.args[1]].quantized:
             self.quantized = False
-        self.target = "nnp400"
-        if "target" in config:
-            self.target = config["target"]
 
-        # 300 only support float-point
-        if self.target.startswith("nnp3"):
-            self.quantized = False
+        if "quantized" in config:
+            self.quantized = config["quantized"]
 
         ci0 = config["input0"]
         ci1 = config["input1"]
@@ -146,7 +140,6 @@ class Multiply:
             new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
             if self.quantized:
-                assert not self.target.startswith("nnp3"), "nnp3xx mult no support quantized"
                 if dtype.CODE2STR[dtype.type_code] == "int" and dtype.bits < 32:
                     new_arg = relay.cast(new_arg, DataType.Int32)
             realized_args.append(new_arg)

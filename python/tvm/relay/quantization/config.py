@@ -50,10 +50,20 @@ FIXED_OP_TWOARGS_LIST = [
 ]
 
 
+def helper_get_call_name(call_expr):
+    if isinstance(call_expr.op, relay.Function):
+        name = getattr(call_expr.op.attrs, "Composite")
+        if not isinstance(name, str):
+            name = name.value
+    else:
+        name = call_expr.op.name
+    return name
+
+
 class ConfigSpace(ExprVisitor):
     """ConfigSpace"""
 
-    def __init__(self, mod, node_id, quantize_config):
+    def __init__(self, mod, node_id, quantize_config, net_in_dtype):
         super().__init__()
         self.node_id = node_id
         self.config = collections.OrderedDict()
@@ -61,22 +71,147 @@ class ConfigSpace(ExprVisitor):
         self.exp_ref = {}
         self.idx = -1
         self.quantize_config = {} if quantize_config is None else quantize_config
+        self.net_in_dtype = net_in_dtype
+        self.op_like_conv_count = 0
         # compatible with nnp300
         if not isinstance(mod, relay.Function):
             self.visit(mod["main"])
         else:
             self.visit(mod)
 
+    @staticmethod
+    def get_constant_arg_config(arg_idx, name, quantize_config):
+        """get constant config"""
+        dtype_tmp = DataType.Int8
+        cond1 = name == "nn.bias_add" or arg_idx == 2
+        cond2 = (
+            name == "nn.bias_add"
+            or arg_idx == 2
+            and "target" in quantize_config
+            and quantize_config["target"].startswith("nnp3")
+        )
+
+        if cond1:
+            dtype_tmp = DataType.Int32
+        elif cond2:
+            dtype_tmp = DataType.Int24
+
+        arg_dict = {
+            "default_config": {
+                "threshold": Threshold.MinMax,
+                "method": Method.Symmetry,
+                "dtype": dtype_tmp,
+            }
+        }
+
+        return arg_dict
+
+    @staticmethod
+    def get_call_arg_config(arg, arg_id, net_in_dtype, config, quantize_config):
+        """get call config"""
+        # first get from op config
+        if isinstance(arg, relay.Call):
+            arg_name = helper_get_call_name(arg)
+            if arg_name in FIXED_OP_TWOARGS_LIST:
+                tmp_dict = OPCONFIGS["FixedOpTwoArgs"].get_config(arg, config)
+            elif arg_name in IDENTITY_OP_LIST:
+                tmp_dict = OPCONFIGS["identity_op"].get_config(arg, config)
+            elif arg_name in OPCONFIGS:
+                tmp_dict = OPCONFIGS[arg_name].get_config(arg, config)
+            else:
+                tmp_dict = OPCONFIGS["float_op"].get_config(arg, config)
+
+        else:
+            tmp_dict = {
+                "default_config": {
+                    "threshold": Threshold.L2Norm,
+                    "method": Method.Symmetry,
+                    "dtype": DataType.Int8,
+                }
+            }
+
+        if isinstance(arg, relay.Var) and net_in_dtype != "float32":
+            tmp_dict["default_config"]["dtype"] = net_in_dtype
+
+        map_dict = {
+            "min_max": Threshold.MinMax,
+            "percentile": Threshold.PercentileAbs,
+            "l2norm": Threshold.L2Norm,
+            "kld": Threshold.KLDAbs,
+        }
+        if "calib_method" in quantize_config:
+            tmp_dict["default_config"]["threshold"] = map_dict[quantize_config["calib_method"]]
+
+        # then "op_type_config"/"op_idx_config"/"op_name_config"
+        if "op_idx_config" in quantize_config and str(arg_id) in quantize_config:
+            tmp_dict["defalut_config"]["threshold"] = map_dict[
+                quantize_config[str(arg_id)]["calib_method"]
+            ]
+
+        return tmp_dict
+
+    def get_whether_quantized(self, quantize_config, name, call_id, tmp, call, config):
+        """get whether quantized"""
+        skip_conv_layers_name = [
+            "nn.conv2d",
+            "conv2d_bias_add",
+            "nn.conv2d_transpose",
+            "conv2d_transpose_bias_add",
+            "nn.contrib_conv2d_winograd1d_without_weight_transform",
+            "conv2d_winograd1d_bias_add",
+            "nn.conv3d",
+            "conv3d_bias_add",
+        ]
+
+        # float list
+        cond1 = False
+        if "float_list" in quantize_config:
+            for value in quantize_config["float_list"]:
+                if (isinstance(value, str) and name == value) or (
+                    isinstance(value, int) and value == call_id
+                ):
+                    cond1 = True
+                elif isinstance(value, list) and (name in value or call_id in value):
+                    cond1 = True
+        if cond1:
+            config[tmp]["quantized"] = False
+
+        # skip_conv_layers
+        if (
+            "skip_conv_layers" in quantize_config
+            and quantize_config["skip_conv_layers"] is not None
+        ):
+            cnt = self.op_like_conv_count
+
+            if name in skip_conv_layers_name:
+                LOGGER.info("can config skip_conv_layers, the call is %s, cnt is %d", name, cnt)
+                LOGGER.info("      weightshape is %s", str(call.args[1].data.shape))
+                if cnt in quantize_config["skip_conv_layers"]:
+                    config[tmp]["quantized"] = False
+                self.op_like_conv_count = self.op_like_conv_count + 1
+            elif cnt - 1 in quantize_config["skip_conv_layers"]:
+                config[tmp]["quantized"] = False
+
+        # nnp3xx multiply use fp16
+        if (
+            "target" in quantize_config
+            and quantize_config["target"].startswith("nnp3")
+            and name == "multiply"
+        ):
+            config[tmp]["quantized"] = False
+
+        # equal use fp16
+        if name == "equal":
+            config[tmp]["quantized"] = False
+            for arg in call.args:
+                tmp_arg = self.node_id[arg]
+                config[tmp_arg]["quantized"] = False
+
     def visit_call(self, call):
         for arg in call.args:
             self.visit(arg)
 
-        if isinstance(call.op, relay.Function):
-            name = getattr(call.op.attrs, "Composite")
-            if not isinstance(name, str):
-                name = name.value
-        else:
-            name = call.op.name
+        name = helper_get_call_name(call)
 
         self.idx = self.idx + 1
         LOGGER.debug("[config] call %s %d", name, self.idx)
@@ -84,218 +219,38 @@ class ConfigSpace(ExprVisitor):
             self.all_op.append(name)
 
         tmp = self.node_id[call]
-
+        call_id_prefix = int(tmp.split("_")[0])
         self.config[tmp] = {"valid_config": {}, "default_config": {}}
 
         arg_idx = -1
         for arg in call.args:
-            id_node = self.node_id[arg]
-
-            id_node_prefix = str(id_node.split("_")[0])
+            arg_node_id = self.node_id[arg]
 
             arg_idx = arg_idx + 1
             arg_key = "input" + str(arg_idx)
-            arg_dict = {"valid_config": {}, "default_config": {}}
 
-            if id_node not in self.exp_ref:
-                self.exp_ref[id_node] = [tmp + "-" + arg_key]
+            if isinstance(arg, relay.Constant):
+                tmp_arg_dict = self.get_constant_arg_config(arg_idx, name, self.quantize_config)
+            elif isinstance(arg, (relay.Call, relay.Var, relay.TupleGetItem)):
+                tmp_arg_dict = self.get_call_arg_config(
+                    arg, arg_node_id, self.net_in_dtype, self.config, self.quantize_config
+                )
             else:
-                self.exp_ref[id_node].append(tmp + "-" + arg_key)
-
-            # todo support 3-10
-            if id_node_prefix in self.quantize_config:
-                arg_dict["default_config"] = {arg_key: {}}
-                arg_dict["default_config"][arg_key].update(self.quantize_config[id_node_prefix])
-
-            elif isinstance(arg, relay.Var) and "all" in self.quantize_config:
-                arg_dict["default_config"] = {arg_key: {}}
-                arg_dict["default_config"][arg_key].update(self.quantize_config["all"])
-
-            elif isinstance(arg, relay.Var):
-                arg_dict["valid_config"] = {
-                    arg_key: {
-                        "threshold": (
-                            Threshold.MinMax,
-                            Threshold.Percentile,
-                            Threshold.MovingAverageMinMax,
-                            Threshold.L2Norm,
-                            Threshold.RelativeEntropy,
-                        ),
-                        "method": (Method.Symmetry, Method.Asymmetry),
-                        "dtype": (DataType.UInt8, DataType.Int8),
-                    }
-                }
-
-                arg_dict["default_config"] = {
-                    arg_key: {
+                tmp_arg_dict = {
+                    "default_config": {
                         "threshold": Threshold.L2Norm,
                         "method": Method.Symmetry,
                         "dtype": DataType.Int8,
                     }
                 }
+            self.config[tmp]["valid_config"].update(
+                {arg_key: tmp_arg_dict["default_config"] if "valid_config" in tmp_arg_dict else {}}
+            )
+            self.config[tmp]["default_config"].update({arg_key: tmp_arg_dict["default_config"]})
 
-            elif isinstance(arg, relay.Constant) and "constant" in self.quantize_config:
-                arg_dict["default_config"] = {arg_key: {}}
-                arg_dict["default_config"][arg_key].update(self.quantize_config["constant"])
-
-            elif isinstance(arg, relay.Constant):
-                if arg_idx != 2:
-                    arg_dict["valid_config"] = {
-                        arg_key: {
-                            "threshold": (
-                                Threshold.MinMax,
-                                Threshold.Percentile,
-                                Threshold.MovingAverageMinMax,
-                                Threshold.L2Norm,
-                                Threshold.RelativeEntropy,
-                            ),
-                            "method": (Method.Symmetry, Method.Asymmetry),
-                            "dtype": (DataType.Int8,),
-                        }
-                    }
-                    arg_dict["default_config"] = {
-                        arg_key: {
-                            "threshold": Threshold.MinMax,
-                            "method": Method.Symmetry,
-                            "dtype": DataType.Int8,
-                        }
-                    }
-                else:
-                    # must be bias!
-                    arg_dict["valid_config"] = {
-                        arg_key: {
-                            "threshold": (
-                                Threshold.MinMax,
-                                Threshold.Percentile,
-                                Threshold.MovingAverageMinMax,
-                                Threshold.L2Norm,
-                                Threshold.RelativeEntropy,
-                            ),
-                            "method": (Method.Symmetry, Method.Asymmetry),
-                            "dtype": (DataType.Int32,),
-                        }
-                    }
-                    arg_dict["default_config"] = {
-                        arg_key: {
-                            "threshold": Threshold.MinMax,
-                            "method": Method.Symmetry,
-                            "dtype": DataType.Int32,
-                        }
-                    }
-
-            elif isinstance(arg, relay.Call) and "call" in self.quantize_config:
-
-                arg_dict["default_config"] = {arg_key: {}}
-                arg_dict["default_config"][arg_key].update(self.quantize_config["call"])
-
-            elif isinstance(arg, relay.Call) and "all" in self.quantize_config:
-                arg_dict["default_config"] = {arg_key: {}}
-                arg_dict["default_config"][arg_key].update(self.quantize_config["all"])
-
-            elif isinstance(arg, relay.Call):
-                if isinstance(arg.op, relay.Function):
-                    name = getattr(arg.op.attrs, "Composite")
-                else:
-                    name = arg.op.name
-
-                tmp_dict = {}
-                if name in FIXED_OP_TWOARGS_LIST:
-                    tmp_dict = OPCONFIGS["FixedOpTwoArgs"].get_config(call, self.config)
-                elif name in IDENTITY_OP_LIST:
-                    tmp_dict = OPCONFIGS["identity_op"].get_config(call, self.config)
-                elif name in OPCONFIGS:
-                    tmp_dict = OPCONFIGS[name].get_config(call, self.config)
-                else:
-                    tmp_dict = OPCONFIGS["float_op"].get_config(call, self.config)
-
-                arg_dict["default_config"] = {arg_key: tmp_dict["default_config"]}
-                arg_dict["valid_config"] = {arg_key: tmp_dict["valid_config"]}
-
-            else:
-                arg_dict = {
-                    "valid_config": {
-                        arg_key: {
-                            "threshold": (
-                                Threshold.MinMax,
-                                Threshold.Percentile,
-                                Threshold.MovingAverageMinMax,
-                                Threshold.L2Norm,
-                                Threshold.RelativeEntropy,
-                            ),
-                            "method": (Method.Symmetry, Method.Asymmetry),
-                            "dtype": (DataType.Int8, DataType.Int16),
-                        }
-                    },
-                    "default_config": {
-                        arg_key: {
-                            "threshold": Threshold.L2Norm,
-                            "method": Method.Symmetry,
-                            "dtype": DataType.Int8,
-                        }
-                    },
-                }
-
-            # int16 config must from outside
-            # only nu [conv2d dense] input can support fp16
-            # conv2d + relu clip can support "int16"
-            # todo maxpool + relu only support int8
-            # todo only support conv2d_bias int16
-            if isinstance(arg, relay.Call) and isinstance(arg.op, relay.Function):
-                arg_name = getattr(arg.op.attrs, "Composite")
-            elif isinstance(arg, relay.Call):
-                arg_name = arg.op.name
-            if (
-                arg_dict["default_config"][arg_key]["dtype"] == "int16"
-                and (
-                    name
-                    not in [
-                        "conv2d_bias_add",
-                        "nn.conv2d",
-                        "nn.dense",
-                        "nn.batch_matmul",
-                        "nn.relu",
-                        "nn.leaky_relu",
-                        "nn.prelu",
-                        "clip",
-                    ]
-                    and isinstance(arg, relay.Call)
-                )
-                or (
-                    isinstance(arg, relay.Call)
-                    and (
-                        arg_name
-                        in [
-                            "add",
-                            "multiply",
-                            "nn.sum_pool2d",
-                            "nn.sum_pool3d",
-                            "nn.max_pool2d",
-                            "nn.max_pool3d",
-                        ]
-                    )
-                )
-            ):
-
-                arg_dict["default_config"][arg_key]["dtype"] = "int8"
-
-                call_id = self.node_id[arg]
-
-                if len(self.exp_ref[id_node]) > 1:
-                    for mem in self.exp_ref[id_node]:
-                        if mem.split("-")[0] != tmp:
-                            self.config[mem.split("-")[0]]["default_config"][mem.split("-")[1]][
-                                "dtype"
-                            ] = "int8"
-
-                if (
-                    arg_name in ["nn.relu", "nn.leaky_relu", "nn.prelu", "clip"]
-                    and self.config[call_id]["default_config"]["input0"]["dtype"] == "int16"
-                ):
-
-                    self.config[call_id]["default_config"]["input0"]["dtype"] = "int8"
-
-            self.config[tmp]["default_config"].update(arg_dict["default_config"])
-            self.config[tmp]["valid_config"].update(arg_dict["valid_config"])
+        self.get_whether_quantized(
+            self.quantize_config, name, call_id_prefix, tmp, call, self.config
+        )
 
     def visit_tuple(self, tup):
 
@@ -303,152 +258,47 @@ class ConfigSpace(ExprVisitor):
             self.visit(arg)
 
         tmp = self.node_id[tup]
+        name = "Tuple"
+        tuple_id_prefix = int(tmp.split("_")[0])
+
         self.idx = self.idx + 1
         LOGGER.debug("[config] tuple %d", self.idx)
         self.config[tmp] = {"valid_config": {}, "default_config": {}}
 
         arg_idx = -1
         for arg in tup.fields:
-            id_node = self.node_id[arg]
-            id_node_prefix = str(id_node.split("_")[0])
+
+            arg_node_id = self.node_id[arg]
 
             arg_idx = arg_idx + 1
             arg_key = "input" + str(arg_idx)
-            arg_dict = {"valid_config": {}, "default_config": {}}
-            if id_node_prefix in self.quantize_config:
-                arg_dict["default_config"] = {arg_key: self.quantize_config[id_node_prefix]}
 
-            elif isinstance(arg, relay.Var) and "all" in self.quantize_config:
-                arg_dict["default_config"] = {arg_key: self.quantize_config["all"]}
-
-            elif isinstance(arg, relay.Var):
-                arg_dict["valid_config"] = {
-                    arg_key: {
-                        "threshold": (
-                            Threshold.MinMax,
-                            Threshold.Percentile,
-                            Threshold.MovingAverageMinMax,
-                            Threshold.L2Norm,
-                            Threshold.RelativeEntropy,
-                        ),
-                        "method": (Method.Symmetry, Method.Asymmetry),
-                        "dtype": (DataType.UInt8, DataType.Int8),
-                    }
-                }
-
-                arg_dict["default_config"] = {
-                    arg_key: {
+            if isinstance(arg, relay.Constant):
+                tmp_arg_dict = self.get_constant_arg_config(arg_idx, name, self.quantize_config)
+            elif isinstance(arg, (relay.Call, relay.Var, relay.TupleGetItem)):
+                tmp_arg_dict = self.get_call_arg_config(
+                    arg, arg_node_id, self.net_in_dtype, self.config, self.quantize_config
+                )
+            else:
+                tmp_arg_dict = {
+                    "default_config": {
                         "threshold": Threshold.L2Norm,
                         "method": Method.Symmetry,
                         "dtype": DataType.Int8,
                     }
                 }
+            self.config[tmp]["valid_config"].update(
+                {arg_key: tmp_arg_dict["default_config"] if "valid_config" in tmp_arg_dict else {}}
+            )
+            self.config[tmp]["default_config"].update({arg_key: tmp_arg_dict["default_config"]})
 
-            elif isinstance(arg, relay.Constant) and "constant" in self.quantize_config:
-                arg_dict["default_config"] = {arg_key: self.quantize_config["constant"]}
-
-            elif isinstance(arg, relay.Constant):
-                if arg_idx != 2:
-                    arg_dict["valid_config"] = {
-                        arg_key: {
-                            "threshold": (
-                                Threshold.MinMax,
-                                Threshold.Percentile,
-                                Threshold.MovingAverageMinMax,
-                                Threshold.L2Norm,
-                                Threshold.RelativeEntropy,
-                            ),
-                            "method": (Method.Symmetry, Method.Asymmetry),
-                            "dtype": (DataType.Int8,),
-                        }
-                    }
-
-                    arg_dict["default_config"] = {
-                        arg_key: {
-                            "threshold": Threshold.MinMax,
-                            "method": Method.Symmetry,
-                            "dtype": DataType.Int8,
-                        }
-                    }
-                else:
-                    arg_dict["valid_config"] = {
-                        arg_key: {
-                            "threshold": (
-                                Threshold.MinMax,
-                                Threshold.Percentile,
-                                Threshold.MovingAverageMinMax,
-                                Threshold.L2Norm,
-                                Threshold.RelativeEntropy,
-                            ),
-                            "method": (Method.Symmetry, Method.Asymmetry),
-                            "dtype": (DataType.Int32,),
-                        }
-                    }
-                    # must be bias!
-                    arg_dict["default_config"] = {
-                        arg_key: {
-                            "threshold": Threshold.MinMax,
-                            "method": Method.Symmetry,
-                            "dtype": DataType.Int32,
-                        }
-                    }
-
-            elif isinstance(arg, relay.Call) and "call" in self.quantize_config:
-
-                arg_dict["default_config"] = {arg_key: self.quantize_config["call"]}
-
-            elif isinstance(arg, relay.Call) and "all" in self.quantize_config:
-
-                arg_dict["default_config"] = {arg_key: self.quantize_config["all"]}
-
-            elif isinstance(arg, relay.Call):
-                if isinstance(arg.op, relay.Function):
-                    name = getattr(arg.op.attrs, "Composite")
-                else:
-                    name = arg.op.name
-
-                tmp_dict = {}
-                if name in FIXED_OP_TWOARGS_LIST:
-                    tmp_dict = OPCONFIGS["FixedOpTwoArgs"].get_config(arg, self.config)
-                elif name in IDENTITY_OP_LIST:
-                    tmp_dict = OPCONFIGS["identity_op"].get_config(arg, self.config)
-                elif name in OPCONFIGS:
-                    tmp_dict = OPCONFIGS[name].get_config(arg, self.config)
-                else:
-                    tmp_dict = OPCONFIGS["float_op"].get_config(arg, self.config)
-
-                arg_dict["default_config"] = {arg_key: tmp_dict["default_config"]}
-                arg_dict["valid_config"] = {arg_key: tmp_dict["valid_config"]}
-
-            else:
-                arg_dict = {
-                    "valid_config": {
-                        arg_key: {
-                            "threshold": (
-                                Threshold.MinMax,
-                                Threshold.Percentile,
-                                Threshold.MovingAverageMinMax,
-                                Threshold.L2Norm,
-                                Threshold.RelativeEntropy,
-                            ),
-                            "method": (Method.Symmetry, Method.Asymmetry),
-                            "dtype": (DataType.Int8, DataType.Int16),
-                        }
-                    },
-                    "default_config": {
-                        arg_key: {
-                            "threshold": Threshold.L2Norm,
-                            "method": Method.Symmetry,
-                            "dtype": DataType.Int8,
-                        }
-                    },
-                }
-
-            self.config[tmp]["default_config"].update(arg_dict["default_config"])
-            self.config[tmp]["valid_config"].update(arg_dict["valid_config"])
+        if "float_list" in self.quantize_config:
+            self.get_whether_quantized(
+                self.quantize_config, name, tuple_id_prefix, tmp, None, self.config
+            )
 
 
 def config_space(cls):
-    tmp = ConfigSpace(cls.pre_processed_mod, cls.node_id, cls.quantize_config)
+    tmp = ConfigSpace(cls.pre_processed_mod, cls.node_id, cls.quantize_config, cls.net_in_dtype)
     cls.config_space = tmp.config
     cls.all_op = tmp.all_op

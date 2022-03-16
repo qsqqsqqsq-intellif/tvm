@@ -86,7 +86,7 @@ def _run_graph(batch, runtime, input_keys, num_outputs):
     return outputs
 
 
-def _get_graph(nodes, params, ctx, target, optlevel=3):
+def _get_graph(nodes, ctx, target, optlevel=3):
 
     if "analysis" in relay.__dict__:
         new_params = relay.analysis.free_vars(relay.Tuple(nodes))
@@ -148,9 +148,9 @@ def plot_statistics(data1_, data2_, distance, name, path):
     hist2 = numpy.histogram(abs2, 2048, (0, abs2.max()))[0]
 
     plt.figure(figsize=(10, 10))
-    ax1 = plt.subplot(221)
+    plt.subplot(221)
     plt.plot(hist1, "*")
-    ax2 = plt.subplot(223)
+    plt.subplot(223)
     plt.plot(hist2, "*")
 
     ax3 = plt.subplot(222)
@@ -160,12 +160,12 @@ def plot_statistics(data1_, data2_, distance, name, path):
     plt.plot(data2)
     plt.xticks(rotation=45)
 
-    ax1.set_title("total = " + str(len(data1)))
-    ax2.set_title("total = " + str(len(data2)))
+    # ax1.set_title("total = " + str(len(data1)))
+    # ax2.set_title("total = " + str(len(data2)))
     ax3.set_title("origin")
     ax4.set_title("quantized")
     plt.subplots_adjust(wspace=0.5, hspace=0.5)
-    plt.suptitle("similarity : %s" % distance)
+    plt.suptitle(name + " similarity : %s" % distance)
     if path is not None:
         plt.savefig(os.path.join(path, name) + ".png")
     else:
@@ -194,14 +194,8 @@ def compare_statistics(cls, method, path):
                 tmp.update({"scale": scale, "axis": axis})
             new_scale.append(tmp)
 
-    if isinstance(cls.pre_processed_mod, relay.Function):
-        old_p = cls.pre_processed_mod.params
-        new_p = cls.post_processed_mod.params
-    else:
-        old_p = cls.pre_processed_mod["main"].params
-        new_p = cls.post_processed_mod["main"].params
-    old_r, old_ik, old_no = _get_graph(old_node, old_p, cls.ctx, cls.target, cls.opt_level)
-    new_r, new_ik, new_no = _get_graph(new_node, new_p, cls.ctx, cls.target, cls.opt_level)
+    old_r, old_ik, old_no = _get_graph(old_node, cls.ctx, cls.target, cls.opt_level)
+    new_r, new_ik, new_no = _get_graph(new_node, cls.ctx, cls.target, cls.opt_level)
 
     assert len(old_node) == len(new_node) == old_no == new_no
 
@@ -236,6 +230,72 @@ def compare_statistics(cls, method, path):
                 name = cls.node_id[tmp]
                 dtype = str(old_node[i].checked_type)
                 plot_statistics(o_r, n_r, distance, name, path)
+                one_result.append([name, distance])
+                print("{x:<30}{y:<50}{z:<40}".format(x=name, y=dtype, z=distance))
+            all_result.append(one_result)
+            print("一张图片统计对比结束\n")
+        except StopIteration:
+            break
+    return all_result
+
+
+def compare_statistics_api(cls, method, display_en, path):
+    """compare_statistics for custom"""
+    old_node = []
+    new_node = []
+    new_scale = []
+    for new in cls.new2old:
+        if isinstance(cls.new2old[new], relay.Call):
+            continue
+        old = cls.new2old[new]["node"]
+        if isinstance(old, relay.Constant):
+            continue
+        if old not in old_node:
+            old_node.append(old)
+            new_node.append(new)
+            tmp = {}
+            if cls.new2old[new].get("scale") is not None:
+                scale = cls.new2old[new].get("scale")
+                axis = cls.new2old[new].get("axis")
+                tmp.update({"scale": scale, "axis": axis})
+            new_scale.append(tmp)
+
+    old_r, old_ik, old_no = _get_graph(old_node, cls.ctx, cls.target, cls.opt_level)
+    new_r, new_ik, new_no = _get_graph(new_node, cls.ctx, cls.target, cls.opt_level)
+
+    assert len(old_node) == len(new_node) == old_no == new_no
+
+    def _int2float(result, config):
+        new_result = []
+        for res, conf in zip(result, config):
+            if conf.get("scale") is not None:
+                scale = conf.get("scale")
+                axis = conf.get("axis")
+                if axis != -1 and scale.size != 1:
+                    tmp1 = numpy.ones_like(res.shape)
+                    tmp1[axis] = res.shape[axis]
+                    scale = scale.reshape(tmp1)
+                res = res * scale
+            new_result.append(res)
+        return new_result
+
+    dataset = cls.dataset()
+    all_result = []
+    while True:
+        try:
+            batch = next(dataset)
+            old_result = _run_graph(batch, old_r, old_ik, old_no)
+            new_result = _run_graph(batch, new_r, new_ik, new_no)
+            float_new_result = _int2float(new_result, new_scale)
+            assert len(old_result) == len(float_new_result)
+
+            one_result = []
+            for i, (o_r, n_r) in enumerate(zip(old_result, float_new_result)):
+                distance = DISTANCE[method](o_r, n_r)
+                tmp = cls.new2old[new_node[i]]["node"]
+                name = cls.node_id[tmp]
+                dtype = str(old_node[i].checked_type.shape)
+                # plot_statistics(o_r, n_r, distance, name, path)
                 one_result.append([name, distance])
                 print("{x:<30}{y:<50}{z:<40}".format(x=name, y=dtype, z=distance))
             all_result.append(one_result)

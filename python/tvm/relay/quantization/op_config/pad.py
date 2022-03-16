@@ -20,11 +20,12 @@
 import logging
 import numpy
 from tvm import relay
-from ..threshold import Threshold
-from ..method_dtype import Method, DataType
-from ..analyze import _conv_counter, oneargdeal
+from ..analyze import oneargdeal
 from ..calibrate import _calibrate_core
 from ..realize import _realize_core
+
+from ..threshold import Threshold
+from ..method_dtype import Method, DataType
 
 LOGGER = logging.getLogger("quantize")
 
@@ -56,14 +57,13 @@ class Pad:
     controlable = False
 
     def __init__(self, node, vertex_config, config):
-        cnt = _conv_counter()
 
         arg = node.args[0]
         self.quantized = True
-        if not vertex_config[arg].quantized or (
-            "skip_conv_layers" in config and cnt in config["skip_conv_layers"]
-        ):
+        if not vertex_config[arg].quantized:
             self.quantized = False
+        if "quantized" in config:
+            self.quantized = config["quantized"]
 
         oneargdeal(self, node, vertex_config, config["input0"])
         LOGGER.debug("[analyze] nn.pad finish")
