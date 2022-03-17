@@ -36,6 +36,7 @@ except:
 from .relay_viz import RelayVisualizer
 from .default_process import default_data, default_eval
 from .debug import cosine
+from .threshold import Threshold
 
 
 class QuantizeSearch:
@@ -43,7 +44,7 @@ class QuantizeSearch:
 
     def __init__(
         self,
-        model_name=None,
+        model_name="nnp",
         mod=None,
         params=None,
         dataset=None,
@@ -63,6 +64,7 @@ class QuantizeSearch:
         compare_statistics=False,
         net_in_dtype="uint8",
         opt_level=2,
+        save_temp_file=True,
     ):
         self.model_name = model_name
         self.calibrate_num = calibrate_num
@@ -75,8 +77,9 @@ class QuantizeSearch:
         self.compare_statistics = compare_statistics
         self.net_in_dtype = net_in_dtype
         self.opt_level = opt_level
+        self.save_temp_file = save_temp_file
 
-        if self.root_path is not None:
+        if self.root_path is not None and self.save_temp_file:
             save_path = os.path.join(self.root_path, self.model_name)
             if not os.path.exists(save_path):
                 os.makedirs(save_path)
@@ -184,10 +187,22 @@ class QuantizeSearch:
             for one in default_config:
                 if default_config[one] == {}:
                     continue
-                args = default_config[one]["threshold"].args
+
                 new_arg = {"calibrate_num": self.calibrate_num}
-                for one_arg in args:
-                    new_arg[one_arg["name"]] = one_arg["default"]
+                if isinstance(default_config[one]["threshold"], str):
+                    assert default_config[one]["threshold"].startswith(
+                        "percentile"
+                    ), "if threshold is str, must be percentile_...!!!"
+                    percentile_value = float(default_config[one]["threshold"].split("_")[1])
+                    default_config[one]["threshold"] = Threshold.Percentile
+                    args = default_config[one]["threshold"].args
+                    for one_arg in args:
+                        new_arg[one_arg["name"]] = percentile_value
+                else:
+                    args = default_config[one]["threshold"].args
+                    for one_arg in args:
+                        new_arg[one_arg["name"]] = one_arg["default"]
+
                 default_config[one].update({"threshold_arg": new_arg})
             if "quantized" in v:
                 default_config.update({"quantized": v["quantized"]})
@@ -205,7 +220,7 @@ class QuantizeSearch:
 
     def quantize(self, config):
         """quantize"""
-        if self.root_path is not None:
+        if self.root_path is not None and self.save_temp_file:
             save_path = os.path.join(self.root_path, self.model_name, "quantized")
             if not os.path.exists(save_path):
                 os.makedirs(save_path)
@@ -220,7 +235,10 @@ class QuantizeSearch:
                 cond3 = os.path.exists(os.path.join(tmp2, "other"))
                 if cond1 and cond2 and cond3:
                     with open(os.path.join(tmp2, "post_processed_mod.json"), "r") as f:
-                        tmp_mod = tvm.ir.load_json(json.load(f))
+                        if "ir" in tvm.__dict__:
+                            tmp_mod = tvm.ir.load_json(json.load(f))
+                        else:
+                            tmp_mod = tvm.load_json(json.load(f))
                     tmp3 = {
                         "mod": tmp_mod,
                         "config": pandas.read_pickle(os.path.join(tmp2, "config")),
@@ -242,12 +260,15 @@ class QuantizeSearch:
             "other": {"similarity": quantize.similarity},
         }
         self.results.append(tmp)
-        if save_path is not None:
+        if save_path is not None and self.save_temp_file:
             qtz_path = os.path.join(save_path, "%s" % time.time())
             if not os.path.exists(qtz_path):
                 os.makedirs(qtz_path)
             with open(os.path.join(qtz_path, "post_processed_mod.json"), "w") as f:
-                json.dump(tvm.ir.save_json(tmp["mod"]), f)
+                if "ir" in tvm.__dict__:
+                    json.dump(tvm.ir.save_json(tmp["mod"]), f)
+                else:
+                    json.dump(tvm.save_json(tmp["mod"]), f)
             pandas.to_pickle(tmp["config"], os.path.join(qtz_path, "config"))
             pandas.to_pickle(tmp["other"], os.path.join(qtz_path, "other"))
 

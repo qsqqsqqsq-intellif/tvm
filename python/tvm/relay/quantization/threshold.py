@@ -155,6 +155,7 @@ class Percentile:
         self.node = node
         nums = numpy.array(shape).prod()
         self.nums = round((1 - self.percentile) * nums * config["threshold_arg"]["calibrate_num"])
+        self.nums = 1 if self.nums == 0 else self.nums
         if self.axis == -1:
             self.collected_min = numpy.empty(0, node.checked_type.dtype)
             self.collected_max = numpy.empty(0, node.checked_type.dtype)
@@ -204,6 +205,7 @@ class Percentile:
             self.collected_max = numpy.concatenate([self.collected_max, temp_x], 1)
 
             nums = round(self.nums / self.collected_min.shape[0])
+            nums = 1 if nums == 0 else nums
             if self.collected_min.size >= self.nums:
                 sort = numpy.sort(self.collected_min, 1)
                 self.collected_min = sort[:, :nums]
@@ -665,6 +667,7 @@ class PercentileAbs:
         self.node = node
         nums = numpy.array(shape).prod()
         self.nums = round((1 - self.percentile) * nums * config["threshold_arg"]["calibrate_num"])
+        self.nums = 1 if self.nums == 0 else self.nums
         if self.axis == -1:
             self.collected_min = numpy.zeros(1, node.checked_type.dtype)
             self.collected_max = numpy.empty(0, node.checked_type.dtype)
@@ -710,6 +713,7 @@ class PercentileAbs:
             tmp = numpy.concatenate([self.collected_max, temp_x], 1)
 
             nums = round(self.nums / self.collected_min.shape[0])
+            nums = 1 if nums == 0 else nums
 
             if tmp.size > self.nums:
                 sort = numpy.partition(tmp, -nums, axis=1)

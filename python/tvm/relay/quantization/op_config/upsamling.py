@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements,bad-continuation
+# pylint: disable=unused-argument,inconsistent-return-statements,bad-continuation,too-many-function-args
 """op"""
 
 import logging
@@ -98,7 +98,9 @@ class UpSampling:
         if self.quantized:
             new_node = relay.nn.upsampling(new_arg, **dict(new_node.attrs))
             clip_attr = _get_dtype_info(self.input_config[old_arg]["dtype"])
-            new_node = relay.clip(new_node, clip_attr["qmin"], clip_attr["qmax"])
+            new_node = relay.clip(
+                new_node, clip_attr["qmin"], clip_attr["qmax"], self.output_config["dtype"]
+            )
         else:
             tmp = relay.frontend.common.infer_type(new_arg)
             # todo support int16

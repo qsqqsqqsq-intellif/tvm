@@ -28,7 +28,7 @@ LOGGER = logging.getLogger("quantize")
 class GetName(ExprVisitor):
     """get name"""
 
-    def __init__(self, mod):
+    def __init__(self, mod, path):
         super().__init__()
         self.id_count = 0
         self.node_id = {}
@@ -36,15 +36,16 @@ class GetName(ExprVisitor):
         self.op_num = {}
         self.tuple_num = 0
         self.dot = Digraph(name="optimize", comment="the test", format="png")
-
+        self.save_path = path
         LOGGER.info("  ")
         LOGGER.info("--model after pre_process structure:")
         if isinstance(mod, relay.Function):
             self.visit(mod)
         else:
             self.visit(mod["main"])
-
-        # self.dot.render(filename="optimize", directory="/home/yhh/Desktop/tmp")
+        if self.save_path is not None:
+            LOGGER.info("optimize ir save to %s opt_ir.png", self.save_path)
+            self.dot.render(filename="opt_ir", directory=self.save_path)
 
     def visit_call(self, call):
         for arg in call.args:
@@ -158,6 +159,6 @@ class GetName(ExprVisitor):
 
 
 def get_name(cls):
-    tmp = GetName(cls.pre_processed_mod)
+    tmp = GetName(cls.pre_processed_mod, cls.root_path)
     cls.node_id = tmp.node_id
     cls.id_node = tmp.id_node

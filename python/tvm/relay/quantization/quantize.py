@@ -62,7 +62,7 @@ class Quantize:
         calibrate_params(self)
         realize_graph(self)
 
-        if cls.root_path is not None:
+        if cls.root_path is not None and cls.save_temp_file:
             save_path = os.path.join(cls.root_path, cls.model_name)
             statistics_path = os.path.join(save_path, "statistics")
             if not os.path.exists(statistics_path):
@@ -254,10 +254,12 @@ def quantize300(
             rgb=rgb_str,
             mean=mean,
             scale=scale,
+            root_path=save_dir,
             channel_last=channel_last,
             net_in_dtype=net_in_dtype,
             compare_statistics=False,
             quantize_config=func_config,
+            save_temp_file=False,
         )
     config = quantize_search.get_default_config()
     quantize_search.quantize(config)

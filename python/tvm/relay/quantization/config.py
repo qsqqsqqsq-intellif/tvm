@@ -93,7 +93,7 @@ class ConfigSpace(ExprVisitor):
 
         if cond1:
             dtype_tmp = DataType.Int32
-        elif cond2:
+        if cond2:
             dtype_tmp = DataType.Int24
 
         arg_dict = {
@@ -135,12 +135,15 @@ class ConfigSpace(ExprVisitor):
 
         map_dict = {
             "min_max": Threshold.MinMax,
-            "percentile": Threshold.PercentileAbs,
+            "percentile": Threshold.Percentile,
             "l2norm": Threshold.L2Norm,
             "kld": Threshold.KLDAbs,
         }
         if "calib_method" in quantize_config:
-            tmp_dict["default_config"]["threshold"] = map_dict[quantize_config["calib_method"]]
+            if quantize_config["calib_method"].startswith("percentile"):
+                tmp_dict["default_config"]["threshold"] = quantize_config["calib_method"]
+            else:
+                tmp_dict["default_config"]["threshold"] = map_dict[quantize_config["calib_method"]]
 
         # then "op_type_config"/"op_idx_config"/"op_name_config"
         if "op_idx_config" in quantize_config and str(arg_id) in quantize_config:
