@@ -347,7 +347,22 @@ def check_numpy_result(
     assert ndim == len(expect.shape) and all(
         [result.shape[i] == expect.shape[i] for i in range(ndim)]
     ), f"Tensor mismatch: result is {result.shape}, expect {expect.shape}"
-    actual_rmse = np.sqrt(np.mean((result - expect).astype("float32") ** 2))
+
+    # compare nans
+    result_ill_pos = np.where(np.isnan(result))
+    expect_ill_pos = np.where(np.isnan(expect))
+    tvm.testing.assert_allclose(result_ill_pos, expect_ill_pos)
+    result[result_ill_pos] = 0
+    expect[expect_ill_pos] = 0
+
+    # compare infs
+    result_ill_pos = np.where(np.isinf(result))
+    expect_ill_pos = np.where(np.isinf(expect))
+    tvm.testing.assert_allclose(result_ill_pos, expect_ill_pos)
+    result[result_ill_pos] = 0
+    expect[expect_ill_pos] = 0
+
+    actual_rmse = np.sqrt(np.mean((expect - result).astype("float32") ** 2))
 
     def do_check():
         if rmse is not None:
@@ -476,7 +491,9 @@ def check_edgex_relay_build(
         if dtype.startswith("i") or dtype.startswith("u"):
             arrs[name] = np.random.randint(data_range[0], data_range[1], size=shape).astype(dtype)
         else:
-            arrs[name] = np.random.uniform(-data_range[0], data_range[1], size=shape).astype(dtype)
+            arrs[name] = np.random.uniform(
+                data_range[0], max(data_range[0] + 1, data_range[1]), size=shape
+            ).astype(dtype)
 
     expect = None
     if numpy_func is not None:

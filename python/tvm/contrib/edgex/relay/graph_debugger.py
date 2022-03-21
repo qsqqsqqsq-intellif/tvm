@@ -300,7 +300,7 @@ class RelayGraphDebugger:
                 check_cpu=True,
                 test_fused=True,
                 cpu_use_tir=False,
-                rmse=0.1,
+                rmse=0.01,
                 nothrow=True,
             )
         if check_result:

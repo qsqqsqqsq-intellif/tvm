@@ -149,6 +149,7 @@ def run_quantization(
         config = quantize_search.get_default_config()
     quantize_search.quantize(config)
     quantized_mod = quantize_search.results[-1]["mod"]
+    quantized_mod = relay.transform.FoldConstant()(quantized_mod)
 
     # test build and extract result
     relay.build(quantized_mod, target)
