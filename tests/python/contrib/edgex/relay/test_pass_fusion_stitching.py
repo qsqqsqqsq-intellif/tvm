@@ -49,7 +49,17 @@ def test_fusion_stitching(net):
 
 
 @pytest.mark.edgex_slow
-@pytest.mark.parametrize("net", ["mobilenet_v2", "mobilenet_v2_qat", "inception_v4", "densenet"])
+@pytest.mark.parametrize(
+    "net",
+    [
+        "mobilenet_v1",
+        "mobilenet_v2",
+        "mobilenet_v3",
+        "mobilenet_v2_qat",
+        "inception_v4",
+        "densenet",
+    ],
+)
 def test_more_fusion_stitching(net):
     test_fusion_stitching(net)
 

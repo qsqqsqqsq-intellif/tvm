@@ -78,24 +78,26 @@ def test_networks(net):
     mod, params = get_fs_fused_workload(net)
 
     # build and run and compare
-    print(mod["main"])
     input_shape = [int(x) for x in mod["main"].params[0].type_annotation.shape]
     input_dtype = mod["main"].params[0].type_annotation.dtype
+    input_name = mod["main"].params[0].name_hint
     if input_dtype.startswith("i") or input_dtype.startswith("u"):
         data = np.random.randint(-128, 127, size=input_shape).astype(input_dtype)
     else:
         data = np.random.uniform(-128, 127, size=input_shape).astype(input_dtype)
     lib_std = relay.build(mod, target="llvm", params=params)
     ctx = [tvm.cpu()]
-    out_std = get_graph_runtime_output(lib_std, data, ctx)
+    out_std = get_graph_runtime_output(lib_std, ctx, data, input_name)
     with tvm.transform.PassContext(config={"relay.backend.use_meta_schedule": True}):
         lib_stg = relay.build(mod, target="llvm", params=params)
-    out_stg = get_graph_runtime_output(lib_stg, data, ctx)
+    out_stg = get_graph_runtime_output(lib_stg, ctx, data, input_name)
     np.testing.assert_allclose(out_stg, out_std, rtol=1e-4, atol=1e-4)
 
 
 @pytest.mark.edgex_slow
-@pytest.mark.parametrize("net", ["inception_v1", "inception_v4", "densenet"])
+@pytest.mark.parametrize(
+    "net", ["mobilenet_v1", "mobilenet_v3", "inception_v1", "inception_v4", "densenet"]
+)
 def test_more_networks(net):
     test_networks(net)
 

@@ -483,7 +483,7 @@ class AtomicGraph {
                          {"sum", ""},
                          {"add", "subtract", "multiply"},
                          {"nn.bias_add", ""},
-                         {"right_shift", "round_right_shift", ""},
+                         {"right_shift", "round_right_shift", "round", ""},
                          {"add", ""},
                          {"clip", ""},
                          {"cast", ""}});

@@ -31,6 +31,7 @@ from tvm.relay.quantization.relay_ops import round_right_shift
 def verify_mod_export(func, params):
     input_shape = [int(x) for x in func.params[0].type_annotation.shape]
     input_dtype = func.params[0].type_annotation.dtype
+    input_name = func.params[0].name_hint
     if input_dtype.startswith("i") or input_dtype.startswith("u"):
         data = np.random.randint(-128, 127, size=input_shape).astype(input_dtype)
     else:
@@ -77,8 +78,8 @@ def verify_mod_export(func, params):
     os.remove(path_lib)
 
     # graph executor wrapper
-    expect = get_graph_runtime_output(lib, data, ctxs)
-    outs = get_graph_runtime_output(loaded_lib, data, ctxs)
+    expect = get_graph_runtime_output(lib, ctxs, data, input_name)
+    outs = get_graph_runtime_output(loaded_lib, ctxs, data, input_name)
     tvm.testing.assert_allclose(outs, expect, atol=1e-5)
 
 

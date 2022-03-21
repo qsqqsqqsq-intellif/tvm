@@ -787,8 +787,8 @@ def get_fs_fused_workload(net, fix_norm=False):
     return mod, params
 
 
-def get_graph_runtime_output(lib, data, ctx):
+def get_graph_runtime_output(lib, ctx, data, name="input"):
     m = graph_executor.GraphModule(lib["default"](*ctx))
-    m.set_input("input", data)
+    m.set_input(name, data)
     m.run()
     return m.get_output(0).numpy()
