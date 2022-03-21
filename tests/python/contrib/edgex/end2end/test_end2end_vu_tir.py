@@ -1,0 +1,122 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+import pytest
+from tvm import tir
+from tvm.script import tir as T
+from tvm.contrib.edgex.topi import naive_vu_schedule
+from tvm.contrib.edgex.testing import check_edgex_tir_build
+import numpy as np
+
+# fmt: off
+@T.prim_func
+def fused_subtract_nn_bias_add_cast(input_0: T.handle, input_1: T.handle, input_2: T.handle,  out: T.handle) -> None:
+    # body
+    # with T.block("root")
+    h = T.var("int32")
+    w = T.var("int32")    
+    c = T.var("int32")    
+    placeholder_0 = T.match_buffer(input_0, [1, h, w, c], dtype="int32")
+    placeholder_1 = T.match_buffer(input_1, [1, h, w, 1], dtype="int32")
+    placeholder_2 = T.match_buffer(input_2, [c], dtype="int32")
+    T_cast = T.match_buffer(out, [1, h, w, c], dtype="uint8")
+    T_add = T.alloc_buffer([1, h, w, c], dtype="int32")
+    T_subtract = T.alloc_buffer([1, h, w, c], dtype="int32")
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_subtract"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(placeholder_0[ax0, ax1, ax2, ax3], placeholder_1[ax0, ax1, ax2, 0])
+            T.writes(T_subtract[ax0, ax1, ax2, ax3])
+            T_subtract[ax0, ax1, ax2, ax3] = placeholder_0[ax0, ax1, ax2, ax3] - placeholder_1[ax0, ax1, ax2, 0]
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_add"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_subtract[ax0, ax1, ax2, ax3], placeholder_2[ax3])
+            T.writes(T_add[ax0, ax1, ax2, ax3])
+            T_add[ax0, ax1, ax2, ax3] = T_subtract[ax0, ax1, ax2, ax3] + placeholder_2[ax3]
+    for i0, i1, i2, i3 in T.grid(1, h, w, c):
+        with T.block("T_cast_1"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_add[ax0, ax1, ax2, ax3])
+            T.writes(T_cast[ax0, ax1, ax2, ax3])
+            T_cast[ax0, ax1, ax2, ax3] = T.cast(T_add[ax0, ax1, ax2, ax3], "uint8")
+
+
+@T.prim_func
+def fused_reduce_sum_multiply(placeholder_0: T.Buffer[(1, 1, 1, 1), "int32"], placeholder_1: T.Buffer[(1, 128, 128, 32), "uint8"], T_multiply: T.Buffer[(1, 128, 128, 1), "int32"]) -> None:
+    # body
+    # with T.block("root")
+    T_cast = T.alloc_buffer([1, 128, 128, 32], dtype="int32")
+    placeholder_red = T.alloc_buffer([1, 128, 128, 1], dtype="int32")
+    for i0, i1, i2, i3 in T.grid(1, 128, 128, 32):
+        with T.block("T_cast"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(placeholder_1[ax0, ax1, ax2, ax3])
+            T.writes(T_cast[ax0, ax1, ax2, ax3])
+            T_cast[ax0, ax1, ax2, ax3] = T.cast(placeholder_1[ax0, ax1, ax2, ax3], "int32")
+    for i0, i1, i2, i3, i4 in T.grid(1, 128, 128, 1, 32):
+        with T.block("placeholder_red"):
+            ax0, ax1, ax2, ax3, k3 = T.axis.remap("SSSSR", [i0, i1, i2, i3, i4])
+            T.reads(placeholder_red[ax0, ax1, ax2, ax3], T_cast[ax0, ax1, ax2, k3])
+            T.writes(placeholder_red[ax0, ax1, ax2, ax3])
+            with T.init():
+                placeholder_red[ax0, ax1, ax2, ax3] = 0
+            placeholder_red[ax0, ax1, ax2, ax3] = placeholder_red[ax0, ax1, ax2, ax3] + T_cast[ax0, ax1, ax2, k3]
+    for i0, i1, i2, i3 in T.grid(1, 128, 128, 1):
+        with T.block("T_multiply"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(placeholder_0[ax0, 0, 0, ax3], placeholder_red[ax0, ax1, ax2, ax3])
+            T.writes(T_multiply[ax0, ax1, ax2, ax3])
+            T_multiply[ax0, ax1, ax2, ax3] = placeholder_0[ax0, 0, 0, ax3] * placeholder_red[ax0, ax1, ax2, ax3]
+# fmt: on
+
+
+def test_fused_reduce_sum_multiply():
+    primfunc = fused_reduce_sum_multiply
+    edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
+    cpu_schedule = naive_vu_schedule(primfunc, is_cpu=True, allow_multi_block=True)
+    check_edgex_tir_build(
+        "fused_reduce_sum_multiply",
+        edgex_schedule,
+        cpu_prim_func=cpu_schedule,
+        check_cpu=True,
+    )
+
+
+@pytest.mark.skip("skip because llvm not support yet.")
+def test_fused_subtract_nn_bias_add_cast():
+    shape = [1, 7, 7, 1280]
+    primfunc = fused_subtract_nn_bias_add_cast
+    primfunc = primfunc.specialize({primfunc.params[0]: tir.decl_buffer(shape)})
+    edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
+    cpu_schedule = naive_vu_schedule(primfunc, is_cpu=True, allow_multi_block=True)
+
+    # TODO(@qing): Data range is limited to [0, 10], otherwise the rusult will be mismatched.
+    x = np.random.randint(0, 10, shape).astype("int32")
+    sub_value = np.random.randint(0, 10, [1, shape[1], shape[2], 1]).astype("int32")
+    add_value = np.random.randint(0, 10, [shape[3]]).astype("int32")
+    check_edgex_tir_build(
+        "fused_subtract_nn_bias_add_cast",
+        edgex_schedule,
+        cpu_prim_func=cpu_schedule,
+        check_cpu=True,
+        input_data=[x, sub_value, add_value],
+    )
+
+
+if __name__ == "__main__":
+    test_fused_reduce_sum_multiply()
+    # test_fused_subtract_nn_bias_add_cast()

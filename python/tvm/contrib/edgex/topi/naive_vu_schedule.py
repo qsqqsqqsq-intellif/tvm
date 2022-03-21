@@ -66,7 +66,9 @@ def is_reduce_block(s, block):
 
 def is_param_buffer(buffer):
     """naively determine small buffer"""
-    return len([x for x in buffer.shape if x > 1]) <= 1
+    max_volume_bytes = 4096
+    buffer_bytes = reduce(lambda x, y: x * y, buffer.shape, tvm.DataType(buffer.dtype).bits // 8)
+    return len([x for x in buffer.shape if x > 1]) <= 2 and buffer_bytes <= max_volume_bytes
 
 
 def inline_all_blocks(s: EdgexSchedule):
@@ -112,6 +114,7 @@ def cache_buffer_packing(
     pack_vf,
     buffer_pack_dims,
     is_tiling,
+    packing_buffer_reorder_only,
     eidma_blocks,
     vidma_blocks,
     vodma_blocks,
@@ -124,10 +127,17 @@ def cache_buffer_packing(
             buffer_axes = list(s.get_write_buffer_axes(block, 0))
         else:
             buffer_axes = list(s.get_read_buffer_axes(block, 0))
-        c_o, c_i = s.split_buffer(buffer_axes[pack_dim], factor=pack_vf)
-        buffer_axes[pack_dim] = c_o
-        buffer_axes.append(c_i)
+
+        if packing_buffer_reorder_only:
+            c_i = buffer_axes[pack_dim]
+            buffer_axes.pop(pack_dim)
+            buffer_axes.append(c_i)
+        else:
+            c_o, c_i = s.split_buffer(buffer_axes[pack_dim], factor=pack_vf)
+            buffer_axes[pack_dim] = c_o
+            buffer_axes.append(c_i)
         s.reorder_buffer(*buffer_axes)
+
         if reorder_loop:
             loop_axes = list(s.get_loops(block))
             loop_extent = s.get_sref(loop_axes[pack_dim]).stmt.extent
@@ -259,6 +269,7 @@ class NaiveVuSchedule:
         self._relay_rewrite_mgr = relay_rewrite_mgr
         self._is_cpu = is_cpu
         self._allow_multi_block = allow_multi_block
+        self._packing_buffer_reorder_only = False
         self.analyze()
 
     def analyze_compute_at(self):
@@ -436,6 +447,8 @@ class NaiveVuSchedule:
         # pack dim detection
         buffer_pack_dim_candidates = []
         for i, loop_rv in enumerate(axes):
+            if axes_info[loop_rv][0] == "reduce":
+                continue
             valid = True
             buffer_pack_dim = {}
             loop_var = loop_stmts[i].loop_var
@@ -591,6 +604,8 @@ class NaiveVuSchedule:
                     c_i = pack_axis
                 elif cur_outer_factor >= outer_factor_estimation:
                     c_i = pack_axis
+                    axes_info[c_i] = ("vectorize", extent)
+                    self._packing_buffer_reorder_only = True
                 else:
                     c_o, c_i = s.split(loop_rv, factors=[None, pack_vf])
                     outer_axes.append(c_o)
@@ -747,6 +762,7 @@ class NaiveVuSchedule:
                     self._pack_vf,
                     self._buffer_pack_dims,
                     is_tiling=len(outer_axes) > 0,
+                    packing_buffer_reorder_only=self._packing_buffer_reorder_only,
                     eidma_blocks=eidma_blocks,
                     vidma_blocks=vidma_blocks,
                     vodma_blocks=vodma_blocks,
