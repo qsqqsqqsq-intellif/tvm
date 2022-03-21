@@ -21,6 +21,7 @@ import tqdm
 import numpy
 import tvm
 from tvm import relay
+import tvm.relay.quantization
 
 
 @pytest.mark.skip("mxnet in conflict with pytest")
@@ -37,8 +38,9 @@ def test_run():
     calibrate_num = 1
     num_workers = 1
     model_name = "googlenet"
-    performance = {"float": 72.882, "int8": 72.504, "乘右移": 71.962}
     root_path = None
+    path = os.getenv("QUANT_DIR")
+    data_path = path + "/data/imagenet"
 
     def prepare_data_loaders(data_path, batch_size):
         transform_test = mxnet.gluon.data.vision.transforms.Compose(
@@ -46,9 +48,6 @@ def test_run():
                 mxnet.gluon.data.vision.transforms.Resize(256, keep_ratio=True),
                 mxnet.gluon.data.vision.transforms.CenterCrop(224),
                 mxnet.gluon.data.vision.transforms.ToTensor(),
-                # mxnet.gluon.data.vision.transforms.Normalize(
-                #     [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
-                # ),
             ]
         )
         dataset = gluoncv.data.imagenet.classification.ImageNet(
@@ -63,8 +62,7 @@ def test_run():
         )
         return data_loader
 
-    path = os.getenv("QUANT_DIR")
-    data_loader = prepare_data_loaders(path + "/data/imagenet", 1)
+    data_loader = prepare_data_loaders(data_path, 1)
 
     calibrate_data = []
     for i, (image, label) in enumerate(data_loader):
@@ -114,8 +112,8 @@ def test_run():
         root_path=root_path,
         norm={
             "input": {
-                "mean": [0.485 * 255, 0.456 * 255, 0.406 * 255],
-                "std": [0.229 * 255, 0.224 * 255, 0.225 * 255],
+                "mean": [123.675, 116.28, 103.53],
+                "std": [58.395, 57.12, 57.375],
                 "axis": 1,
             },
         },

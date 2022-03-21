@@ -108,6 +108,9 @@ def default_data(cls):
     if not cls.calibrate_num:
         cls.calibrate_num = len(total_path)
 
+    if cls.calibrate_num > len(total_path):
+        cls.calibrate_num = len(total_path)
+
     calibrate_data = []
     for i, path in enumerate(total_path):
         if i >= cls.calibrate_num:

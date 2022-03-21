@@ -25,16 +25,16 @@ from tvm import relay
 LOGGER = logging.getLogger("quantize")
 
 
-def _get_threshold_static(quantize):
-    for node in quantize.vertex_config:
-        vertex_config = quantize.vertex_config[node]
+def _get_threshold_static(cls):
+    for node in cls.vertex_config:
+        vertex_config = cls.vertex_config[node]
 
         def tmp(arg, config):
             cond1 = isinstance(arg, relay.Constant)
             cond2 = config["operate"] == "quantize" or config["operate"] == "requantize"
             if cond1 and cond2:
                 if config["threshold"] is not None:
-                    x = quantize.collect_result[arg]
+                    x = cls.collect_result[arg]
                     config["threshold"].run(x)
 
         if vertex_config.quantized:
@@ -52,11 +52,11 @@ def _get_threshold_static(quantize):
                     tmp(arg, input_config)
 
 
-def _get_statistics_min_max(quantize, run):
+def _get_statistics_min_max(cls, run):
     result = next(run)
 
-    for node in quantize.vertex_config:
-        vertex_config = quantize.vertex_config[node]
+    for node in cls.vertex_config:
+        vertex_config = cls.vertex_config[node]
 
         def tmp(arg, config):
             """cal core"""
@@ -75,7 +75,7 @@ def _get_statistics_min_max(quantize, run):
             # LOGGER.debug("[collect] Tuple")
             for arg in node.fields:
                 # use the quantized_axis and update the input_config['axis']
-                quantized_axis = quantize.vertex_config[arg].output_config["quantized_axis"]
+                quantized_axis = cls.vertex_config[arg].output_config["quantized_axis"]
 
                 if quantized_axis != "none":
                     vertex_config.input_config[arg]["axis"] = quantized_axis
@@ -93,7 +93,7 @@ def _get_statistics_min_max(quantize, run):
         elif isinstance(node, relay.Call):
             for arg in node.args:
                 # use the quantized_axis and update the input_config['axis']
-                quantized_axis = quantize.vertex_config[arg].output_config["quantized_axis"]
+                quantized_axis = cls.vertex_config[arg].output_config["quantized_axis"]
 
                 if quantized_axis != "none":
                     vertex_config.input_config[arg]["axis"] = quantized_axis
@@ -115,10 +115,10 @@ def _get_statistics_min_max(quantize, run):
                     vertex_config.output_config["threshold"].statistics_min_max(x)
 
 
-def _get_threshold_dynamic(quantize, run):
+def _get_threshold_dynamic(cls, run):
     result = next(run)
-    for node in quantize.vertex_config:
-        vertex_config = quantize.vertex_config[node]
+    for node in cls.vertex_config:
+        vertex_config = cls.vertex_config[node]
 
         def tmp(arg, config):
             cond1 = not isinstance(arg, relay.Constant)
@@ -136,7 +136,7 @@ def _get_threshold_dynamic(quantize, run):
                     input_config = vertex_config.input_config[arg]
                     # axis alreay set by min_max
                     # input_config['axis'] =
-                    # quantize.vertex_config[arg].output_config['quantized_axis']
+                    # cls.vertex_config[arg].output_config['quantized_axis']
                     tmp(arg, input_config)
 
         elif isinstance(node, relay.TupleGetItem):
@@ -151,9 +151,7 @@ def _get_threshold_dynamic(quantize, run):
                 if vertex_config.input_config[arg]["threshold"] is not None:
                     input_config = vertex_config.input_config[arg]
                     # notice: use the quantized_axis and update the input_config['axis']
-                    input_config["axis"] = quantize.vertex_config[arg].output_config[
-                        "quantized_axis"
-                    ]
+                    input_config["axis"] = cls.vertex_config[arg].output_config["quantized_axis"]
                     tmp(arg, input_config)
 
             if (
@@ -179,11 +177,6 @@ def _run_graph(dataset, nodes, runtime, input_keys, num_outputs):
                     output = numpy.array([output])
                 outputs.append(output)
             result = dict(zip(nodes, outputs))
-            # for k,v in result.items():
-            #     print("key is ", k)
-            #     print("value shape is ", v.shape)
-            #     if tuple(relay.frontend.common.infer_type(k).checked_type.shape) != v.shape:
-            #         print("....")
             yield result
         except StopIteration:
             break
@@ -191,7 +184,6 @@ def _run_graph(dataset, nodes, runtime, input_keys, num_outputs):
 
 def _get_node_runtime(nodes, params, ctx, target):
     func = relay.Function(params, relay.Tuple(nodes))
-    # print(relay.frontend.common.infer_type(func))
     input_keys = [str(param.name_hint) for param in func.params]
     # compatible with nnp300
     if "transform" in relay.__dict__:
@@ -213,25 +205,23 @@ def _get_node_runtime(nodes, params, ctx, target):
     return runtime, input_keys, num_outputs
 
 
-def collect_stats(quantize):
+def collect_stats(cls):
     """collect_stats"""
-    _get_threshold_static(quantize)
-    nodes = list(quantize.collect_node)
+    _get_threshold_static(cls)
+    nodes = list(cls.collect_node)
     if nodes != []:
-        if not isinstance(quantize.pre_processed_mod, relay.Function):
-            params = quantize.pre_processed_mod["main"].params
+        if not isinstance(cls.pre_processed_mod, relay.Function):
+            params = cls.pre_processed_mod["main"].params
         else:
-            params = quantize.pre_processed_mod.params
-        runtime, input_keys, num_outputs = _get_node_runtime(
-            nodes, params, quantize.ctx, quantize.target
-        )
+            params = cls.pre_processed_mod.params
+        runtime, input_keys, num_outputs = _get_node_runtime(nodes, params, cls.ctx, cls.target)
 
         LOGGER.debug("[collect] collect_stats nodes len is:")
         LOGGER.debug(len(nodes))
         LOGGER.debug("[collect] collect_stats num_outputs is:")
         LOGGER.debug(num_outputs)
 
-        dataset = quantize.dataset()
+        dataset = cls.dataset()
         run = _run_graph(dataset, nodes, runtime, input_keys, num_outputs)
         dataset_idx = -1
         while True:
@@ -239,11 +229,11 @@ def collect_stats(quantize):
                 dataset_idx = dataset_idx + 1
                 if dataset_idx % 10 == 0:
                     LOGGER.info("[collect] statistics_min_max now finish img index %d", dataset_idx)
-                _get_statistics_min_max(quantize, run)
+                _get_statistics_min_max(cls, run)
             except StopIteration:
                 break
 
-        dataset = quantize.dataset()
+        dataset = cls.dataset()
         run = _run_graph(dataset, nodes, runtime, input_keys, num_outputs)
         dataset_idx = -1
         while True:
@@ -253,6 +243,6 @@ def collect_stats(quantize):
                     LOGGER.info(
                         "[collect] get_threshold_dynamic now finish img index %d", dataset_idx
                     )
-                _get_threshold_dynamic(quantize, run)
+                _get_threshold_dynamic(cls, run)
             except StopIteration:
                 break

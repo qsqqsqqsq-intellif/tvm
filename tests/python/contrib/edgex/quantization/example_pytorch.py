@@ -22,6 +22,9 @@ import torch
 import torchvision
 import tvm
 from tvm import relay
+import tvm.relay.quantization
+
+torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -33,9 +36,12 @@ else:
     target = "llvm"
 
 batch_size = 1
-calibrate_num = 2
+calibrate_num = 50
+num_workers = 8
 model_name = "test_pytorch"
+performance = {"float": None, "int8": None}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+data_path = "/data/zhaojinxi/data/imagenet"
 
 
 class Example(torch.nn.Module):
@@ -52,7 +58,7 @@ class Example(torch.nn.Module):
         self.Conv2d32 = torch.nn.Conv2d(8, 16, 3, 2, bias=False)
         self.BatchNorm2d32 = torch.nn.BatchNorm2d(16)
 
-        self.Conv2d4 = torch.nn.Conv2d(32, 32, 3, 2, bias=False)
+        self.Conv2d4 = torch.nn.Conv2d(16, 32, 3, 2, bias=False)
         self.BatchNorm2d4 = torch.nn.BatchNorm2d(32)
 
         self.Linear = torch.nn.Linear(5408, 1000, bias=True)
@@ -60,73 +66,40 @@ class Example(torch.nn.Module):
     def forward(self, x):
         x = self.Conv2d1(x)
         x = self.BatchNorm2d1(x)
-        x = torch.nn.Sigmoid()(x)
+        x = torch.relu(x)
         x = self.MaxPool2d(x)
         x1 = self.Conv2d31(x)
         x1 = self.BatchNorm2d31(x1)
         x2 = self.Conv2d32(x)
         x2 = self.BatchNorm2d32(x2)
-        x = torch.cat((x1, x2), 1)
+        x = x1 + x2
         x = self.Conv2d4(x)
         x = self.BatchNorm2d4(x)
         x = torch.relu(x)
         x = torch.reshape(x, [1, -1])
         x = self.Linear(x)
-        x = torch.nn.functional.softmax(x)
         return x
 
 
-model = Example()
-
-
 def prepare_data_loaders(data_path, batch_size):
-    dataset_test = torchvision.datasets.ImageFolder(
+    dataset = torchvision.datasets.ImageFolder(
         os.path.join(data_path, "val"),
         torchvision.transforms.Compose(
             [
                 torchvision.transforms.Resize(256),
                 torchvision.transforms.CenterCrop(224),
                 torchvision.transforms.ToTensor(),
-                # torchvision.transforms.Normalize(
-                #     mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                # ),
             ]
         ),
     )
 
-    test_sampler = torch.utils.data.RandomSampler(dataset_test)
-    data_loader_test = torch.utils.data.DataLoader(
-        dataset_test, batch_size=batch_size, sampler=test_sampler
+    sampler = torch.utils.data.RandomSampler(dataset)
+    data_loader = torch.utils.data.DataLoader(
+        dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler
     )
-    return data_loader_test
+    return data_loader
 
 
-class AverageMeter:
-    """Computes and stores the average and current value"""
-
-    def __init__(self, name, fmt=":f"):
-        self.name = name
-        self.fmt = fmt
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-    def __str__(self):
-        fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
-        return fmtstr.format(**self.__dict__)
-
-
-data_path = "/data/zhaojinxi/data/imagenet"
 data_loader = prepare_data_loaders(data_path, 1)
 
 calibrate_data = []
@@ -143,30 +116,38 @@ def yield_calibrate_data():
 
 
 def evaluate(runtime):
-    top1 = AverageMeter("Acc@1", ":6.2f")
-    for image, label in tqdm.tqdm(data_loader):
+    correct = 0
+    total = 0
+
+    t = tqdm.tqdm(data_loader)
+    for image, label in t:
         image = (image.numpy() * 255).astype(numpy.uint8)
         data = {"input": image}
         label = label.numpy()
         runtime.set_input(**data)
         runtime.run()
-        tvm_output = runtime.get_output(0)
-        output = tvm_output.asnumpy()
-        acc1 = (output.argmax(axis=1) == label).astype(numpy.float32).sum() / output.shape[0] * 100
-        top1.update(acc1, image.shape[0])
-        print(top1.avg)
-    return top1.avg
+        output = runtime.get_output(0).asnumpy()
+        result = output.argmax(axis=1) == label
+        correct = correct + result.astype(numpy.float32).sum()
+        total = total + label.shape[0]
+        acc = correct / total * 100
+        t.set_postfix({"accuracy": "{:.4f}".format(acc)})
+    return acc
 
 
-path = os.path.join(root_path, model_name, "origin")
+path = os.path.join(root_path, model_name, "origin_mod.json")
 if os.path.exists(path):
     mod = None
     params = None
 else:
     x = torch.randn([1, 3, 224, 224])
+    model = Example()
     scripted_model = torch.jit.trace(model.eval(), x)
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
+
+quantize_config = {}
+quantize_config["calib_method"] = "min_max"
 
 quantize_search = relay.quantization.QuantizeSearch(
     model_name=model_name,
@@ -180,15 +161,16 @@ quantize_search = relay.quantization.QuantizeSearch(
     root_path=root_path,
     norm={
         "input": {
-            "mean": [0.485 * 255, 0.456 * 255, 0.406 * 255],
-            "std": [0.229 * 255, 0.224 * 255, 0.225 * 255],
+            "mean": [123.675, 116.28, 103.53],
+            "std": [58.395, 57.12, 57.375],
             "axis": 1,
         },
     },
-    compare_statistics=True,
+    quantize_config=quantize_config,
+    compare_statistics=False,
 )
 
 config = quantize_search.get_default_config()
 quantize_search.quantize(config)
-# quantize_search.visualize("post_processed", config)
+# quantize_search.visualize("post_process", config)
 quantize_search.evaluate("post_process", config)

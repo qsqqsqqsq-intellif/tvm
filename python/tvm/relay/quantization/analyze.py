@@ -471,11 +471,12 @@ class TupleGetitem:
 class AnalyzeGraph(ExprVisitor):
     """analyze graph"""
 
-    def __init__(self, mod, config, node_id, net_in_dtype="uint8"):
+    def __init__(self, mod, config, node_id, calibrate_num, net_in_dtype="uint8"):
         super().__init__()
         self.config = config
         self.idx = -1
         self.node_id = node_id
+        self.calibrate_num = calibrate_num
         self.net_in_dtype = net_in_dtype
         self.collect_node = set()
         self.vertex_config = collections.OrderedDict()
@@ -567,8 +568,13 @@ class AnalyzeGraph(ExprVisitor):
                 self.vertex_config[fn.body].output_config["dtype"] == DataType.Int32
                 and self.vertex_config[fn.body].quantized
             ):
-                self.vertex_config[fn.body].output_config["threshold"] = Threshold.L2Norm(
-                    fn.body, -1, {}
+                threshold = Threshold.Percentile
+                new_arg = {"calibrate_num": self.calibrate_num}
+                for one_arg in threshold.args:
+                    new_arg[one_arg["name"]] = one_arg["default"]
+                config = {"threshold_arg": new_arg, "method": Method.Symmetry, "dtype": "int8"}
+                self.vertex_config[fn.body].output_config["threshold"] = threshold(
+                    fn.body, -1, config
                 )
                 self.collect_node.update([fn.body])
                 self.vertex_config[fn.body].output_config["method"] = Method.Symmetry
@@ -620,11 +626,14 @@ class GetExprRefCount(ExprVisitor):
 
 
 def analyze_graph(cls):
+    """analyze_graph"""
     ref_cnt = GetExprRefCount(cls.pre_processed_mod)
     global REF_CNT_G
     REF_CNT_G = ref_cnt.ret_ref_cnt
 
-    tmp = AnalyzeGraph(cls.pre_processed_mod, cls.config, cls.node_id, cls.net_in_dtype)
+    tmp = AnalyzeGraph(
+        cls.pre_processed_mod, cls.config, cls.node_id, cls.calibrate_num, cls.net_in_dtype
+    )
     cls.vertex_config = tmp.vertex_config
     cls.collect_node = tmp.collect_node
     cls.collect_result = tmp.collect_result

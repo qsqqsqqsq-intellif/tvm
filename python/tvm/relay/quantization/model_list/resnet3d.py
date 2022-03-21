@@ -70,9 +70,6 @@ def prepare_data_loaders(data_path, batch_size):
             ConvertBHWCtoBCHW(),
             torchvision.transforms.ConvertImageDtype(torch.float32),
             torchvision.transforms.Resize((128, 171)),
-            # torchvision.transforms.Normalize(
-            #     mean=(0.43216, 0.394666, 0.37645), std=(0.22803, 0.22145, 0.216989)
-            # ),
             torchvision.transforms.CenterCrop((112, 112)),
             ConvertBCHWtoCBHW(),
         ]

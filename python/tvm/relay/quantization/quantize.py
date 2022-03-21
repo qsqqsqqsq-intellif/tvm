@@ -18,6 +18,7 @@
 """Automatic quantization toolkit."""
 
 import os
+import shutil
 import logging
 from collections.abc import Iterator
 import numpy as np
@@ -48,6 +49,9 @@ class Quantize:
         self.config = config
         self.net_in_dtype = cls.net_in_dtype
         self.opt_level = cls.opt_level
+        self.calibrate_num = cls.calibrate_num
+        self.calibrate_batch = cls.calibrate_batch
+        self.save_path = cls.save_path
 
         LOGGER.info("pre_process finish...")
         LOGGER.debug("afert pre_process, output: ")
@@ -57,30 +61,27 @@ class Quantize:
             LOGGER.info(self.pre_processed_mod["main"])
         analyze_graph(self)
         LOGGER.info("[collect] start...")
-        LOGGER.info("[collect] the calibrate_num is %d", cls.calibrate_num)
+        LOGGER.info("[collect] the calibrate_num is %d", self.calibrate_num)
+
         collect_stats(self)
         calibrate_params(self)
         realize_graph(self)
-
-        if cls.root_path is not None and cls.save_temp_file:
-            save_path = os.path.join(cls.root_path, cls.model_name)
-            statistics_path = os.path.join(save_path, "statistics")
-            if not os.path.exists(statistics_path):
-                os.makedirs(statistics_path)
-        else:
-            statistics_path = None
-
-        # post only move fp16 to UInt8
         post_process(self)
 
         if cls.compare_statistics:
-            self.similarity = compare_statistics(self, "cosine", statistics_path)
+            self.similarity = compare_statistics(self, "cosine")
         else:
             self.similarity = None
 
 
 def run_quantization(
-    model_name: str, mod=None, params=None, config=None, fast_mode=True, use_gpu=False
+    model_name: str,
+    mod=None,
+    params=None,
+    config=None,
+    fast_mode=True,
+    use_gpu=False,
+    root_path=".",
 ):
     """Module to module quantization interface
 
@@ -131,6 +132,7 @@ def run_quantization(
     else:
         ctx = tvm.cpu()
         target = "llvm"
+
     quantize_search = relay.quantization.QuantizeSearch(
         model_name=model_name,
         mod=mod,
@@ -140,7 +142,7 @@ def run_quantization(
         eval_func=eval_nothing,
         ctx=ctx,
         target=target,
-        root_path=None,
+        root_path=root_path,
         mean=dummy_mean,
         scale=dummy_scale,
         compare_statistics=False,
@@ -158,6 +160,8 @@ def run_quantization(
     func, quantized_params = ExtractParamsPass().run(quantized_mod["main"])
     func = relay.frontend.common.infer_type(func)
     quantized_mod = tvm.ir.module.IRModule.from_expr(func)
+
+    shutil.rmtree(os.path.join(root_path, model_name))
     return quantized_mod, quantized_params
 
 
@@ -260,7 +264,6 @@ def quantize300(
             net_in_dtype=net_in_dtype,
             compare_statistics=False,
             quantize_config=func_config,
-            save_temp_file=False,
         )
     config = quantize_search.get_default_config()
     quantize_search.quantize(config)

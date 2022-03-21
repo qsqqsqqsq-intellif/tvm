@@ -49,6 +49,7 @@ class QuantizeSearch:
         params=None,
         dataset=None,
         calibrate_num=None,
+        calibrate_batch=100,
         eval_func=None,
         ctx=tvm.cpu(),
         target="llvm",
@@ -64,10 +65,11 @@ class QuantizeSearch:
         compare_statistics=False,
         net_in_dtype="uint8",
         opt_level=2,
-        save_temp_file=True,
+        verbose=False,
     ):
         self.model_name = model_name
         self.calibrate_num = calibrate_num
+        self.calibrate_batch = calibrate_batch
         self.root_path = root_path
         self.image_path = image_path
         self.image_size = image_size
@@ -77,15 +79,23 @@ class QuantizeSearch:
         self.compare_statistics = compare_statistics
         self.net_in_dtype = net_in_dtype
         self.opt_level = opt_level
-        self.save_temp_file = save_temp_file
+        self.verbose = verbose
 
-        if self.root_path is not None and self.save_temp_file:
-            save_path = os.path.join(self.root_path, self.model_name)
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-            self.ori_path = os.path.join(save_path, "origin_mod.json")
-            self.pre_path = os.path.join(save_path, "pre_processed_mod.json")
+        if self.root_path:
+            self.graph_path = os.path.join(self.root_path, self.model_name)
+            if not os.path.exists(self.graph_path):
+                os.makedirs(self.graph_path)
         else:
+            self.graph_path = None
+
+        if self.root_path and self.verbose:
+            self.save_path = os.path.join(self.root_path, self.model_name)
+            if not os.path.exists(self.save_path):
+                os.makedirs(self.save_path)
+            self.ori_path = os.path.join(self.save_path, "origin_mod.json")
+            self.pre_path = os.path.join(self.save_path, "pre_processed_mod.json")
+        else:
+            self.save_path = None
             self.ori_path = None
             self.pre_path = None
 
@@ -125,23 +135,24 @@ class QuantizeSearch:
                 self.origin_mod = self.pre_processed_mod
             else:
                 self.origin_mod = relay.transform.InferType()(mod)
-                if self.ori_path is not None:
+                if self.ori_path:
                     with open(self.ori_path, "w") as f:
                         json.dump(tvm.ir.save_json(self.origin_mod), f)
         else:
-            with open(self.ori_path, "r") as f:
-                self.origin_mod = tvm.ir.load_json(json.load(f))
+            if self.ori_path:
+                with open(self.ori_path, "r") as f:
+                    self.origin_mod = tvm.ir.load_json(json.load(f))
 
         self.ctx = ctx
         self.target = target
         self.results = []
 
-        if self.pre_path is not None and os.path.exists(self.pre_path):
+        if self.pre_path and os.path.exists(self.pre_path):
             with open(self.pre_path, "r") as f:
                 self.pre_processed_mod = tvm.ir.load_json(json.load(f))
         elif "optimize" not in tvm.relay.quantize.__dict__:
             pre_process(self, norm)
-            if self.pre_path is not None:
+            if self.pre_path:
                 with open(self.pre_path, "w") as f:
                     json.dump(tvm.ir.save_json(self.pre_processed_mod), f)
 
@@ -220,16 +231,16 @@ class QuantizeSearch:
 
     def quantize(self, config):
         """quantize"""
-        if self.root_path is not None and self.save_temp_file:
-            save_path = os.path.join(self.root_path, self.model_name, "quantized")
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
+        if self.save_path:
+            quantized_path = os.path.join(self.save_path, "quantized")
+            if not os.path.exists(quantized_path):
+                os.makedirs(quantized_path)
         else:
-            save_path = None
+            quantized_path = None
 
-        if save_path is not None:
-            for tmp1 in os.listdir(save_path):
-                tmp2 = os.path.join(save_path, tmp1)
+        if quantized_path:
+            for tmp1 in os.listdir(quantized_path):
+                tmp2 = os.path.join(quantized_path, tmp1)
                 cond1 = os.path.exists(os.path.join(tmp2, "config"))
                 cond2 = os.path.exists(os.path.join(tmp2, "post_processed_mod.json"))
                 cond3 = os.path.exists(os.path.join(tmp2, "other"))
@@ -251,8 +262,6 @@ class QuantizeSearch:
         self.quantize_instance = quantize
 
         self.quantized_func = quantize.post_processed_mod
-        # with open("/home/yhh/Desktop/tmp/nnp400/mobilenet_edgeput.json", "w") as f:
-        #     json.dump(tvm.ir.save_json(quantize.post_processed_mod), f)
 
         tmp = {
             "mod": quantize.post_processed_mod,
@@ -260,17 +269,17 @@ class QuantizeSearch:
             "other": {"similarity": quantize.similarity},
         }
         self.results.append(tmp)
-        if save_path is not None and self.save_temp_file:
-            qtz_path = os.path.join(save_path, "%s" % time.time())
-            if not os.path.exists(qtz_path):
-                os.makedirs(qtz_path)
-            with open(os.path.join(qtz_path, "post_processed_mod.json"), "w") as f:
+        if quantized_path:
+            time_path = os.path.join(quantized_path, "%s" % time.time())
+            if not os.path.exists(time_path):
+                os.makedirs(time_path)
+            with open(os.path.join(time_path, "post_processed_mod.json"), "w") as f:
                 if "ir" in tvm.__dict__:
                     json.dump(tvm.ir.save_json(tmp["mod"]), f)
                 else:
                     json.dump(tvm.save_json(tmp["mod"]), f)
-            pandas.to_pickle(tmp["config"], os.path.join(qtz_path, "config"))
-            pandas.to_pickle(tmp["other"], os.path.join(qtz_path, "other"))
+            pandas.to_pickle(tmp["config"], os.path.join(time_path, "config"))
+            pandas.to_pickle(tmp["other"], os.path.join(time_path, "other"))
 
     def evaluate(self, name, config=None):
         """evaluate"""
@@ -320,10 +329,6 @@ class QuantizeSearch:
                 for quantize in self.results:
                     if quantize["config"] == config:
                         mod = quantize["mod"]
-
-                # with open("/home/yhh/Desktop/tmp/yolov5s_ult/p9999_prof300.json", "r") as f:
-                #     xx = json.load(f)
-                #     mod = tvm.ir.load_json(xx)
 
                 if mod is None:
                     raise ValueError

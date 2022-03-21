@@ -124,7 +124,7 @@ class ConfigSpace(ExprVisitor):
         else:
             tmp_dict = {
                 "default_config": {
-                    "threshold": Threshold.L2Norm,
+                    "threshold": Threshold.Percentile,
                     "method": Method.Symmetry,
                     "dtype": DataType.Int8,
                 }
@@ -138,6 +138,7 @@ class ConfigSpace(ExprVisitor):
             "percentile": Threshold.Percentile,
             "l2norm": Threshold.L2Norm,
             "kld": Threshold.KLDAbs,
+            "distance_linear_search": Threshold.DistanceLinearSearch,
         }
         if "calib_method" in quantize_config:
             if quantize_config["calib_method"].startswith("percentile"):
@@ -241,7 +242,7 @@ class ConfigSpace(ExprVisitor):
             else:
                 tmp_arg_dict = {
                     "default_config": {
-                        "threshold": Threshold.L2Norm,
+                        "threshold": Threshold.Percentile,
                         "method": Method.Symmetry,
                         "dtype": DataType.Int8,
                     }
@@ -285,7 +286,7 @@ class ConfigSpace(ExprVisitor):
             else:
                 tmp_arg_dict = {
                     "default_config": {
-                        "threshold": Threshold.L2Norm,
+                        "threshold": Threshold.Percentile,
                         "method": Method.Symmetry,
                         "dtype": DataType.Int8,
                     }

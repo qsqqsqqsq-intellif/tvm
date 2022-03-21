@@ -18,9 +18,12 @@
 """Automatic quantization toolkit."""
 
 import logging
+import multiprocessing
+from multiprocessing import shared_memory
 import numpy
 from scipy import stats
 from tvm._ffi import runtime_ctypes
+from .method_dtype import Method, _get_dtype_info
 
 LOGGER = logging.getLogger("quantize")
 
@@ -88,7 +91,7 @@ class MovingAverageMinMax:
     def __init__(self, node, axis, config):
         LOGGER.debug("use Threshold.MovingAverageMinMax...")
         self.axis = axis
-        self.averaging = self.bins = config["threshold_arg"]["averaging"]
+        self.averaging = config["threshold_arg"]["averaging"]
         assert 0 < self.averaging < 1
         self._first_run = True
         self._finished_post_process = False
@@ -242,17 +245,14 @@ class L2Norm:
     def __init__(self, node, axis, config):
         LOGGER.debug("use Threshold.L2Norm...")
         self.axis = axis
-        # 外部config配置好后删除默认2048
-        self.bins = config["threshold_arg"]["bins"].tolist() if "threshold_arg" in config else 2048
+        self.bins = config["threshold_arg"]["bins"]
         assert self.bins > 0
-        # 外部config配置好后删除默认256
 
-        if "dtype" in config and "DataType" in runtime_ctypes.__dict__:
+        if "DataType" in runtime_ctypes.__dict__:
             self.dst_nbins = 2 ** runtime_ctypes.DataType(config["dtype"]).bits
-        elif "dtype" in config and "TVMType" in runtime_ctypes.__dict__:
+        elif "TVMType" in runtime_ctypes.__dict__:
             self.dst_nbins = 2 ** runtime_ctypes.TVMType(config["dtype"]).bits
-        else:
-            self.dst_nbins = 256
+
         self.min = float("inf")
         self.max = float("-inf")
         shape = node.checked_type.concrete_shape
@@ -461,8 +461,7 @@ class RelativeEntropy:
     def __init__(self, node, axis, config):
         LOGGER.debug("use Threshold.RelativeEntropy...")
         self.axis = axis
-        # 外部config配置好后删除默认2048
-        self.bins = config["threshold_arg"]["bins"].tolist() if "threshold_arg" in config else 2048
+        self.bins = config["threshold_arg"]["bins"]
         assert self.bins > 0
         self.min = float("inf")
         self.max = float("-inf")
@@ -471,13 +470,10 @@ class RelativeEntropy:
             self.histogram = numpy.zeros(self.bins, numpy.int64)
         else:
             self.histogram = numpy.zeros([shape[axis], self.bins], numpy.int64)
-        # 外部config配置好后删除默认256
-        if "dtype" in config and "DataType" in runtime_ctypes.__dict__:
+        if "DataType" in runtime_ctypes.__dict__:
             self.q_bins = 2 ** runtime_ctypes.DataType(config["dtype"]).bits
-        elif "dtype" in config and "TVMType" in runtime_ctypes.__dict__:
+        elif "TVMType" in runtime_ctypes.__dict__:
             self.q_bins = 2 ** runtime_ctypes.TVMType(config["dtype"]).bits
-        else:
-            self.q_bins = 256
         self._first_run = True
         self._finished_post_process = False
 
@@ -893,6 +889,297 @@ class KLDAbs:
         return {"min": self.neg_thresh, "max": self.pos_thresh}
 
 
+class DistanceLinearSearch:
+    """Calibration function: DistanceLinearSearch"""
+
+    args = [
+        {"name": "averaging", "default": numpy.array(0.01, numpy.float32), "min": 0, "max": 1},
+        {
+            "name": "distance",
+            "default": "norm_2",
+            "enumerate": [
+                "norm_0",
+                "norm_1",
+                "norm_2",
+                "norm_infinity",
+                "cosine",
+                "relative_entropy",
+            ],
+        },
+        {"name": "times", "default": 1000, "min": 1},
+        {"name": "step", "default": 0.0007, "min": 0, "max": 1},
+    ]
+
+    def __init__(self, node, axis, config):
+        LOGGER.debug("use Threshold.DistanceLinearSearch...")
+        self.axis = axis
+
+        self.averaging = config["threshold_arg"]["averaging"]
+        for one in self.args:
+            if one["name"] == "averaging":
+                assert one["min"] < self.averaging < one["max"]
+
+        distance = config["threshold_arg"]["distance"]
+        for one in self.args:
+            if one["name"] == "distance":
+                assert distance in one["enumerate"]
+
+        self.times = config["threshold_arg"]["times"]
+        for one in self.args:
+            if one["name"] == "times":
+                assert self.times > one["min"]
+
+        self.step = config["threshold_arg"]["step"]
+        for one in self.args:
+            if one["name"] == "step":
+                assert one["min"] < self.step < one["max"]
+
+        if distance == "norm_0":
+            self.distance_func = self._norm_0
+        elif distance == "norm_1":
+            self.distance_func = self._norm_1
+        elif distance == "norm_2":
+            self.distance_func = self._norm_2
+        elif distance == "norm_infinity":
+            self.distance_func = self._norm_infinity
+        elif distance == "cosine":
+            self.distance_func = self._cosine
+        elif distance == "relative_entropy":
+            self.distance_func = self._relative_entropy
+
+        if config["method"] == Method.Symmetry:
+            self.method = self._symmetry
+        elif config["method"] == Method.Asymmetry:
+            self.method = self._asymmetry
+        else:
+            raise ValueError
+
+        tmp = _get_dtype_info(config["dtype"])
+
+        self.qmin = tmp["qmin"]
+        self.qmax = tmp["qmax"]
+        self._cumulate = 0
+
+    def update_axis(self, new_axis):
+        self.axis = new_axis
+
+    def statistics_min_max(self, x):
+        pass
+
+    def _norm_0(self, x, xqx):
+        m = x - xqx
+        m = numpy.count_nonzero(m, axis=1)
+        distance = m / x[0].size
+        return distance
+
+    def _norm_1(self, x, xqx):
+        m = x - xqx
+        m = numpy.abs(m)
+        m = numpy.sum(m, axis=1)
+        distance = m / x[0].size
+        return distance
+
+    def _norm_2(self, x, xqx):
+        m = x - xqx
+        m = numpy.power(m, 2)
+        m = numpy.sum(m, axis=1)
+        m = numpy.power(m, 0.5)
+        distance = m / x[0].size
+        return distance
+
+    def _norm_infinity(self, x, xqx):
+        m = x - xqx
+        m = numpy.abs(m)
+        distance = numpy.max(m, axis=1)
+        return distance
+
+    def _cosine(self, x, xqx):
+        m = x * xqx
+        dot = numpy.sum(m, axis=1)
+
+        m1_ = numpy.power(x, 2)
+        m1_ = numpy.sum(m1_, axis=1)
+        m1_ = numpy.power(m1_, 0.5)
+
+        m2_ = numpy.power(xqx, 2)
+        m2_ = numpy.sum(m2_, axis=1)
+        m2_ = numpy.power(m2_, 0.5)
+
+        length = m1_ * m2_
+        distance = numpy.zeros_like(length)
+        distance[:] = numpy.inf
+        for i in range(distance.shape[0]):
+            if length[i] == 0:
+                distance[i] = numpy.inf
+            else:
+                distance[i] = dot[i] / length[i]
+        return distance
+
+    def _relative_entropy(self, x, xqx):
+        def _smooth_distribution(p, eps=1e-4):
+            is_zeros = (p == 0).astype(numpy.float32)
+            is_nonzeros = (p != 0).astype(numpy.float32)
+            n_zeros = is_zeros.sum()
+            n_nonzeros = p.size - n_zeros
+            if not n_nonzeros:
+                raise ValueError(
+                    "The discrete probability distribution is malformed. All entries are 0."
+                )
+            eps1 = eps * float(n_zeros) / float(n_nonzeros)
+            hist = p.astype(numpy.float32)
+            hist += eps * is_zeros + (-eps1) * is_nonzeros
+            return hist
+
+        distances = numpy.ones(x.shape[0], dtype=x.dtype) * float("inf")
+
+        for i, (x1_, x2_) in enumerate(zip(x, xqx)):
+            hist1 = numpy.histogram(x1_, bins=2048)[0]
+            hist1 = _smooth_distribution(hist1)
+            # hist1 = numpy.maximum(hist1, numpy.zeros_like(hist1)+1e-9)
+            hist1 = hist1 / hist1.sum()
+
+            hist2 = numpy.histogram(x2_, bins=2048)[0]
+            hist2 = _smooth_distribution(hist2)
+            # hist2 = numpy.maximum(hist2, numpy.zeros_like(hist2)+1e-9)
+            hist2 = hist2 / hist2.sum()
+
+            distances[i] = (hist1 * numpy.log(hist1 / hist2)).sum()
+        return distances
+
+    def _quantize(self, x, scale, zero_point):
+        xq_ = x / scale + zero_point
+        xq_ = numpy.clip(xq_, self.qmin, self.qmax).round()
+        return xq_
+
+    def _dequantize(self, xq_, scale, zero_point):
+        xqx = (xq_ - zero_point) * scale
+        return xqx
+
+    def _symmetry(self, x_min, x_max):
+        max_val = numpy.maximum(numpy.abs(x_min), numpy.abs(x_max))
+        scale = numpy.array(max_val / self.qmax)
+        scale[numpy.where(scale == 0)] = 1e-2 / self.qmax
+        zero_point = numpy.zeros_like(scale)
+        return scale, zero_point
+
+    def _asymmetry(self, x_min, x_max):
+        min_val = numpy.minimum(x_min, numpy.zeros_like(x_min))
+        max_val = numpy.maximum(x_max, numpy.zeros_like(x_max))
+        # min_val = x_min
+        # max_val = x_max
+        scale = numpy.array((max_val - min_val) / float(self.qmax - self.qmin)).astype(
+            numpy.float32
+        )
+        scale[numpy.where(scale == 0)] = 1e-2 / (self.qmax - self.qmin)
+        # zero_point = self.qmin - numpy.round(min_val / scale)
+        zero_point = self.qmax - numpy.round(max_val / scale)  # 添加对比重建误差
+        zero_point = numpy.clip(zero_point, self.qmin, self.qmax)
+        return scale, zero_point
+
+    def _group(self, i, shape, x_min, x_max, name, dtype):
+        shared_x = shared_memory.SharedMemory(name=name)
+        buffer = numpy.ndarray(shape, dtype=dtype, buffer=shared_x.buf)
+        new_min = x_min * (1.0 - (i * self.step))
+        new_max = x_max * (1.0 - (i * self.step))
+        scale, zero_point = self.method(new_min, new_max)
+        scale = scale.reshape(-1, 1)
+        zero_point = zero_point.reshape(-1, 1)
+        xq_ = self._quantize(buffer, scale, zero_point)
+        xqx = self._dequantize(xq_, scale, zero_point)
+        distance = self.distance_func(buffer, xqx)
+        return distance, new_min, new_max
+
+    def _caculate(self, x, x_min, x_max):
+        if x.size > 200000:
+            shape = x.shape
+            dtype = x.dtype
+            shared_x = shared_memory.SharedMemory(create=True, size=x.nbytes)
+            name = shared_x.name
+            buffer = numpy.ndarray(shape, dtype=dtype, buffer=shared_x.buf)
+            buffer[:] = x[:]
+
+            pool = multiprocessing.Pool(multiprocessing.cpu_count() // 2)
+            process_list = []
+            for i in range(self.times):
+                p = pool.apply_async(func=self._group, args=(i, shape, x_min, x_max, name, dtype))
+                process_list.append(p)
+            pool.close()
+            pool.join()
+            shared_x.close()
+            shared_x.unlink()
+
+            all_distance = []
+            all_min = []
+            all_max = []
+            for p in process_list:
+                tmp1, tmp2, tmp3 = p.get()
+                all_distance.append(tmp1)
+                all_min.append(tmp2)
+                all_max.append(tmp3)
+            all_distance = numpy.array(all_distance)
+            all_min = numpy.array(all_min)
+            all_max = numpy.array(all_max)
+            best_distance = numpy.argmin(all_distance, 0)
+            best_min = all_min[best_distance, numpy.arange(best_distance.size)]
+            best_max = all_max[best_distance, numpy.arange(best_distance.size)]
+        else:
+            best_distance = numpy.zeros_like(x_min)
+            best_distance[:] = float("inf")
+            best_min = numpy.zeros_like(x_min)
+            best_min[:] = float("inf")
+            best_max = numpy.zeros_like(x_max)
+            best_max[:] = float("-inf")
+            for i in range(self.times):
+                new_min = x_min * (1.0 - (i * self.step))
+                new_max = x_max * (1.0 - (i * self.step))
+                scale, zero_point = self.method(new_min, new_max)
+                scale = scale.reshape(-1, 1)
+                zero_point = zero_point.reshape(-1, 1)
+                xq_ = self._quantize(x, scale, zero_point)
+                xqx = self._dequantize(xq_, scale, zero_point)
+                distance = self.distance_func(x, xqx)
+                cond = numpy.where(distance < best_distance)[0]
+                best_distance[cond] = distance[cond]
+                best_min[cond] = new_min[cond]
+                best_max[cond] = new_max[cond]
+        return best_min, best_max
+
+    def run(self, x):
+        """run"""
+        if self.axis == -1:
+            temp_x = x.reshape(1, -1)
+        else:
+            shape1 = list(range(len(x.shape)))
+            shape2 = shape1[self.axis]
+            shape1.remove(shape2)
+            shape3 = [shape2] + shape1
+            temp_x = numpy.transpose(x, shape3)
+            temp_x = temp_x.reshape(temp_x.shape[0], -1)
+
+        x_min = numpy.amin(temp_x, axis=1)
+        x_max = numpy.amax(temp_x, axis=1)
+        best_min, best_max = self._caculate(temp_x, x_min, x_max)
+
+        if self._cumulate == 0:
+            self.min = best_min
+            self.max = best_max
+        else:
+            # self.min = self.min + self.averaging * (best_min - self.min)
+            # self.max = self.max + self.averaging * (best_max - self.max)
+            self.min = (self.min * self._cumulate + best_min) / (self._cumulate + 1)
+            self.max = (self.max * self._cumulate + best_max) / (self._cumulate + 1)
+
+        self._cumulate = self._cumulate + 1
+
+    @property
+    def min_max(self):
+        if self.min.size == 1:
+            self.min = self.min[0]
+        if self.max.size == 1:
+            self.max = self.max[0]
+        return {"min": self.min, "max": self.max}
+
+
 class Threshold:
     """threshold"""
 
@@ -903,3 +1190,4 @@ class Threshold:
     RelativeEntropy = RelativeEntropy
     PercentileAbs = PercentileAbs
     KLDAbs = KLDAbs
+    DistanceLinearSearch = DistanceLinearSearch

@@ -196,12 +196,6 @@ def evaluate(runtime):
         image = image.numpy()
         label = label.numpy()
 
-        # mean = numpy.array([123.675, 116.28, 103.53], numpy.float32).reshape(1, 3, 1, 1)
-        # mean = numpy.tile(mean, [1, 1, 520, 520])
-        # std = numpy.array([58.395, 57.12, 57.375], numpy.float32).reshape(1, 3, 1, 1)
-        # std = numpy.tile(std, [1, 1, 520, 520])
-        # image = (image - mean) / std
-
         data = {"input": image}
         runtime.set_input(**data)
         runtime.run()

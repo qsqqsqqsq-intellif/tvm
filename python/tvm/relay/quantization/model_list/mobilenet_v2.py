@@ -58,9 +58,6 @@ def prepare_data_loaders(data_path, batch_size):
                 torchvision.transforms.Resize(256),
                 torchvision.transforms.CenterCrop(224),
                 torchvision.transforms.ToTensor(),
-                # torchvision.transforms.Normalize(
-                #     mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                # ),
             ]
         ),
     )
@@ -118,14 +115,8 @@ else:
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
 
-# quantize_config = {}
-# from tvm.relay.quantization.threshold import Threshold
-# from tvm.relay.quantization.method_dtype import Method
-# quantize_config["call"] = {
-#     "threshold": Threshold.Percentile,
-#     "method": Method.Symmetry,
-#     "dtype": "int8",
-# }
+quantize_config = {}
+quantize_config["calib_method"] = "percentile_0.9999"
 
 quantize_search = relay.quantization.QuantizeSearch(
     model_name=model_name,
@@ -144,7 +135,7 @@ quantize_search = relay.quantization.QuantizeSearch(
             "axis": 1,
         },
     },
-    # quantize_config=quantize_config,
+    quantize_config=quantize_config,
     compare_statistics=False,
     # net_in_dtype="int16",
 )

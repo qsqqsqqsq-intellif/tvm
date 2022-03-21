@@ -30,8 +30,6 @@ import tvm.relay.quantization
 def test_run():
     torch.manual_seed(0)
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
     ctx = tvm.cpu()
     target = "llvm"
 
@@ -39,8 +37,9 @@ def test_run():
     calibrate_num = 1
     num_workers = 1
     model_name = "resnet50"
-    performance = {"float": 76.13, "int8": 76.03}
     root_path = None
+    path = os.getenv("QUANT_DIR")
+    data_path = path + "/data/imagenet"
 
     def prepare_data_loaders(data_path, batch_size):
         dataset = torchvision.datasets.ImageFolder(
@@ -50,9 +49,6 @@ def test_run():
                     torchvision.transforms.Resize(256),
                     torchvision.transforms.CenterCrop(224),
                     torchvision.transforms.ToTensor(),
-                    # torchvision.transforms.Normalize(
-                    #     mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                    # ),
                 ]
             ),
         )
@@ -62,8 +58,7 @@ def test_run():
         )
         return data_loader
 
-    path = os.getenv("QUANT_DIR")
-    data_loader = prepare_data_loaders(path + "/data/imagenet", 1)
+    data_loader = prepare_data_loaders(data_path, 1)
 
     calibrate_data = []
     for i, (image, label) in enumerate(data_loader):
@@ -111,8 +106,8 @@ def test_run():
         root_path=root_path,
         norm={
             "input": {
-                "mean": [0.485 * 255, 0.456 * 255, 0.406 * 255],
-                "std": [0.229 * 255, 0.224 * 255, 0.225 * 255],
+                "mean": [123.675, 116.28, 103.53],
+                "std": [58.395, 57.12, 57.375],
                 "axis": 1,
             },
         },

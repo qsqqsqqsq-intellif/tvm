@@ -20,7 +20,7 @@ import tqdm
 import numpy
 import torch
 import torchvision
-from torchvision.transforms._transforms_video import CenterCropVideo, NormalizeVideo
+from torchvision.transforms._transforms_video import CenterCropVideo
 from pytorchvideo.data.encoded_video import EncodedVideo
 from pytorchvideo.transforms import ApplyTransformToKey, ShortSideScale, UniformTemporalSubsample
 import tvm
@@ -65,8 +65,6 @@ def prepare_data_loaders(data_path, batch_size):
         transform=torchvision.transforms.Compose(
             [
                 UniformTemporalSubsample(8),
-                # torchvision.transforms.Lambda(lambda x: x / 255.0),
-                # NormalizeVideo([0.45, 0.45, 0.45], [0.225, 0.225, 0.225]),
                 ShortSideScale(size=256),
                 CenterCropVideo(crop_size=(256, 256)),
             ]

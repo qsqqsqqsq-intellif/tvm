@@ -173,8 +173,15 @@ def plot_statistics(data1_, data2_, distance, name, path):
     plt.close()
 
 
-def compare_statistics(cls, method, path):
+def compare_statistics(cls, method):
     """compare_statistics"""
+    if cls.save_path:
+        statistics_path = os.path.join(cls.save_path, "statistics")
+        if not os.path.exists(statistics_path):
+            os.makedirs(statistics_path)
+    else:
+        statistics_path = None
+
     old_node = []
     new_node = []
     new_scale = []
@@ -229,7 +236,7 @@ def compare_statistics(cls, method, path):
                 tmp = cls.new2old[new_node[i]]["node"]
                 name = cls.node_id[tmp]
                 dtype = str(old_node[i].checked_type)
-                plot_statistics(o_r, n_r, distance, name, path)
+                plot_statistics(o_r, n_r, distance, name, statistics_path)
                 one_result.append([name, distance])
                 print("{x:<30}{y:<50}{z:<40}".format(x=name, y=dtype, z=distance))
             all_result.append(one_result)
