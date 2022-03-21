@@ -469,7 +469,7 @@ def _requantize_shift(node, multiplier):
             all_new_b.append(bit)
 
         # todo now nnp400 only support int64
-        if "ir_pass" not in relay.__dict__ and TARGET_NNP == "nnp400":
+        if "ir_pass" not in relay.__dict__ and TARGET_NNP.startswith("nnp4"):
             new_scale = numpy.array(new_scale, "int64").reshape(s_shape)
             new_scale = relay.const(new_scale, "int64")
             all_new_b = numpy.array(all_new_b, "int64").reshape(s_shape)
@@ -512,7 +512,12 @@ def _requantize_shift(node, multiplier):
             and TARGET_NNP != "nnp320"
             and multiplier == 0
         ):
-            new_scale = numpy.array(new_scale).reshape(s_shape)
+            if len(new_scale) == 1:
+                new_scale = numpy.array(new_scale[0])
+                all_new_b = numpy.array(all_new_b[0])
+            else:
+                new_scale = numpy.array(new_scale).reshape(s_shape)
+                all_new_b = numpy.array(all_new_b).reshape(s_shape)
             new_scale = relay.const(new_scale.astype("uint8"))
             all_new_b = numpy.array(all_new_b).reshape(s_shape)
             all_new_b = relay.const(all_new_b.astype("int32"))
@@ -521,18 +526,26 @@ def _requantize_shift(node, multiplier):
             data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=q_dtype)
 
         elif "ir_pass" in relay.__dict__ and TARGET_NNP == "nnp320" and multiplier == 0:
-            new_scale = numpy.array(new_scale).reshape(s_shape)
+            if len(new_scale) == 1:
+                new_scale = numpy.array(new_scale[0])
+                all_new_b = numpy.array(all_new_b[0])
+            else:
+                new_scale = numpy.array(new_scale).reshape(s_shape)
+                all_new_b = numpy.array(all_new_b).reshape(s_shape)
             new_scale = relay.const(new_scale.astype("int16"))
-            all_new_b = numpy.array(all_new_b).reshape(s_shape)
             all_new_b = relay.const(all_new_b.astype("int32"))
             data = relay.multiply(data, new_scale, out_dtype="int64")
             data = relay.round_right_shift(data, all_new_b, out_dtype="int64")
             data = relay.clip(data, q_min_max["qmin"], q_min_max["qmax"], out_dtype=q_dtype)
 
         elif "ir_pass" in relay.__dict__ and TARGET_NNP.startswith("nnp3") and multiplier == 1:
-            new_scale = numpy.array(new_scale).reshape(s_shape)
+            if len(new_scale) == 1:
+                new_scale = numpy.array(new_scale[0])
+                all_new_b = numpy.array(all_new_b[0])
+            else:
+                new_scale = numpy.array(new_scale).reshape(s_shape)
+                all_new_b = numpy.array(all_new_b).reshape(s_shape)
             new_scale = relay.const(new_scale.astype("int8"))
-            all_new_b = numpy.array(all_new_b).reshape(s_shape)
             all_new_b = relay.const(all_new_b.astype("int32"))
             data = relay.multiply(data, new_scale, out_dtype="int32")
             data = relay.round_right_shift(data, all_new_b, out_dtype="int32")
