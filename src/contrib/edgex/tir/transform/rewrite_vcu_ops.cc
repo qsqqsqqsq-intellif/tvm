@@ -43,6 +43,7 @@ using tvm::arith::PVecDataType;
 
 constexpr const int VELTADD_ASR_MODE_ROUNDING = 4;
 constexpr const int VELTADD_RELU_MODE_ENABLE = 1;
+constexpr const int FP2FX_MODE_ROUNDING = 4;
 
 /*! \brief detect vectorized relu */
 static bool MatchVectorizedInt8Relu(const PrimExpr& expr) {
@@ -190,12 +191,47 @@ static PrimExpr RewriteVeltaddPattern(const PrimExpr& expr) {
   }
 }
 
+/*! \brief rewrite round_clip_cast to vint. */
+static PrimExpr RewriteVintPattern(const PrimExpr& expr) {
+  PrimExpr root = expr;
+  const CastNode* castnode = root.as<CastNode>();
+  if (!castnode || castnode->dtype.element_of() != DataType::Int(8) ||
+      !castnode->value->dtype.is_float16()) {
+    return expr;
+  }
+
+  int64_t lanes = castnode->dtype.lanes();
+  PVecDataType i8_vec_ty(DataType::Int(8));
+  PVecDataType fp16_vec_ty(DataType::Float(16));
+  PVarWithDataType<PrimExpr, PVecDataType> pat_input_fp16(fp16_vec_ty);
+  auto broadcast_upper_fp16 =
+      broadcast(PConst<PrimExpr>(make_const(DataType::Float(16), 127)), PConst<int64_t>(lanes));
+  auto broadcast_lower_fp16 =
+      broadcast(PConst<PrimExpr>(make_const(DataType::Float(16), -128)), PConst<int64_t>(lanes));
+
+  auto vint_pattern =
+      cast(i8_vec_ty, max(min(round(pat_input_fp16), broadcast_upper_fp16), broadcast_lower_fp16));
+  if (vint_pattern.Match(root)) {
+    PrimExpr input = pat_input_fp16.Eval();
+    Call vint = Call(i8_vec_ty.Eval(), edgex::builtin::nnp_vint(), {input});
+    auto n = const_cast<CallNode*>(vint.get());
+    edgex::NNPAddArg(n, "fp2fx_rmode", FP2FX_MODE_ROUNDING);
+    return std::move(vint);
+  } else {
+    return expr;
+  }
+}
+
 class VectorizedOpsRewritter : public StmtExprMutator {
  private:
   PrimExpr VisitExpr(const PrimExpr& expr) override {
-    PrimExpr updated = RewriteVeltaddPattern(expr);
-    if (!expr.same_as(updated)) {
-      return updated;
+    PrimExpr updated_veltadd = RewriteVeltaddPattern(expr);
+    if (!expr.same_as(updated_veltadd)) {
+      return updated_veltadd;
+    }
+    PrimExpr updated_vint = RewriteVintPattern(expr);
+    if (!expr.same_as(updated_vint)) {
+      return updated_vint;
     }
     return StmtExprMutator::VisitExpr(expr);
   }

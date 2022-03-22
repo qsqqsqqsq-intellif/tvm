@@ -27,6 +27,19 @@
 #include "../../../../arith/pattern_match.h"
 #include "../op/builtin.h"
 
+// pattern unary op by name
+#define TVM_PATTERN_UNARY_INTRIN_BY_NAME(FuncName, OpName, IntrinOpName) \
+  struct OpName {                                                        \
+    static PrimExpr Eval(Array<PrimExpr> args) {                         \
+      return tir::Call(args[0].dtype(), GetOp(), args);                  \
+    }                                                                    \
+    static const Op& GetOp() { return Op::Get(IntrinOpName); }           \
+  };                                                                     \
+  template <typename TA>                                                 \
+  inline PCallExpr<OpName, TA> FuncName(const Pattern<TA>& a) {          \
+    return PCallExpr<OpName, TA>(a.derived());                           \
+  }
+
 namespace tvm {
 namespace tir {
 
@@ -38,6 +51,7 @@ using tvm::tir::edgex::builtin::nnp_round_right_shift;
 
 using arith::PCallExpr;
 TVM_PATTERN_BINARY_INTRIN(round_right_shift, PRoundRightShiftOp, nnp_round_right_shift);
+TVM_PATTERN_UNARY_INTRIN_BY_NAME(round, PRoundOp, "tir.round");
 
 }  // namespace tir
 }  // namespace tvm

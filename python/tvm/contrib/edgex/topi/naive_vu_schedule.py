@@ -786,6 +786,7 @@ class NaiveVuSchedule:
 
 
 def naive_vu_schedule(prim_func, is_cpu=False, allow_multi_block=False, enable_relay_rewrite=False):
+    """naive_vu_schedule interface"""
     sch = EdgexSchedule(prim_func)
     relay_rewrite_mgr = (
         PostScheduleArgumentRewriteManager(sch) if enable_relay_rewrite is not None else None

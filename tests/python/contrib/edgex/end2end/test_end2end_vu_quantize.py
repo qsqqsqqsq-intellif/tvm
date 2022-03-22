@@ -28,8 +28,6 @@ import numpy as np
 # fmt: off
 @T.prim_func
 def qat_quantize_pattern1_func(input_0: T.handle, input_1: T.handle, input_2: T.handle, placeholder_3: T.Buffer[(1, 1, 1, 1), "int64"], placeholder_4: T.Buffer[(1, 1, 1, 1), "int64"], out: T.handle) -> None:
-    # body
-    # with T.block("root")
     h = T.var("int32")
     w = T.var("int32")    
     c = T.var("int32")    
@@ -92,8 +90,6 @@ def qat_quantize_pattern1_func(input_0: T.handle, input_1: T.handle, input_2: T.
 
 @T.prim_func
 def qat_quantize_pattern2_func(input: T.handle, placeholder_1: T.Buffer[(1, 1, 1, 1), "int32"], placeholder_2: T.Buffer[(1, 1, 1, 1), "int64"], placeholder_3: T.Buffer[(1, 1, 1, 1), "int64"], output: T.handle) -> None:
-    # body
-    # with T.block("root")
     h = T.var("int32")
     w = T.var("int32")    
     c = T.var("int32")
@@ -526,10 +522,53 @@ def test_veltadd_unary_no_relu():
 
 def test_i32_quantize():
     do_test_i32_quantize(channels=32, height=1, weight=1, per_tensor=False)
-    # TODO(@qing): check the following cases after LLVM update.
-    # do_test_i32_quantize(channels=32, height=1, weight=1, per_tensor=True)
-    # do_test_i32_quantize(channels=32, height=32, weight=32, per_tensor=False)
-    # do_test_i32_quantize(channels=16, height=14, weight=14, per_tensor=False)
+    do_test_i32_quantize(channels=32, height=1, weight=1, per_tensor=True)
+    do_test_i32_quantize(channels=32, height=32, weight=32, per_tensor=False)
+    do_test_i32_quantize(channels=16, height=14, weight=14, per_tensor=False)
+
+
+@pytest.mark.skip("skip because result mismatch.")
+# mobilenet_v2_qat quantize pattern1: # cast_i64 -> multiply -> shift -> clip(0,255) -> cast_u8
+def test_qat_quantize_pattern1():
+    shape = [1, 7, 7, 960]
+    primfunc = qat_quantize_pattern1_func
+    primfunc = primfunc.specialize({primfunc.params[0]: tir.decl_buffer(shape)})
+    edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
+    cpu_schedule = naive_vu_schedule(primfunc, is_cpu=True, allow_multi_block=True)
+
+    x = np.random.randint(-10000, 10000, shape).astype("int32")
+    y = np.random.randint(-10000, 10000, shape).astype("int32")
+    z = np.random.randint(-10000, 10000, shape[-1]).astype("int32")
+    m = np.random.randint(0, 5, [1, 1, 1, 1]).astype("uint8")
+    s = np.random.randint(0, 9, [1, 1, 1, 1]).astype("uint8")
+    check_edgex_tir_build(
+        "qat_quantize_pattern1",
+        edgex_schedule,
+        cpu_prim_func=cpu_schedule,
+        check_cpu=True,
+        input_data=[x, y, z, m, s],
+    )
+
+
+# mobilenet_v2_qat quantize pattern2: cast_i64 -> multiply -> shift -> cast_i32
+def test_qat_quantize_pattern2():
+    shape = [1, 28, 28, 32]
+    primfunc = qat_quantize_pattern2_func
+    primfunc = primfunc.specialize({primfunc.params[0]: tir.decl_buffer(shape)})
+    edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
+    cpu_schedule = naive_vu_schedule(primfunc, is_cpu=True, allow_multi_block=True)
+
+    x = np.random.randint(-1000, 1000, shape).astype("int32")
+    y = np.random.randint(-1000, 1000, [1, 1, 1, 1]).astype("int32")
+    m = np.random.randint(0, 5, [1, 1, 1, 1]).astype("uint8")
+    s = np.random.randint(0, 9, [1, 1, 1, 1]).astype("uint8")
+    check_edgex_tir_build(
+        "qat_quantize_pattern2",
+        edgex_schedule,
+        cpu_prim_func=cpu_schedule,
+        check_cpu=True,
+        input_data=[x, y, m, s],
+    )
 
 
 def test_setmode_side_effect():
@@ -569,50 +608,6 @@ def test_setmode_side_effect():
     m = np.random.randint(0, 5, [32, 1, 1]).astype("uint8")
     s = np.random.randint(0, 9, [32, 1, 1]).astype("uint8")
     check_edgex_tir_build("veltadd_relu_and_norelu", func, check_cpu=True, input_data=[x, m, s])
-
-
-@pytest.mark.skip("skip because llvm not support yet.")
-# mobilenet_v2_qat quantize pattern1: # cast_i64 -> multiply -> shift -> clip(0,255) -> cast_u8
-def test_qat_quantize_pattern1():
-    shape = [1, 7, 7, 960]
-    primfunc = qat_quantize_pattern1_func
-    primfunc = primfunc.specialize({primfunc.params[0]: tir.decl_buffer(shape)})
-    edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
-    cpu_schedule = naive_vu_schedule(primfunc, is_cpu=True, allow_multi_block=True)
-
-    x = np.random.randint(-10000, 10000, shape).astype("int32")
-    y = np.random.randint(-10000, 10000, shape).astype("int32")
-    z = np.random.randint(-10000, 10000, shape[-1]).astype("int32")
-    m = np.random.randint(0, 5, [1, 1, 1, 1]).astype("uint8")
-    s = np.random.randint(0, 9, [1, 1, 1, 1]).astype("uint8")
-    check_edgex_tir_build(
-        "qat_quantize_pattern1",
-        edgex_schedule,
-        cpu_prim_func=cpu_schedule,
-        check_cpu=True,
-        input_data=[x, y, z, m, s],
-    )
-
-
-# mobilenet_v2_qat quantize pattern2: cast_i64 -> multiply -> shift -> cast_i32
-def test_qat_quantize_pattern2():
-    shape = [1, 28, 28, 32]
-    primfunc = qat_quantize_pattern2_func
-    primfunc = primfunc.specialize({primfunc.params[0]: tir.decl_buffer(shape)})
-    edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
-    cpu_schedule = naive_vu_schedule(primfunc, is_cpu=True, allow_multi_block=True)
-
-    x = np.random.randint(-10000, 10000, shape).astype("int32")
-    y = np.random.randint(-10000, 10000, [1, 1, 1, 1]).astype("int32")
-    m = np.random.randint(0, 5, [1, 1, 1, 1]).astype("uint8")
-    s = np.random.randint(0, 9, [1, 1, 1, 1]).astype("uint8")
-    check_edgex_tir_build(
-        "qat_quantize_pattern2",
-        edgex_schedule,
-        cpu_prim_func=cpu_schedule,
-        check_cpu=True,
-        input_data=[x, y, m, s],
-    )
 
 
 if __name__ == "__main__":

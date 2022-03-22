@@ -150,6 +150,11 @@ TVM_DLL const Op& nnp_unlock_vcu();
 TVM_DLL const Op& nnp_veltadd();
 
 /*!
+ * \brief tvm intrinsic for nnp vint intrinsic.
+ */
+TVM_DLL const Op& nnp_vint();
+
+/*!
  * \brief tvm intrinsic for nnp vu madd and right shift in vacc.
  */
 TVM_DLL const Op& nnp_vacc_madd_right_shift();

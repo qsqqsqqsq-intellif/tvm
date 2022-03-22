@@ -106,7 +106,13 @@ TIR_DEFINE_BUILTIN_FUNC(nnp_iss_bind_input_buffer)
 
 TIR_DEFINE_BUILTIN_FUNC(nnp_veltadd)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
-    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU));
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU))
+    .set_attr<TVectorizable>("TVectorizable", true);
+
+TIR_DEFINE_BUILTIN_FUNC(nnp_vint)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU))
+    .set_attr<TVectorizable>("TVectorizable", true);
 
 TIR_DEFINE_BUILTIN_FUNC(nnp_vacc_madd_right_shift)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))

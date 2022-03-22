@@ -630,6 +630,18 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     });
   }
 
+  llvm::Value* CreateVint(const CallNode* op) {
+    NNPSetModeSpec spec = NNPSetModeSpec::FromCall(op);
+    return WithSetModeScope<llvm::Value*>(spec, NNPSetModeSpec::TVM_APP_DEFAULT_SPEC, [this, op]() {
+      ICHECK_GE(op->args.size(), 1);
+      llvm::Value* value = VisitExpr(op->args[0]);
+      llvm::Value* scale_num = builder_->getInt32(0);
+      auto vint_intrin = llvm::Intrinsic::getDeclaration(
+          module_.get(), llvm::Intrinsic::nnp_vint, {DTypeToLLVMType(op->dtype), value->getType()});
+      return builder_->CreateCall(vint_intrin, {value, scale_num});
+    });
+  }
+
   llvm::Value* CreateVacccMaddRightShift(const CallNode* op) {
     auto f_support_elem_ty = [](llvm::Type* ty) {
       // interger ty safe castable to i32
@@ -846,6 +858,7 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
 
     // vu intrinsics
     RegisterNNPIntrinsic(edgex::builtin::nnp_veltadd(), &CodeGenNNP400LLVM::CreateVeltadd);
+    RegisterNNPIntrinsic(edgex::builtin::nnp_vint(), &CodeGenNNP400LLVM::CreateVint);
     RegisterNNPIntrinsic(edgex::builtin::nnp_vacc_madd_right_shift(),
                          &CodeGenNNP400LLVM::CreateVacccMaddRightShift);
   }

@@ -23,9 +23,78 @@ import numpy as np
 
 # fmt: off
 @T.prim_func
+def fused_multiply_cast_multiply_round_right_shift_clip_cast(placeholder_0: T.Buffer[(1, 16, 1, 1), "int32"], placeholder_1: T.Buffer[(1, 16, 56, 56), "int32"], placeholder_2: T.Buffer[(16, 1, 1), "int64"], placeholder_3: T.Buffer[(16, 1, 1), "int64"], T_cast: T.Buffer[(1, 16, 56, 56), "int8"]) -> None:
+    T_round_right_shift_intrin = T.alloc_buffer([1, 16, 56, 56], dtype="int64")
+    compute = T.alloc_buffer([1, 16, 56, 56], dtype="int64")
+    T_cast_1 = T.alloc_buffer([1, 16, 56, 56], dtype="int64")
+    T_multiply = T.alloc_buffer([1, 16, 56, 56], dtype="int64")
+    T_multiply_1 = T.alloc_buffer([1, 16, 56, 56], dtype="int32")
+    for i0, i1, i2, i3 in T.grid(1, 16, 56, 56):
+        with T.block("T_multiply"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(placeholder_0[ax0, ax1, 0, 0], placeholder_1[ax0, ax1, ax2, ax3])
+            T.writes(T_multiply_1[ax0, ax1, ax2, ax3])
+            T_multiply_1[ax0, ax1, ax2, ax3] = placeholder_0[ax0, ax1, 0, 0] * placeholder_1[ax0, ax1, ax2, ax3]
+    for i0, i1, i2, i3 in T.grid(1, 16, 56, 56):
+        with T.block("T_cast"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_multiply_1[ax0, ax1, ax2, ax3])
+            T.writes(T_cast_1[ax0, ax1, ax2, ax3])
+            T_cast_1[ax0, ax1, ax2, ax3] = T.cast(T_multiply_1[ax0, ax1, ax2, ax3], "int64")
+    for i0, i1, i2, i3 in T.grid(1, 16, 56, 56):
+        with T.block("T_multiply_1"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_cast_1[ax0, ax1, ax2, ax3], placeholder_2[ax1, 0, 0])
+            T.writes(T_multiply[ax0, ax1, ax2, ax3])
+            T_multiply[ax0, ax1, ax2, ax3] = T_cast_1[ax0, ax1, ax2, ax3] * placeholder_2[ax1, 0, 0]
+    for i0, i1, i2, i3 in T.grid(1, 16, 56, 56):
+        with T.block("T_round_right_shift_intrin"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_multiply[ax0, ax1, ax2, ax3], placeholder_3[ax1, 0, 0])
+            T.writes(T_round_right_shift_intrin[ax0, ax1, ax2, ax3])
+            T_round_right_shift_intrin[ax0, ax1, ax2, ax3] = T.nnp_round_right_shift(T_multiply[ax0, ax1, ax2, ax3], placeholder_3[ax1, 0, 0], dtype="int64")
+    for i0, i1, i2, i3 in T.grid(1, 16, 56, 56):
+        with T.block("compute"):
+            i0_1, i1_1, i2_1, i3_1 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_round_right_shift_intrin[i0_1, i1_1, i2_1, i3_1])
+            T.writes(compute[i0_1, i1_1, i2_1, i3_1])
+            compute[i0_1, i1_1, i2_1, i3_1] = T.max(T.min(T_round_right_shift_intrin[i0_1, i1_1, i2_1, i3_1], T.int64(127)), T.int64(-128))
+    for i0, i1, i2, i3 in T.grid(1, 16, 56, 56):
+        with T.block("T_cast_1"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(compute[ax0, ax1, ax2, ax3])
+            T.writes(T_cast[ax0, ax1, ax2, ax3])
+            T_cast[ax0, ax1, ax2, ax3] = T.cast(compute[ax0, ax1, ax2, ax3], "int8")
+
+
+
+@T.prim_func
+def fused_round_clip_cast(placeholder_0: T.Buffer[(1, 288, 14, 14), "float16"], T_cast: T.Buffer[(1, 288, 14, 14), "int8"]) -> None:
+    T_round = T.alloc_buffer([1, 288, 14, 14], dtype="float16")
+    compute = T.alloc_buffer([1, 288, 14, 14], dtype="float16")
+    for i0, i1, i2, i3 in T.grid(1, 288, 14, 14):
+        with T.block("T_round"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(placeholder_0[ax0, ax1, ax2, ax3])
+            T.writes(T_round[ax0, ax1, ax2, ax3])
+            T_round[ax0, ax1, ax2, ax3] = T.round(placeholder_0[ax0, ax1, ax2, ax3], dtype="float16")
+    for i0, i1, i2, i3 in T.grid(1, 288, 14, 14):
+        with T.block("compute"):
+            i0_1, i1_1, i2_1, i3_1 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(T_round[i0_1, i1_1, i2_1, i3_1])
+            T.writes(compute[i0_1, i1_1, i2_1, i3_1])
+            compute[i0_1, i1_1, i2_1, i3_1] = T.max(T.min(T_round[i0_1, i1_1, i2_1, i3_1], T.float16(127)), T.float16(-128))
+    for i0, i1, i2, i3 in T.grid(1, 288, 14, 14):
+        with T.block("T_cast"):
+            ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+            T.reads(compute[ax0, ax1, ax2, ax3])
+            T.writes(T_cast[ax0, ax1, ax2, ax3])
+            T_cast[ax0, ax1, ax2, ax3] = T.cast(compute[ax0, ax1, ax2, ax3], "int8")
+
+
+
+@T.prim_func
 def fused_subtract_nn_bias_add_cast(input_0: T.handle, input_1: T.handle, input_2: T.handle,  out: T.handle) -> None:
-    # body
-    # with T.block("root")
     h = T.var("int32")
     w = T.var("int32")    
     c = T.var("int32")    
@@ -57,8 +126,6 @@ def fused_subtract_nn_bias_add_cast(input_0: T.handle, input_1: T.handle, input_
 
 @T.prim_func
 def fused_reduce_sum_multiply(placeholder_0: T.Buffer[(1, 1, 1, 1), "int32"], placeholder_1: T.Buffer[(1, 128, 128, 32), "uint8"], T_multiply: T.Buffer[(1, 128, 128, 1), "int32"]) -> None:
-    # body
-    # with T.block("root")
     T_cast = T.alloc_buffer([1, 128, 128, 32], dtype="int32")
     placeholder_red = T.alloc_buffer([1, 128, 128, 1], dtype="int32")
     for i0, i1, i2, i3 in T.grid(1, 128, 128, 32):
@@ -96,7 +163,6 @@ def test_fused_reduce_sum_multiply():
     )
 
 
-@pytest.mark.skip("skip because llvm not support yet.")
 def test_fused_subtract_nn_bias_add_cast():
     shape = [1, 7, 7, 1280]
     primfunc = fused_subtract_nn_bias_add_cast
@@ -117,6 +183,39 @@ def test_fused_subtract_nn_bias_add_cast():
     )
 
 
+def test_fused_round_clip_cast():
+    primfunc = fused_round_clip_cast
+    edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
+    cpu_schedule = naive_vu_schedule(primfunc, is_cpu=True, allow_multi_block=True)
+    check_edgex_tir_build(
+        "fused_round_clip_cast",
+        edgex_schedule,
+        cpu_prim_func=cpu_schedule,
+        check_cpu=True,
+    )
+
+
+def test_fused_multiply_cast_multiply_round_right_shift_clip_cast():
+    shape = [1, 16, 56, 56]
+    channels = shape[1]
+    primfunc = fused_multiply_cast_multiply_round_right_shift_clip_cast
+    edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
+    cpu_schedule = naive_vu_schedule(primfunc, is_cpu=True, allow_multi_block=True)
+    x = np.random.randint(-10000, 10000, [1, channels, 1, 1]).astype("int32")
+    y = np.random.randint(-10000, 10000, shape).astype("int32")
+    m = np.random.randint(0, 5, [channels, 1, 1]).astype("uint8")
+    s = np.random.randint(0, 9, [channels, 1, 1]).astype("uint8")
+    check_edgex_tir_build(
+        "fused_multiply_cast_multiply_round_right_shift_clip_cast",
+        edgex_schedule,
+        cpu_prim_func=cpu_schedule,
+        input_data=[x, y, m, s],
+        check_cpu=True,
+    )
+
+
 if __name__ == "__main__":
     test_fused_reduce_sum_multiply()
-    # test_fused_subtract_nn_bias_add_cast()
+    test_fused_subtract_nn_bias_add_cast()
+    test_fused_round_clip_cast()
+    test_fused_multiply_cast_multiply_round_right_shift_clip_cast()
