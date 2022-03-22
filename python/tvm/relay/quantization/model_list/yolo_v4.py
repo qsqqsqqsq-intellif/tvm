@@ -121,6 +121,7 @@ quantize_search = relay.quantization.QuantizeSearch(
         "input": {"mean": mean, "std": scale, "axis": 3},
     },
     compare_statistics=False,
+    verbose=True,
 )
 
 config = quantize_search.get_default_config()

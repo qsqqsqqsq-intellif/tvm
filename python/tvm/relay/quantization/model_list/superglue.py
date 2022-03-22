@@ -73,6 +73,7 @@ quantize_search = relay.quantization.QuantizeSearch(
     compare_statistics=False,
     eval_func=evaluate,
     # net_in_dtype="uint8",
+    verbose=True,
 )
 
 config = quantize_search.get_default_config()

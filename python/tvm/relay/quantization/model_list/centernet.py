@@ -211,6 +211,7 @@ quantize_search = relay.quantization.QuantizeSearch(
         },
     },
     compare_statistics=False,
+    verbose=True,
 )
 quantize_search.evaluate("pre_process")
 config = quantize_search.get_default_config()

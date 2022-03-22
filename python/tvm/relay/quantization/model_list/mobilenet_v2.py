@@ -137,6 +137,7 @@ quantize_search = relay.quantization.QuantizeSearch(
     },
     quantize_config=quantize_config,
     compare_statistics=False,
+    verbose=True,
     # net_in_dtype="int16",
 )
 

@@ -19,7 +19,6 @@
 
 import logging
 import multiprocessing
-from multiprocessing import shared_memory
 import numpy
 from scipy import stats
 from tvm._ffi import runtime_ctypes
@@ -1077,6 +1076,9 @@ class DistanceLinearSearch:
         return scale, zero_point
 
     def _group(self, i, shape, x_min, x_max, name, dtype):
+        # pylint: disable=import-outside-toplevel
+        from multiprocessing import shared_memory
+
         shared_x = shared_memory.SharedMemory(name=name)
         buffer = numpy.ndarray(shape, dtype=dtype, buffer=shared_x.buf)
         new_min = x_min * (1.0 - (i * self.step))
@@ -1090,6 +1092,9 @@ class DistanceLinearSearch:
         return distance, new_min, new_max
 
     def _caculate(self, x, x_min, x_max):
+        # pylint: disable=import-outside-toplevel
+        from multiprocessing import shared_memory
+
         if x.size > 200000:
             shape = x.shape
             dtype = x.dtype
