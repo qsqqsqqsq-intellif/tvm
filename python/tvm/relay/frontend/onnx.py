@@ -1195,7 +1195,13 @@ class Concat(OnnxOpConverter):
 
     @classmethod
     def _impl_v1(cls, inputs, args, params):
-        return AttrCvt(op_name="concatenate")((inputs,), args)
+        new_inputs = []
+        for inp in inputs:
+            if get_name(inp) in params:
+                new_inputs.append(_expr.const(params[inp.name_hint]))
+            else:
+                new_inputs.append(inp)
+        return AttrCvt(op_name="concatenate")((new_inputs,), args)
 
 
 class Scale(OnnxOpConverter):
@@ -2678,7 +2684,10 @@ class Resize(OnnxOpConverter):
 
     @classmethod
     def _impl_v11(cls, inputs, attr, params):
-        scale = inputs[2]
+        if get_name(inputs[2]) in params:
+            scale = _expr.const(params[inputs[2].name_hint])
+        else:
+            scale = inputs[2]
         scale_shape = infer_shape(scale)
         if len(inputs) == 4:
             assert (
@@ -2692,7 +2701,10 @@ class Resize(OnnxOpConverter):
 
     @classmethod
     def _impl_v13(cls, inputs, attr, params):
-        scale = inputs[2]
+        if get_name(inputs[2]) in params:
+            scale = _expr.const(params[inputs[2].name_hint])
+        else:
+            scale = inputs[2]
         size = inputs[3]
 
         # Some versions of onnx exporters produce an opset 13 model with the opset 11

@@ -26,50 +26,35 @@ if __name__ == "__main__":
     model_config = {
         "framework": "onnx",
         "input_names": ["data"],
-        "input_shapes": [(1, 3, 224, 224)],
+        "input_shapes": [(1, 3, 512, 512)],
         "input_dtypes": ["float32"],
         "layout": "NCHW",
         "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet50-v1/resnet50-v1-7.onnx",
+        "model_file": path_prefix + "retinaface_mnet025_v1/retinaface_mnet025_v1.onnx",
         "dataset_dir": None,
     }
     verify_model_precision(model_config)
-
-    # only for test: pass
-    # model_config = {
-    #     "framework": "onnx",
-    #     "input_names": ["data"],
-    #     "input_shapes": [(1, 3, 224, 224)],
-    #     "input_dtypes": ["float32"],
-    #     "layout": "NCHW",
-    #     "preproc_method": "mean_scale",
-    #     "means": (0, 0, 0),
-    #     "scales": (255, 255, 255),
-    #     "model_file": path_prefix + "resnet50-v1/resnet50-v1-7.onnx",
-    #     "dataset_dir": path_prefix + "resnet50-v1/img/",
-    # }
-    # verify_model_precision(model_config)
 
     model_config = {
         "framework": "onnx",
         "input_names": ["data"],
-        "input_shapes": [(1, 3, 224, 224)],
+        "input_shapes": [(1, 3, 480, 640)],
         "input_dtypes": ["float32"],
         "layout": "NCHW",
         "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet50-v2/resnet50-v2-7.onnx",
+        "model_file": path_prefix + "retinaface_r50_v1/retinaface_r50_v1.onnx",
         "dataset_dir": None,
     }
     verify_model_precision(model_config)
 
     model_config = {
         "framework": "onnx",
-        "input_names": ["input:0"],
-        "input_shapes": [(1, 3, 224, 224)],
+        "input_names": ["inputdata"],
+        "input_shapes": [(1, 3, 300, 300)],
         "input_dtypes": ["float32"],
         "layout": "NCHW",
         "preproc_method": "pass_through",
-        "model_file": path_prefix + "mobilenet-v1/mobilenet_v1_1.0_224.onnx",
+        "model_file": path_prefix + "rfbnet/rfbnet_v2.onnx",
         "dataset_dir": None,
     }
     verify_model_precision(model_config)
@@ -77,35 +62,23 @@ if __name__ == "__main__":
     model_config = {
         "framework": "onnx",
         "input_names": ["input"],
-        "input_shapes": [(1, 3, 224, 224)],
+        "input_shapes": [(1, 3, 480, 640)],
         "input_dtypes": ["float32"],
         "layout": "NCHW",
         "preproc_method": "pass_through",
-        "model_file": path_prefix + "mobilenet-v2/mobilenetv2-7.onnx",
+        "model_file": path_prefix + "UltraLightFaceDetection/ultra_light_640.onnx",
         "dataset_dir": None,
     }
     verify_model_precision(model_config)
 
     model_config = {
         "framework": "onnx",
-        "input_names": ["input.1"],
-        "input_shapes": [(1, 3, 224, 224)],
+        "input_names": ["input"],
+        "input_shapes": [(1, 3, 256, 256)],
         "input_dtypes": ["float32"],
         "layout": "NCHW",
         "preproc_method": "pass_through",
-        "model_file": path_prefix + "mobilenet-v2_torchvision/mobilenetv2_torchvision.onnx",
-        "dataset_dir": None,
-    }
-    verify_model_precision(model_config)
-
-    model_config = {
-        "framework": "onnx",
-        "input_names": ["input_image"],
-        "input_shapes": [(1, 3, 224, 224)],
-        "input_dtypes": ["float32"],
-        "layout": "NCHW",
-        "preproc_method": "pass_through",
-        "model_file": path_prefix + "mobilenet-v3-small/mobilenetv3_small_new.onnx",
+        "model_file": path_prefix + "unet/onnx_model_name.onnx",
         "dataset_dir": None,
     }
     verify_model_precision(model_config)
@@ -117,152 +90,43 @@ if __name__ == "__main__":
         "input_dtypes": ["float32"],
         "layout": "NCHW",
         "preproc_method": "pass_through",
-        "model_file": path_prefix + "yolov5_ultralytics/yolov5s.onnx",
-        "dataset_dir": None,
-    }
-    verify_model_precision(model_config)
-
-    # only for test the different opset! pass
-    # model_config = {
-    #     "framework": "onnx",
-    #     "input_names": ["images"],
-    #     "input_shapes": [(1, 3, 640, 640)],
-    #     "input_dtypes": ["float32"],
-    #     "layout": "NCHW",
-    #     "preproc_method": "pass_through",
-    #     "model_file": path_prefix + "yolov5_ultralytics/yolov5s_opset13.onnx",
-    #     "dataset_dir": None,
-    # }
-    # verify_model_precision(model_config)
-
-    model_config = {
-        "framework": "onnx",
-        "input_names": ["data"],
-        "input_shapes": [(1, 3, 224, 224)],
-        "input_dtypes": ["float32"],
-        "layout": "NCHW",
-        "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet18-v1/resnet18-v1-7.onnx",
+        "model_file": path_prefix + "yolov5s/yolov5s.onnx",
         "dataset_dir": None,
     }
     verify_model_precision(model_config)
 
     model_config = {
         "framework": "onnx",
-        "input_names": ["data"],
-        "input_shapes": [(1, 3, 224, 224)],
+        "input_names": ["inputs"],
+        "input_shapes": [(1, 3, 416, 416)],
         "input_dtypes": ["float32"],
         "layout": "NCHW",
         "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet18-v2/resnet18-v2-7.onnx",
+        "model_file": path_prefix + "tiny-yolox/yolox_tiny.onnx",
         "dataset_dir": None,
     }
     verify_model_precision(model_config)
 
     model_config = {
         "framework": "onnx",
-        "input_names": ["data"],
-        "input_shapes": [(1, 3, 224, 224)],
+        "input_names": ["inputs"],
+        "input_shapes": [(1, 3, 416, 416)],
         "input_dtypes": ["float32"],
         "layout": "NCHW",
         "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet34-v1/resnet34-v1-7.onnx",
+        "model_file": path_prefix + "yolox/yolox_nano.onnx",
         "dataset_dir": None,
     }
     verify_model_precision(model_config)
 
     model_config = {
         "framework": "onnx",
-        "input_names": ["data"],
-        "input_shapes": [(1, 3, 224, 224)],
+        "input_names": ["input.1"],
+        "input_shapes": [(1, 3, 1056, 1920)],
         "input_dtypes": ["float32"],
         "layout": "NCHW",
         "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet34-v2/resnet34-v2-7.onnx",
-        "dataset_dir": None,
-    }
-    verify_model_precision(model_config)
-
-    model_config = {
-        "framework": "onnx",
-        "input_names": ["gpu_0/data_0"],
-        "input_shapes": [(1, 3, 224, 224)],
-        "input_dtypes": ["float32"],
-        "layout": "NCHW",
-        "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet50-caffe2-v1/resnet50-caffe2-v1-9.onnx",
-        "dataset_dir": None,
-    }
-    verify_model_precision(model_config)
-
-    model_config = {
-        "framework": "onnx",
-        "input_names": ["data"],
-        "input_shapes": [(1, 3, 224, 224)],
-        "input_dtypes": ["float32"],
-        "layout": "NCHW",
-        "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet50-v2/resnet50-v2-7.onnx",
-        "dataset_dir": None,
-    }
-    verify_model_precision(model_config)
-
-    model_config = {
-        "framework": "onnx",
-        "input_names": ["data"],
-        "input_shapes": [(1, 3, 224, 224)],
-        "input_dtypes": ["float32"],
-        "layout": "NCHW",
-        "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet101-v1/resnet101-v1-7.onnx",
-        "dataset_dir": None,
-    }
-    verify_model_precision(model_config)
-
-    model_config = {
-        "framework": "onnx",
-        "input_names": ["data"],
-        "input_shapes": [(1, 3, 224, 224)],
-        "input_dtypes": ["float32"],
-        "layout": "NCHW",
-        "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet101-v2/resnet101-v2-7.onnx",
-        "dataset_dir": None,
-    }
-    verify_model_precision(model_config)
-
-    model_config = {
-        "framework": "onnx",
-        "input_names": ["data"],
-        "input_shapes": [(1, 3, 224, 224)],
-        "input_dtypes": ["float32"],
-        "layout": "NCHW",
-        "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet152-v1/resnet152-v1-7.onnx",
-        "dataset_dir": None,
-    }
-    verify_model_precision(model_config)
-
-    model_config = {
-        "framework": "onnx",
-        "input_names": ["data"],
-        "input_shapes": [(1, 3, 224, 224)],
-        "input_dtypes": ["float32"],
-        "layout": "NCHW",
-        "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnet152-v2/resnet152-v2-7.onnx",
-        "dataset_dir": None,
-    }
-    verify_model_precision(model_config)
-
-    model_config = {
-        "framework": "onnx",
-        "input_names": ["input_1"],
-        "input_shapes": [(1, 224, 224, 3)],
-        "input_dtypes": ["float32"],
-        "layout": "NCHW",
-        "preproc_method": "pass_through",
-        "model_file": path_prefix + "mobilenetv2-quant/mobilenet.onnx",
+        "model_file": path_prefix + "centernet/centerface.onnx",
         "dataset_dir": None,
     }
     verify_model_precision(model_config)
@@ -274,7 +138,127 @@ if __name__ == "__main__":
         "input_dtypes": ["float32"],
         "layout": "NCHW",
         "preproc_method": "pass_through",
-        "model_file": path_prefix + "resnext50_32x4d_torchvision/resnext50_32x4d.onnx",
+        "model_file": path_prefix + "scrfd_10g_bnkps/scrfd_10g_bnkps.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
+
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input"],
+        "input_shapes": [(1, 3, 512, 512)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "yolor/yolor_csp_x.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
+
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input"],
+        "input_shapes": [(1, 3, 416, 416)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "SafetyHelmet_yolov3/SafetyHelmet_YOLOV3.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
+
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input"],
+        "input_shapes": [(1, 3, 512, 512)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "SafetyHelmet_ssd/SafetyHelmet_SSD.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
+
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input_tensor"],
+        "input_shapes": [(1, 256, 512, 3)],
+        "input_dtypes": ["float32"],
+        "layout": "NHWC",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "lanenet/model_float32.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
+
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input_image_with_alpha:0"],
+        "input_shapes": [(1, 320, 320, 4)],
+        "input_dtypes": ["float32"],
+        "layout": "NHWC",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "M-LSD/large_model_float32.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
+
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["data"],
+        "input_shapes": [(1, 512, 896, 3)],
+        "input_dtypes": ["float32"],
+        "layout": "NHWC",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "road-segmentation-adas/model_float32.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
+
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input_1:0"],
+        "input_shapes": [(1, 256, 256, 3)],
+        "input_dtypes": ["float32"],
+        "layout": "NHWC",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "Selfie_Segmentation/model_float32.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
+
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input.1"],
+        "input_shapes": [(1, 3, 608, 608)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "SFA3D/sfa3d_608x608_float32.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
+
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input"],
+        "input_shapes": [(1, 3, 320, 480)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "fcn_resnet50/fcn-resnet50-11.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
+
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input.1"],
+        "input_shapes": [(1, 3, 256, 256)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "yolact/yolact_edge_mobilenetv2_54_800000_256x256.onnx",
         "dataset_dir": None,
     }
     verify_model_precision(model_config)

@@ -150,6 +150,7 @@ def model_verify(
     baseline_inputs = get_preproc_method(model_config["preproc_method"])(model_config, data_inputs)
 
     # load framework and run
+    print("--" * 50)
     f_model, baseline_outputs = get_framework_infer(model_config["framework"])(
         model_config["model_file"], baseline_inputs
     )
