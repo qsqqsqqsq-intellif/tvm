@@ -211,8 +211,6 @@ def _calibrate_core(arg, input_config, vertex_config, quantized=True):
     y = {}
     if input_config["method"] is not None:
         y = input_config["method"](input_config)
-        # if y["scale"].size > 1:
-        #     y["scale"][numpy.where(y["scale"] == 0)] = 0.01 / 127
         tmp = {
             "quantized_scale": y["scale"].astype("float32"),
             "quantized_zero_point": y["zero_point"],
@@ -286,8 +284,6 @@ def calibrate_params(cls):
                     and config.output_config["method"] is not None
                 ):
                     y = config.output_config["method"](config.output_config)
-                    # if y["scale"].size > 1:
-                    #     y["scale"][numpy.where(y["scale"] == 0)] = 0.01 / 127
                     tmp = {
                         "quantized_scale": y["scale"],
                         "quantized_zero_point": y["zero_point"],

@@ -69,7 +69,7 @@ def symmetry(config):
         scale[numpy.where(scale == 0)] = 0.01 / 127
     else:
         if scale == 0:
-            scale = 0.01 / 127
+            scale = numpy.array(0.01 / 127, numpy.float32)
     zero_point = numpy.zeros_like(scale).astype(numpy.int32)
     result = {"scale": scale, "zero_point": zero_point, "axis": config["threshold"].axis}
     return result
@@ -91,7 +91,7 @@ def asymmetry(config):
         scale[numpy.where(scale == 0)] = 0.01 / 127
     else:
         if scale == 0:
-            scale = 0.01 / 127
+            scale = numpy.array(0.01 / 127, numpy.float32)
     # zero_point = result['qmin'] - numpy.round(min_val / scale)
     zero_point = config["qmax"] - numpy.round(max_val / scale)  # 添加对比重建误差
     zero_point = numpy.clip(zero_point, config["qmin"], config["qmax"]).astype(numpy.int32)
