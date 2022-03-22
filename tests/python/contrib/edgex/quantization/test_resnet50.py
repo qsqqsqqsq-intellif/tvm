@@ -119,5 +119,17 @@ def test_run():
     assert quantize_search.results[0]["other"]["similarity"][0][-1][1] >= 0.99
 
 
+@pytest.mark.xfail
+@pytest.mark.order(-1)
+@pytest.mark.edgex_slow
+def test_resnet50_quant2fs():
+    from tvm.contrib.edgex.testing import verify_quant2relay_model
+    from tvm.relay.quantization.model_list.resnet import quantize_search
+
+    quantized_mod = quantize_search.results[-1]["mod"]
+    # verify model
+    verify_quant2relay_model("resnet50", quantized_mod)
+
+
 if __name__ == "__main__":
     test_run()

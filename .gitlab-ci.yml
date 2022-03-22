@@ -82,9 +82,9 @@ build:
     echo "********** SET TVM ENV **********"
     export TVM_HOME=$(pwd)
     export PYTHONPATH=$TVM_HOME/python:${PYTHONPATH}
-    # TODO: tvm_test found no *.so, but it doesn't really need those libs
     export EDGEX_ROOT_DIR=${DCL_ROOT_DIR}/client
     export EDGEX_SERVER_DIR=${DCL_ROOT_DIR}/server
+    export EDGEX_MODELS_DIR=${DEP_ROOT}/models
 
 # $CI_PIPELINE_SOURCE could be either "schedule" or "push"
 # edgex test
@@ -103,7 +103,6 @@ tvm_edgex:
   script:
     - |
       export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
-      export EDGEX_MODELS_DIR=${DEP_ROOT}/models
       export EDGEX_LLVM_TOOLCHAIN_DIR=${DEP_ROOT}/llvm/bin
       export EDGEX_DEBUG_ISS=on
       echo "********** TEST EDGEX UNIT TEST **********"

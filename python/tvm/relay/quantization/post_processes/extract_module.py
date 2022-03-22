@@ -322,3 +322,4 @@ def extract_module(mod, path, name, batch):
     #             xxx.clear()
 
     #         j = j + 1
+    return save_mod, params

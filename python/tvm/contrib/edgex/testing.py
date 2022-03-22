@@ -24,9 +24,14 @@ from tvm import relay
 from tvm.contrib.edgex import build_config_nnp
 from tvm.ir.module import IRModule
 from tvm.contrib import graph_executor
-from tvm.contrib.edgex.relay.transform import ConvertDepthwiseConv2D, PostScheduleArgumentRewrite
+from tvm.contrib.edgex.relay.transform import (
+    ConvertDepthwiseConv2D,
+    PostScheduleArgumentRewrite,
+    FusionStitch,
+)
 from tvm.contrib.edgex.relay.backend import ScheduleCache
 from tvm.relay.build_module import bind_params_by_name
+from tvm.relay.quantization.post_processes import extract_module
 
 
 class UnsupportedDetector(relay.ExprVisitor):
@@ -788,7 +793,22 @@ def get_fs_fused_workload(net, fix_norm=False):
 
 
 def get_graph_runtime_output(lib, ctx, data, name="input"):
+    """helper to get output"""
     m = graph_executor.GraphModule(lib["default"](*ctx))
     m.set_input(name, data)
     m.run()
     return m.get_output(0).numpy()
+
+
+def verify_quant2relay_model(model_name, quantized_mod):
+    """verify network from quant to realy's fusionStitching"""
+    mod_root_dir = os.getenv("EDGEX_MODELS_DIR", "/tmp")
+    mod_file = mod_root_dir + "/pytorch/%s/quantized/%s.json" % (model_name, model_name)
+    assert os.path.exists(mod_file)
+    with open(mod_file, "r") as file:
+        expected_mod = tvm.ir.load_json(json.load(file))
+
+    mod, _ = extract_module(quantized_mod, mod_root_dir + "/ci_test/", model_name, None)
+    mod = relay.transform.InferType()(mod)
+    mod = FusionStitch()(mod)
+    assert tvm.ir.structural_equal(mod, expected_mod)
