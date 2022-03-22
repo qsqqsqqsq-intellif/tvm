@@ -22,20 +22,15 @@ from tvm.contrib.edgex.tir.transform import *
 from tvm.ir.transform import PassContext
 
 
-def pass_debug_wrapper(passfunc):
-    """Print tir before and after pass"""
+@tvm.instrument.pass_instrument
+class EdgeXPassInstrument:
+    """Pass instrument for debug purpose."""
 
-    def _func(mod, ctx):
-        print(ctx)
-        print("Before %s pass: %s" % (passfunc.info.name, mod.script()))
-        result = passfunc(mod)
-        print("After %s pass: %s" % (passfunc.info.name, result.script()))
-        return result
-
-    return tvm.transform.module_pass(_func, opt_level=2)
+    def run_before_pass(self, mod, info):
+        print(f"Running pass: {info.name}\n{mod.script()}")
 
 
-def build_config_nnp(extra_config=None, extra_disabled_pass=None, opt_level=2):
+def build_config_nnp(extra_config=None, extra_disabled_pass=None, opt_level=2, instruments=None):
     """Add nnp lower pass.
 
     Returns
@@ -45,7 +40,12 @@ def build_config_nnp(extra_config=None, extra_disabled_pass=None, opt_level=2):
     """
 
     pass_list = []
+
+    # rationale: must be before any simplify
     pass_list.append((0, IsolateVcuI64Ops()))
+
+    # rationale: must be before vectorization
+    pass_list.append((1, EliminateDynamicAllocation()))
     pass_list.append((2, tvm.tir.transform.Simplify()))
     pass_list.append((2, tvm.tir.transform.RemoveNoOp()))
     pass_list.append((2, InjectDmaIntrin()))
@@ -94,7 +94,10 @@ def build_config_nnp(extra_config=None, extra_disabled_pass=None, opt_level=2):
                 raise ValueError("pass in `extra_disabled_pass` should be string or Pass")
             disabled_pass.append(pass_name)
     return tvm.transform.PassContext(
-        config=config, disabled_pass=disabled_pass, opt_level=opt_level
+        config=config,
+        disabled_pass=disabled_pass,
+        opt_level=opt_level,
+        instruments=instruments,
     )
 
 

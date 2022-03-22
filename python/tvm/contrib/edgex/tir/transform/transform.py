@@ -21,6 +21,17 @@ import tvm
 from . import _ffi_api
 
 
+def EliminateDynamicAllocation():
+    """Eliminate dynamic non-global allocations.
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.EliminateDynamicAllocation()
+
+
 def InjectCalculatedIsa():
     """Inject calculated isa value using existed isa's value.
 

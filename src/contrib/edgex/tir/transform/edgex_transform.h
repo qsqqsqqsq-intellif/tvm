@@ -43,6 +43,12 @@ using tvm::transform::PassNode;
 using tvm::transform::Sequential;
 
 /*!
+ * \brief Eliminate dynamic non-global allocations.
+ * \return The pass.
+ */
+TVM_DLL Pass EliminateDynamicAllocation();
+
+/*!
  * \brief Inject handshake intrinsics.
  * \return The pass.
  */
