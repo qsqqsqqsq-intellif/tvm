@@ -70,6 +70,11 @@ class FixedOpTwoArgs:
         ):
             self.quantized = False
 
+        if node.op.name == "subtract":
+            for arg in node.args:
+                if not isinstance(arg, relay.Constant) and not vertex_config[arg].quantized:
+                    self.quantized = False
+
         if "quantized" in config:
             self.quantized = config["quantized"]
 

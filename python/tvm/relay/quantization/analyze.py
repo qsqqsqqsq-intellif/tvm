@@ -121,14 +121,14 @@ FLOAT_OP_LIST = [
     "power",
     "variance",
     "power",
+    "maximum",
+    "minimum",
 ]
 
 # if fixed-point, two inputs identity scale
 FIXED_OP_TWOARGS_LIST = [
     "add",
     "subtract",
-    "maximum",
-    "minimum",
     "nn.bias_add",
 ]
 

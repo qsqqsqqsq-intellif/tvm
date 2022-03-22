@@ -89,7 +89,7 @@ class Conv2DTransposeBiasAdd:
         conv2d_transpose_groups = conv2d_transpose.attrs.groups
         weigh_ci = node.args[1].data.shape[0]
         if conv2d_transpose_groups == weigh_ci and node.args[1].data.shape[1] == 1:
-            input0_axis = node.attrs.data_layout.find("C")
+            input0_axis = conv2d_transpose.attrs.data_layout.find("C")
         else:
             input0_axis = -1
 

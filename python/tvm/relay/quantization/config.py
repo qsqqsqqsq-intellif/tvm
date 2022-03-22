@@ -211,6 +211,12 @@ class ConfigSpace(ExprVisitor):
                 tmp_arg = self.node_id[arg]
                 config[tmp_arg]["quantized"] = False
 
+        if (
+            name in ["add", "subtract", "multiply"]
+            and call.args[0]._checked_type_.shape != call.args[1]._checked_type_.shape
+        ):
+            config[tmp]["quantized"] = False
+
     def visit_call(self, call):
         for arg in call.args:
             self.visit(arg)

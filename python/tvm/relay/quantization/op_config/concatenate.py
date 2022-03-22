@@ -126,7 +126,7 @@ class Concatenate:
         if scale_all_scalar == 1:
             concat_scale = numpy.array([])
             arg_shape = relay.frontend.common.infer_type(old_arg.fields[0]).checked_type.shape
-            if len(arg_shape) == 4:
+            if len(arg_shape) == 4 and self.output_config["axis"] == 1:
                 # axis use perchannel
                 axis = old_node.attrs.axis
                 for arg in old_arg:
