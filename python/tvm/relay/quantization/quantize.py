@@ -207,24 +207,40 @@ def quantize300(
             param_shape_imm = sym.params[0].type_annotation.shape
             param_shape = [meber.value for meber in param_shape_imm]
             if param_shape[0] != 1:
+                assert callable(
+                    dataset
+                ), "input batch>1, The dataset must be callable, like lambda:iter([dict])!!"
                 assert isinstance(
                     dataset(), Iterator
                 ), "input batch>1, The dataset() must be iterator!!!"
+
             elif len(sym.params) == 2 and sym.params[1].name_hint != "im_info":
+                assert callable(
+                    dataset
+                ), "the model is two input, The dataset must callable, like lambda:iter([dict])!!"
                 assert isinstance(
                     dataset(), Iterator
                 ), "the model is two input, The dataset() must be iterator!!!"
             elif (channel_last and param_shape[3] not in [1, 3]) or (
                 not channel_last and param_shape[1] not in [1, 3]
             ):
+                assert callable(
+                    dataset
+                ), "input-ch not in [1, 3], The dataset must callable, like lambda:iter([dict])!!"
                 assert isinstance(
                     dataset(), Iterator
                 ), "the model input-ch not in [1, 3], The dataset() must be iterator!!!"
         else:
+            assert callable(
+                dataset
+            ), "input0 len(shape) !=4, The dataset must be callable, like lambda:iter([dict])!!"
             assert isinstance(
                 dataset(), Iterator
             ), "input0 len(shape) !=4, The dataset() must be iterator!!!"
     else:
+        assert callable(
+            dataset
+        ), "inpu_num > 2 The dataset must be callable, like lambda:iter([dict])!!"
         assert isinstance(dataset(), Iterator), "inpu_num > 2 The dataset() must be iterator!!!"
 
     def filter_config(quantize_config):

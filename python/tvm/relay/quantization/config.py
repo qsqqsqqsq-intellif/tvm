@@ -208,8 +208,9 @@ class ConfigSpace(ExprVisitor):
         if name == "equal":
             config[tmp]["quantized"] = False
             for arg in call.args:
-                tmp_arg = self.node_id[arg]
-                config[tmp_arg]["quantized"] = False
+                if isinstance(arg, relay.Call):
+                    tmp_arg = self.node_id[arg]
+                    config[tmp_arg]["quantized"] = False
 
         if (
             name in ["add", "subtract", "multiply"]
