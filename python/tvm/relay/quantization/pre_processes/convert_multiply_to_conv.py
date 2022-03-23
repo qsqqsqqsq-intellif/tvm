@@ -115,9 +115,14 @@ class ConvertMultiplyToConv(ExprMutator):
 
                 return relay.nn.conv3d(visited.args[0].args[0], conv3d_arg, **attrs)
 
-            if len(shape0) == 5 and (
-                not isinstance(visited.args[0], relay.Call)
-                or visited.args[0].op.name not in ["nn.conv3d"]
+            if (
+                len(shape0) == 5
+                and layout
+                and len(layout) == 5
+                and (
+                    not isinstance(visited.args[0], relay.Call)
+                    or visited.args[0].op.name not in ["nn.conv3d"]
+                )
             ):
                 assert layout == "NCDHW"
                 if len(shape1) != 4:
