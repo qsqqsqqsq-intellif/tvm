@@ -292,6 +292,12 @@ class NNP400InplaceOpVerifier : public StmtExprVisitor {
     }
   }
 
+  void VisitStmt_(const ForNode* op) final {
+    loop_vars_.push_back(op->loop_var.get());
+    StmtExprVisitor::VisitStmt_(op);
+    loop_vars_.pop_back();
+  }
+
   void VisitStmt_(const BufferStoreNode* op) final {
     ++mem_nest_;
     ICHECK(!op->indices.empty());
@@ -334,6 +340,19 @@ class NNP400InplaceOpVerifier : public StmtExprVisitor {
         result_ = false;
         return;
       }
+      if (load_cnt_ > 0) {
+        // only allow read once under scope
+        result_ = false;
+        return;
+      }
+      ++load_cnt_;
+      for (const VarNode* loop_var : loop_vars_) {
+        // partial check to reject non-bijective access index on current loop nests
+        if (!UsesVar(op->indices[0], [loop_var](const VarNode* v) { return v == loop_var; })) {
+          result_ = false;
+          return;
+        }
+      }
     }
     ++mem_nest_;
     StmtExprVisitor::VisitExpr_(op);
@@ -348,10 +367,13 @@ class NNP400InplaceOpVerifier : public StmtExprVisitor {
   // source variable
   const VarNode* src_;
   // counter of load,
+  size_t load_cnt_{0};
   // it is not safe to inplace when there is nested load like A[B[i]]
   int mem_nest_{0};
   // The current store to be inspected
   const BufferStoreNode* store_{nullptr};
+  // Current loops
+  std::vector<const VarNode*> loop_vars_;
 };
 
 // Planner to plan and rewrite memory allocation.
@@ -826,7 +848,11 @@ class NNP400StoragePlanRewriter : public StmtExprMutator {
         if (offset < 0) continue;
         const StmtEntry& s = seq[i + offset];
         const auto& events = event_map_[s.stmt];
-        ss << s.stmt->GetTypeKey() << "\n"
+        std::stringstream stmt_ss;
+        stmt_ss << GetRef<Stmt>(s.stmt);
+        size_t newline_pos = stmt_ss.str().find_first_of('\n');
+
+        ss << stmt_ss.str().substr(0, newline_pos) << "\n"
            << "[TOUCH] ";
         for (auto v : s.touched) ss << GetRef<Var>(v) << ", ";
         ss << "\n[GEN] ";

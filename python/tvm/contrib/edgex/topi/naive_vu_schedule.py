@@ -524,7 +524,7 @@ class NaiveVuSchedule:
         # esitimate required vm bytes (since dm spatial > vm spatial), this is a naive estimation
         vm_read_bytes = tvm.tir.IntImm("int32", 0)
         vm_write_bytes = tvm.tir.IntImm("int32", 0)
-        max_vm_bytes = 16 * 1024
+        max_vm_bytes = 32 * 1024
         for buffer in read_bufs:
             if buffer in write_bufs:
                 continue
@@ -568,9 +568,9 @@ class NaiveVuSchedule:
 
         # esitimate how large outer iteration extents we need, this is a naive estimation
         cur_outer_factor = 1
-        while pack_vf >= 8:
+        outer_factor_estimation = (required_bytes // max_vm_bytes + 1) // 2 * 2
+        while pack_vf >= 2:
             spatial_factor = 8 if pack_vf == 16 else 4
-            outer_factor_estimation = (required_bytes // max_vm_bytes + 1) // 2 * 2
             cur_outer_factor = 1
             for loop_rv in axes:
                 typ, extent = axes_info[loop_rv]

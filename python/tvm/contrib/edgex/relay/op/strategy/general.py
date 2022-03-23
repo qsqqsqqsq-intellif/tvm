@@ -72,22 +72,14 @@ def schedule_injective_edgex(attrs, outs, target):
     return s
 
 
-# @tir_schedule_injective.register("edgex")
-# def tir_schedule_injective_edgex(attrs, outs, target):
-#    """schedule injective ops for edgex"""
-#    with target:
-#        outs = [outs] if isinstance(outs, te.tensor.Tensor) else outs
-#    return te.create_prim_func(outs)
-
-
 @generic.dense_strategy.register("edgex")
-def dense_strategy_cpu(attrs, inputs, out_type, target):
+def dense_strategy_edgex(attrs, inputs, out_type, target):
     """temporary dense edgex strategy that are schedulable"""
     strategy = _op.OpStrategy()
     strategy.add_implementation(
-        generic.wrap_compute_dense(topi.x86.dense_nopack),
-        generic.wrap_topi_schedule(topi.x86.schedule_dense_nopack),
-        name="dense_nopack.x86",
+        generic.wrap_compute_dense(topi.nn.dense),
+        generic.wrap_topi_schedule(topi.generic.schedule_dense),
+        name="dense.vu.edgex",
         plevel=10,
     )
     return strategy

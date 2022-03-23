@@ -233,6 +233,48 @@ def mixed_datatype_expect() -> None:
     T.evaluate(vm1[0])
     T.evaluate(vm2[0])
     T.evaluate(vm3[0])
+
+
+@T.prim_func
+def standard_access_inplace() -> None:
+    X = T.allocate([128], "float32", "global")
+    Y = T.allocate([128], "float32", "global")
+    for i in range(128):
+        Y[i] = X[i] + 1.0
+
+
+@T.prim_func
+def standard_access_inplace_expect() -> None:
+    Y = T.allocate([128], "float32", "global")
+    X = T.buffer_decl([128], dtype="float32", data=Y.data)
+    for i in T.serial(128):
+        Y[i] = X[i] + 1.0
+
+
+@T.prim_func
+def access_can_not_inplace0(YY: T.Buffer[(128,), "float32"]) -> None:
+    X = T.allocate([128], "float32", "global")
+    Y1 = T.allocate([128], "float32", "global")
+    Y2 = T.allocate([128], "float32", "global")
+    for i in range(128):
+        X[i] = 3.14
+    for i in range(128):
+        Y1[i] = X[i] + 1.0
+        Y2[i] = X[i] - 1.0
+    for i in range(128):
+        YY[i] = Y1[i] + Y2[i]
+
+
+@T.prim_func
+def access_can_not_inplace1() -> None:
+    X = T.allocate([128], "float32", "global")
+    Y1 = T.allocate([128], "float32", "global")
+    for i in range(128):
+        X[i] = 3.14
+    for i in range(8):
+        for j in range(128):
+            Y1[j] = X[j] + 1.0
+
 # fmt: on
 
 
@@ -260,8 +302,15 @@ def test_mixed_datatype():
     do_test_storage_rewrite(mixed_datatype, mixed_datatype_expect)
 
 
+def test_inplace_behavior():
+    do_test_storage_rewrite(standard_access_inplace, standard_access_inplace_expect)
+    do_test_storage_rewrite(access_can_not_inplace0, access_can_not_inplace0)
+    do_test_storage_rewrite(access_can_not_inplace1, access_can_not_inplace1)
+
+
 if __name__ == "__main__":
     test_storage_rewrite_vu_simple()
     test_alignment_requirement()
     test_cube_dma_lifetime()
     test_mixed_datatype()
+    test_inplace_behavior()

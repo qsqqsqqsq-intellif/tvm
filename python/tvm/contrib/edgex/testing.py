@@ -389,6 +389,13 @@ def check_numpy_result(
     return CheckResult(ref_inputs, [result], [expect], actual_rmse, success)
 
 
+def wrap_relay_fused_function(relay_function):
+    """Wrap relay function into fused form for testing purpose"""
+    relay_function = relay_function.with_attr("Primitive", 1)
+    new_args = [relay.Var(p.name_hint, p.type_annotation) for p in relay_function.params]
+    return relay.Function(new_args, relay.Call(relay_function, new_args))
+
+
 def get_edgex_plan_device_config(pass_ctx):
     """Get [cpu + edgex] config for relay device plan pass"""
     cpu = tvm.device("cpu")
