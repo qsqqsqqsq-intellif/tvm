@@ -38,10 +38,12 @@ LOGGER = logging.getLogger("quantize")
 def post_process(cls):
     """post_process"""
     mod = cls.post_processed_mod
-    # mod = eliminate_quantize_dequantize(mod)
-    # mod = eliminate_dequantize_quantize(mod)
-    # mod = relay.transform.ConvertQnnOp()(mod)
-    # mod = relay.transform.FoldConstant()(mod)
+    if "adaquant_enable" in cls.config and cls.config["adaquant_enable"] == True:
+        mod = eliminate_quantize_dequantize(mod)
+        mod = eliminate_dequantize_quantize(mod)
+        mod = relay.transform.ConvertQnnOp()(mod)
+        mod = relay.transform.FoldConstant()(mod)
+
     mod = remove_input_quantize(mod, cls.net_in_dtype)
     LOGGER.info("[post_process]: ")
     if isinstance(mod, relay.Function):
