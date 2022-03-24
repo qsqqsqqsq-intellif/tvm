@@ -38,7 +38,7 @@ LOGGER = logging.getLogger("quantize")
 def post_process(cls):
     """post_process"""
     mod = cls.post_processed_mod
-    if "adaquant_enable" in cls.config and cls.config["adaquant_enable"] == True:
+    if "adaquant_enable" in cls.config and cls.config["adaquant_enable"]:
         mod = eliminate_quantize_dequantize(mod)
         mod = eliminate_dequantize_quantize(mod)
         mod = relay.transform.ConvertQnnOp()(mod)
