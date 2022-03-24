@@ -188,7 +188,9 @@ class FloatOp:
         if use_fp16:
             for old_arg, new_arg in zip(old_node.args, realized_args):
                 tmp = relay.frontend.common.infer_type(new_arg)
-                if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
+                if tmp.checked_type.dtype == "bool":
+                    new_arg = new_arg
+                elif isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float16":
                     new_arg = relay.const(new_arg.data.asnumpy().astype("float16"))
                 elif tmp.checked_type.dtype.startswith("int"):
                     new_arg = operate("dequantize", new_arg, self.input_config[old_arg], {}, True)
@@ -205,7 +207,9 @@ class FloatOp:
             LOGGER.info("[realize]-- %s use int32...", self.name)
             for old_arg, new_arg in zip(old_node.args, realized_args):
                 tmp = relay.frontend.common.infer_type(new_arg)
-                if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "int32":
+                if tmp.checked_type.dtype == "bool":
+                    new_arg = new_arg
+                elif isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "int32":
                     new_arg = relay.const(new_arg.data.asnumpy().astype("int32"))
                 elif tmp.checked_type.dtype != "int32":
                     new_arg = relay.cast(new_arg, "int32")
@@ -218,7 +222,9 @@ class FloatOp:
             LOGGER.info("[realize]-- %s use float32...", self.name)
             for old_arg, new_arg in zip(old_node.args, realized_args):
                 tmp = relay.frontend.common.infer_type(new_arg)
-                if isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float32":
+                if tmp.checked_type.dtype == "bool":
+                    new_arg = new_arg
+                elif isinstance(new_arg, relay.Constant) and tmp.checked_type.dtype != "float32":
                     new_arg = relay.const(new_arg.data.asnumpy().astype("float32"))
                 elif tmp.checked_type.dtype != "float32":
                     new_arg = relay.cast(new_arg, "float32")

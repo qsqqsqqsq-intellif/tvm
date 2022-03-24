@@ -79,9 +79,12 @@ class Multiply:
         input0_config = _quantized_judge(
             vertex_config, node.args[0], input0_axis, self.quantized, ci0
         )
-        input1_config = _quantized_judge(
-            vertex_config, node.args[1], input1_axis, self.quantized, ci1
-        )
+        if node.args[1] == node.args[0]:
+            input1_config = input0_config
+        else:
+            input1_config = _quantized_judge(
+                vertex_config, node.args[1], input1_axis, self.quantized, ci1
+            )
         self.input_config = {node.args[0]: input0_config, node.args[1]: input1_config}
 
         output0_config = {
