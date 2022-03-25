@@ -45,6 +45,10 @@ def post_process(cls):
         mod = relay.transform.FoldConstant()(mod)
 
     mod = remove_input_quantize(mod, cls.net_in_dtype)
+    if "ir_pass" in relay.__dict__:
+        mod = relay.ir_pass.fold_constant(mod)
+    else:
+        mod = relay.transform.FoldConstant()(mod)
     LOGGER.info("[post_process]: ")
     if isinstance(mod, relay.Function):
         LOGGER.info(mod)

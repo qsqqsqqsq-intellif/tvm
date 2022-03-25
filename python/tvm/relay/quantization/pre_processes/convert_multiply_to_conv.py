@@ -71,7 +71,6 @@ class ConvertMultiplyToConv(ExprMutator):
                     "reshape",
                     "nn.batch_flatten",
                 ]:
-                    print(pre_expr)
                     attrs = dict(pre_expr.attrs) if pre_expr.attrs is not None else {}
                     if "layout" in attrs:
                         layout = attrs["layout"]
