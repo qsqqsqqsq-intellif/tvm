@@ -179,7 +179,7 @@ def quantize300(
     similarity_dataset=None,
     similarity_img_num=1,
     save_dir=None,
-    excepted_acc=1.0,
+    eval_func=None,
     sync_outdtype=True,
 ):
 
@@ -277,7 +277,7 @@ def quantize300(
             dataset=real_dataset,
             image_path=real_img_dir,
             calibrate_num=prof_img_num,
-            eval_func=None,
+            eval_func=eval_func,
             rgb=rgb_str,
             mean=mean,
             scale=scale,
@@ -301,10 +301,15 @@ def quantize300(
             quantize_search.calibrate_num = similarity_img_num
             quantize_search.dataset = relay.quantization.default_data(quantize_search)
         else:
+            assert callable(
+                similarity_dataset,
+            ), "similarity_dataset must callable, like lambda: Iter([dict])"
             assert isinstance(
                 similarity_dataset(), Iterator
-            ), "similarity_dataset must Iterable, like lambda: Iter([dict])"
+            ), "similarity_dataset() must be Iterator"
             quantize_search.dataset = similarity_dataset
+    else:
+        quantize_search.calibrate_num = min(quantize_search.calibrate_num, similarity_img_num)
 
     if check_similarity:
         quantize_search.evaluate("post_process", config)

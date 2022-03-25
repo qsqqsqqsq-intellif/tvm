@@ -139,8 +139,12 @@ def default_eval(cls):
     def evaluate(runtime):
         """evaluate"""
         total_output = []
-        # idx_count = 0
+        idx_count = 1
         for data in cls.dataset():
+            if idx_count > cls.calibrate_num:
+                break
+            idx_count = idx_count + 1
+
             runtime.set_input(**data)
             # print("num_count_" + str(idx_count), data["data"])
             # idx_count = idx_count + 1
