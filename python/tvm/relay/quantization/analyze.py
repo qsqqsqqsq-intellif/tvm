@@ -62,6 +62,7 @@ IDENTITY_INPUT_DTYPE_OP = [
     "reverse",
     "zeros_like",
     "ones_like",
+    "broadcast_to",
     "take",
     "slice_like",
     "nn.pad",
@@ -102,6 +103,7 @@ IDENTITY_OP_LIST = [
     "reverse",
     "zeros_like",
     "ones_like",
+    "broadcast_to",
 ]
 
 # only support fp16

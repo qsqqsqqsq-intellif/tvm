@@ -44,7 +44,7 @@ class QuantizeSearch:
 
     def __init__(
         self,
-        model_name="nnp",
+        model_name="opt",
         mod=None,
         params=None,
         dataset=None,
