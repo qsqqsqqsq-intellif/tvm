@@ -46,3 +46,446 @@ if __name__ == "__main__":
         "dataset_dir": None,
     }
     verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["Placeholder"],
+    #     "input_shapes": [(1, 224, 224, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/densenet/densenet_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["images"],
+    #     "input_shapes": [(1, 224, 224, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/efficientnet_lite0_fp32/efficientnet_lite0_fp32_2.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["images"],
+    #     "input_shapes": [(1, 240, 240, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/efficientnet_lite1_fp32/efficientnet_lite1_fp32_2.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["images"],
+    #     "input_shapes": [(1, 260, 260, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/efficientnet_lite2_fp32/efficientnet_lite2_fp32_2.tflite",
+    #     "dataset_dir": None,
+    # }
+
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["images"],
+    #     "input_shapes": [(1, 280, 280, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/efficientnet_lite3_fp32/efficientnet_lite3_fp32_2.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["images"],
+    #     "input_shapes": [(1, 300, 300, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/efficientnet_lite4_fp32/efficientnet_lite4_fp32_2.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 299, 299, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/inception_resnet_v2/inception_resnet_v2_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 299, 299, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/inception_v3/inception_v3_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 224, 224, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mnasnet_0.50_224/mnasnet_0.50_224_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 224, 224, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mnasnet_0.75_224/mnasnet_0.75_224_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 224, 224, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mnasnet_0.75_224/mnasnet_0.75_224_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 224, 224, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mnasnet_0.75_224/mnasnet_0.75_224_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 96, 96, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mnasnet_1.0_96/mnasnet_1.0_96_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 128, 128, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mnasnet_1.0_128/mnasnet_1.0_128_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+
+    # verify_model_precision(model_config)
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 160, 160, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mnasnet_1.0_160/mnasnet_1.0_160_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 192, 192, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mnasnet_1.0_192/mnasnet_1.0_192_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 224, 224, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mnasnet_1.0_224/mnasnet_1.0_224_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 224, 224, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mnasnet_1.3_224/mnasnet_1.3_224_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 128, 128, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.25_128/mobilenet_v1_0.25_128_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 160, 160, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.25_160/mobilenet_v1_0.25_160_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 192, 192, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.25_192/mobilenet_v1_0.25_192_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 224, 224, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.25_224/mobilenet_v1_0.25_224_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 128, 128, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.50_128/mobilenet_v1_0.50_128_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 160, 160, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.50_160/mobilenet_v1_0.50_160_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 192, 192, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.50_192/mobilenet_v1_0.50_192_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 224, 224, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.50_224/mobilenet_v1_0.50_224_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 128, 128, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.75_128/mobilenet_v1_0.75_128_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 160, 160, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.75_160/mobilenet_v1_0.75_160_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 192, 192, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.75_192/mobilenet_v1_0.75_192_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 224, 224, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_0.75_224/mobilenet_v1_0.75_224_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 128, 128, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_1.0_128/mobilenet_v1_1.0_128_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 160, 160, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_1.0_160/mobilenet_v1_1.0_160_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    # model_config = {
+    #     "framework": "tflite",
+    #     "input_names": ["input"],
+    #     "input_shapes": [(1, 192, 192, 3)],
+    #     "input_dtypes": ["float32"],
+    #     "layout": "NHWC",
+    #     "preproc_method": "pass_through",
+    #     "model_file": path_prefix
+    #     + "Visual/mobilenet_v1_1.0_192/mobilenet_v1_1.0_192_1_default_1.tflite",
+    #     "dataset_dir": None,
+    # }
+    # verify_model_precision(model_config)
+
+    model_config = {
+        "framework": "tflite",
+        "input_names": ["input"],
+        "input_shapes": [(1, 224, 224, 3)],
+        "input_dtypes": ["float32"],
+        "layout": "NHWC",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix
+        + "Visual/mobilenet_v2_1.0_224/mobilenet_v2_1.0_224_1_default_1.tflite",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
