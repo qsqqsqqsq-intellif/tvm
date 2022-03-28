@@ -90,7 +90,7 @@ if __name__ == "__main__":
         "input_dtypes": ["float32"],
         "layout": "NHWC",
         "preproc_method": "pass_through",
-        "model_file": path_prefix + "efficientnet-lit4/efficientnet-lite4-11.onnx",
+        "model_file": path_prefix + "efficientnet-lite4/efficientnet-lite4-11.onnx",
         "dataset_dir": None,
     }
     verify_model_precision(model_config)
