@@ -446,9 +446,10 @@ class AtomicGraph {
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_POOL,
                         {{"cast"}, {"sum", ""}, {"nn.sum_pool2d"}, {"multiply"}});
     // ATOMIC_POOL + ATOMIC_ELTWISE
+    // and for mobilenet_v3
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_POOL,
                         {{"nn.avg_pool2d", "nn.max_pool2d", "nn.sum_pool2d", "nn.global_avg_pool2d",
-                          "nn.global_max_pool2d", "nn.global_sum_pool2d"},
+                          "nn.global_max_pool2d", "nn.global_sum_pool2d", "multiply"},
                          {"cast"},
                          {"multiply"},
                          {"round_right_shift"},
