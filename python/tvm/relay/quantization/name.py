@@ -35,7 +35,7 @@ class GetName(ExprVisitor):
         self.id_node = {}
         self.op_num = {}
         self.tuple_num = 0
-        self.dot = Digraph(name="optimize", comment="the test", format="png")
+        self.dot = Digraph(name="optimize", comment="the test", format="pdf")
         LOGGER.info("  ")
         LOGGER.info("--model after pre_process structure:")
         if isinstance(mod, relay.Function):
@@ -43,7 +43,7 @@ class GetName(ExprVisitor):
         else:
             self.visit(mod["main"])
         if path is not None:
-            LOGGER.info("optimize ir save to %s opt_ir.png", path)
+            LOGGER.info("optimize ir save to %s opt_ir.pdf", path)
             self.dot.render(filename="opt_ir", directory=path)
 
     def visit_call(self, call):
