@@ -17,8 +17,6 @@
 # pylint: disable=unused-argument,inconsistent-return-statements,import-outside-toplevel,bad-continuation
 """Automatic quantization toolkit."""
 
-import os
-import shutil
 import logging
 from collections.abc import Iterator
 import numpy as np
@@ -79,9 +77,11 @@ def run_quantization(
     mod=None,
     params=None,
     config=None,
-    fast_mode=True,
-    use_gpu=False,
+    mean=0,
+    std=1,
+    axis=1,
     root_path=".",
+    fast_mode=None,
 ):
     """Module to module quantization interface
 
@@ -99,17 +99,12 @@ def run_quantization(
     config : dict
         quantization configurations.
 
-    fast_mode : bool
-        use small random datasets to get result rapidly.
-
     Returns
     -------
     (mod, params) pair of quantization result
     """
     # prepare mock data
     mod = relay.transform.InferType()(mod)
-    if not fast_mode:
-        raise ValueError("Do not know how to quantize when fast_mode == False")
     single_data = {}
     for param in mod["main"].params:
         input_name = param.name_hint
@@ -117,21 +112,11 @@ def run_quantization(
         shape = [int(_) for _ in param.checked_type.shape]
         if params is not None and input_name in params:
             continue  # skip model weight params
-        data = np.random.randint(0, 64, shape).astype(dtype)
+        data = np.random.randint(0, 256, shape).astype(dtype)
         single_data[input_name] = data
-    dummy_mean = [0.485 * 255, 0.456 * 255, 0.406 * 255]
-    dummy_scale = [0.229 * 255, 0.224 * 255, 0.225 * 255]
 
     def eval_nothing():
         return 0.0
-
-    # call quantize search
-    if use_gpu:
-        ctx = tvm.cuda(0)
-        target = "cuda"
-    else:
-        ctx = tvm.cpu()
-        target = "llvm"
 
     quantize_search = relay.quantization.QuantizeSearch(
         model_name=model_name,
@@ -140,28 +125,32 @@ def run_quantization(
         dataset=lambda: iter([single_data]),
         calibrate_num=1,
         eval_func=eval_nothing,
-        ctx=ctx,
-        target=target,
+        ctx=tvm.cpu(),
+        target="llvm",
         root_path=root_path,
-        mean=dummy_mean,
-        scale=dummy_scale,
+        norm={
+            "input": {
+                "mean": mean,
+                "std": std,
+                "axis": axis,
+            },
+        },
+        quantize_config=config,
         compare_statistics=False,
+        verbose=True,
     )
-    if config is None:
-        config = quantize_search.get_default_config()
+    config = quantize_search.get_default_config()
     quantize_search.quantize(config)
     quantized_mod = quantize_search.results[-1]["mod"]
     quantized_mod = relay.transform.FoldConstant()(quantized_mod)
 
     # test build and extract result
-    relay.build(quantized_mod, target)
+    relay.build(quantized_mod, "llvm")
     from tvm.relay.quantization.post_processes.extract_module import ExtractParamsPass
 
     func, quantized_params = ExtractParamsPass().run(quantized_mod["main"])
     func = relay.frontend.common.infer_type(func)
     quantized_mod = tvm.ir.module.IRModule.from_expr(func)
-
-    shutil.rmtree(os.path.join(root_path, model_name))
     return quantized_mod, quantized_params
 
 
