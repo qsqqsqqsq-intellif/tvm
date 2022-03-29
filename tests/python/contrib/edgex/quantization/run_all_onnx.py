@@ -276,7 +276,7 @@ meta = {
         "axis": 1,
         "file": "zfnet512/zfnet512-9.onnx",
     },
-    "efficientnet-lit4": {
+    "efficientnet-lite4": {
         "input": "images:0",
         "shape": [1, 224, 224, 3],
         "axis": 3,
