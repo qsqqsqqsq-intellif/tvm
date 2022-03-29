@@ -77,61 +77,326 @@ def _run(
 
 
 meta = {
-    "mobilenet-v1": {"input": "input:0", "shape": [1, 3, 224, 224], "axis": 1},
-    "mobilenet-v2": {"input": "input", "shape": [1, 3, 224, 224], "axis": 1},
-    "mobilenet-v2_torchvision": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "mobilenet-v3-small": {"input": "input_image", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet18-v1": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet18-v2": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet34-v1": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet34-v2": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet50-caffe2-v1": {"input": "gpu_0/data_0", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet50-v1": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet50-v2": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet101-v1": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet101-v2": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet152-v1": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet152-v2": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnext50_32x4d_torchvision": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnest50": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "wide_resnet50_torchvision": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "seresnet50": {"input": "input_image", "shape": [1, 3, 224, 224], "axis": 1},
-    "squeezenet1.0": {"input": "data_0", "shape": [1, 3, 224, 224], "axis": 1},
-    "squeezenet1.1": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "vgg16": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "vgg16-bn": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1},
-    "alexnet": {"input": "data_0", "shape": [1, 3, 224, 224], "axis": 1},
-    "googlenet": {"input": "data_0", "shape": [1, 3, 224, 224], "axis": 1},
-    "caffenet": {"input": "data_0", "shape": [1, 3, 224, 224], "axis": 1},
-    "rcnn": {"input": "data_0", "shape": [1, 3, 224, 224], "axis": 1},
-    "densnet121": {"input": "data_0", "shape": [1, 3, 224, 224], "axis": 1},
-    "inception-v1": {"input": "data_0", "shape": [1, 3, 224, 224], "axis": 1},
-    "inception-v2": {"input": "data_0", "shape": [1, 3, 224, 224], "axis": 1},
-    "inception_v3_torchvision": {"input": "x.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "shufflenet-v1": {"input": "gpu_0/data_0", "shape": [1, 3, 224, 224], "axis": 1},
-    "shufflenet-v2": {"input": "input", "shape": [1, 3, 224, 224], "axis": 1},
-    "zfnet512": {"input": "gpu_0/data_0", "shape": [1, 3, 224, 224], "axis": 1},
-    "efficientnet-lit4": {"input": "images:0", "shape": [1, 224, 224, 3], "axis": 3},
-    "efficientnet-b0": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "EfficientNetV2: efficientnet_v2_m": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "EfficientNetV2: efficientnet_v2_s": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "mnist": {"input": "Input3", "shape": [1, 1, 28, 28], "axis": 1},
-    "ghostnet": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "condensenet-v2": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "mnasnet1_0_torchvision": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "DDRNet23_slim": {"input": "input_image", "shape": [1, 3, 224, 224], "axis": 1},
-    "DDRNet23": {"input": "input_image", "shape": [1, 3, 224, 224], "axis": 1},
-    "DDRNet39": {"input": "input_image", "shape": [1, 3, 224, 224], "axis": 1},
-    "HRNet_W18": {"input": "input_image", "shape": [1, 3, 224, 224], "axis": 1},
-    "vovnet19": {"input": "input_image", "shape": [1, 3, 224, 224], "axis": 1},
-    "vovnet27_slim": {"input": "input_image", "shape": [1, 3, 224, 224], "axis": 1},
-    "vovnet39": {"input": "input_image", "shape": [1, 3, 224, 224], "axis": 1},
-    "convnext: tiny": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "convnext: small": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "convnext: base": {"input": "input.1", "shape": [1, 3, 224, 224], "axis": 1},
-    "resnet3d: r3d_18_torchvision": {"input": "0", "shape": [1, 3, 16, 112, 112], "axis": 1},
-    "resnet3d: mc3_18_torchvision": {"input": "0", "shape": [1, 3, 16, 112, 112], "axis": 1},
-    "resnet3d: r2plus1d_18_torchvision": {"input": "0", "shape": [1, 3, 16, 112, 112], "axis": 1},
+    "mobilenet-v1": {
+        "input": "input:0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "mobilenet-v1/mobilenet_v1_1.0_224.onnx",
+    },
+    "mobilenet-v2": {
+        "input": "input",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "mobilenet-v2/mobilenetv2-7.onnx",
+    },
+    "mobilenet-v2_torchvision": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "mobilenet-v2_torchvision/mobilenetv2_torchvision.onnx",
+    },
+    "mobilenet-v3-small": {
+        "input": "input_image",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "mobilenet-v3-small/mobilenetv3_small_new.onnx",
+    },
+    "resnet18-v1": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnet18-v1/resnet18-v1-7.onnx",
+    },
+    "resnet18-v2": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnet18-v2/resnet18-v2-7.onnx",
+    },
+    "resnet34-v1": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnet34-v1/resnet34-v1-7.onnx",
+    },
+    "resnet34-v2": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnet34-v2/resnet34-v2-7.onnx",
+    },
+    "resnet50-caffe2-v1": {
+        "input": "gpu_0/data_0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnet50-caffe2-v1/resnet50-caffe2-v1-9.onnx",
+    },
+    "resnet50-v1": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnet50-v1/resnet50-v1-7.onnx",
+    },
+    "resnet50-v2": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnet50-v2/resnet50-v2-7.onnx",
+    },
+    "resnet101-v1": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnet101-v1/resnet101-v1-7.onnx",
+    },
+    "resnet101-v2": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnet101-v2/resnet101-v2-7.onnx",
+    },
+    "resnet152-v1": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnet152-v1/resnet152-v1-7.onnx",
+    },
+    "resnet152-v2": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnet152-v2/resnet152-v2-7.onnx",
+    },
+    "resnext50_32x4d_torchvision": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnext50_32x4d_torchvision/resnext50_32x4d.onnx",
+    },
+    "resnest50": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "resnest50/resnest50.onnx",
+    },
+    "wide_resnet50_torchvision": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "wide_resnet50_torchvision/wide_resnet50_2.onnx",
+    },
+    "seresnet50": {
+        "input": "input_image",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "seresnet50/seresnet50.onnx",
+    },
+    "squeezenet1.0": {
+        "input": "data_0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "squeezenet1.0/squeezenet1.0-9.onnx",
+    },
+    "squeezenet1.1": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "squeezenet1.1/squeezenet1.1-7.onnx",
+    },
+    "vgg16": {"input": "data", "shape": [1, 3, 224, 224], "axis": 1, "file": "vgg16/vgg16-7.onnx"},
+    "vgg16-bn": {
+        "input": "data",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "vgg16-bn/vgg16-bn-7.onnx",
+    },
+    "alexnet": {
+        "input": "data_0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "alexnet/bvlcalexnet-9.onnx",
+    },
+    "googlenet": {
+        "input": "data_0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "googlenet/googlenet-9.onnx",
+    },
+    "caffenet": {
+        "input": "data_0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "caffenet/caffenet-9.onnx",
+    },
+    "rcnn": {
+        "input": "data_0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "rcnn/rcnn-ilsvrc13-9.onnx",
+    },
+    "densnet121": {
+        "input": "data_0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "densnet121/densenet-9.onnx",
+    },
+    "inception-v1": {
+        "input": "data_0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "inception-v1/inception-v1-9.onnx",
+    },
+    "inception-v2": {
+        "input": "data_0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "inception-v2/inception-v2-9.onnx",
+    },
+    "inception_v3_torchvision": {
+        "input": "x.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "inception_v3_torchvision/inception_v3.onnx",
+    },
+    "shufflenet-v1": {
+        "input": "gpu_0/data_0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "shufflenet-v1/shufflenet-9.onnx",
+    },
+    "shufflenet-v2": {
+        "input": "input",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "shufflenet-v2/shufflenet-v2-10.onnx",
+    },
+    "zfnet512": {
+        "input": "gpu_0/data_0",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "zfnet512/zfnet512-9.onnx",
+    },
+    "efficientnet-lit4": {
+        "input": "images:0",
+        "shape": [1, 224, 224, 3],
+        "axis": 3,
+        "file": "efficientnet-lit4/efficientnet-lite4-11.onnx",
+    },
+    "efficientnet-b0": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "efficientnet-b0/efficientnet_b0.onnx",
+    },
+    "EfficientNetV2: efficientnet_v2_m": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "EfficientNetV2/efficientnet_v2_m.onnx",
+    },
+    "EfficientNetV2: efficientnet_v2_s": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "EfficientNetV2/efficientnet_v2_s.onnx",
+    },
+    "mnist": {"input": "Input3", "shape": [1, 1, 28, 28], "axis": 1, "file": "mnist/mnist-8.onnx"},
+    "ghostnet": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "ghostnet/ghostnet.onnx",
+    },
+    "condensenet-v2": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "condensenet-v2/condensevetv2_a.onnx",
+    },
+    "mnasnet1_0_torchvision": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "mnasnet1_0_torchvision/mnasnet1_0.onnx",
+    },
+    "DDRNet23_slim": {
+        "input": "input_image",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "DDRNet23_slim/DDRNet23_slim.onnx",
+    },
+    "DDRNet23": {
+        "input": "input_image",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "DDRNet23/DDRNet23.onnx",
+    },
+    "DDRNet39": {
+        "input": "input_image",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "DDRNet39/DDRNet39.onnx",
+    },
+    "HRNet_W18": {
+        "input": "input_image",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "HRNet_W18/HRNet-W18.onnx",
+    },
+    "vovnet19": {
+        "input": "input_image",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "vovnet19/vovnet19.onnx",
+    },
+    "vovnet27_slim": {
+        "input": "input_image",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "vovnet27_slim/vovnet27_slim.onnx",
+    },
+    "vovnet39": {
+        "input": "input_image",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "vovnet39/vovnet39.onnx",
+    },
+    "convnext: convnext_tiny": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "convnext/convnext_tiny.onnx",
+    },
+    "convnext: convnext_small": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "convnext/convnext_small.onnx",
+    },
+    "convnext: convnext_base": {
+        "input": "input.1",
+        "shape": [1, 3, 224, 224],
+        "axis": 1,
+        "file": "convnext/convnext_base.onnx",
+    },
+    "r3d_18_torchvision": {
+        "input": "0",
+        "shape": [1, 3, 16, 112, 112],
+        "axis": 1,
+        "file": "r3d_18_torchvision/r3d_18.onnx",
+    },
+    "mc3_18_torchvision": {
+        "input": "0",
+        "shape": [1, 3, 16, 112, 112],
+        "axis": 1,
+        "file": "mc3_18_torchvision/mc3_18.onnx",
+    },
+    "r2plus1d_18_torchvision": {
+        "input": "0",
+        "shape": [1, 3, 16, 112, 112],
+        "axis": 1,
+        "file": "r2plus1d_18_torchvision/r2plus1d_18.onnx",
+    },
 }
 
 source_path = "/data/share/demodels-lfs/onnx"
@@ -140,12 +405,19 @@ target_path = "/home/zhaojinxi/Documents/onnx_result"
 models = {}
 for name in os.listdir(source_path):
     model_path = os.path.join(source_path, name)
+    tmp1 = []
     for file in os.listdir(model_path):
         if os.path.splitext(file)[1] == ".onnx":
-            models[name] = {"file": file}
-
+            tmp1.append(file)
+    models[name] = {"file": tmp1}
 for k, v in meta.items():
-    meta[k].update(models[k])
+    if ": " in k:
+        tmp1, tmp2 = k.split(": ")
+        for i in models[tmp1]["file"]:
+            print(os.path.join(k, i))
+    else:
+        for i in models[k]["file"]:
+            print(os.path.join(k, i))
 
 for name, v in meta.items():
     save_path = os.path.join(target_path, name)
@@ -158,15 +430,14 @@ for name, v in meta.items():
     if os.path.exists(log_path):
         with open(log_path, "r") as f:
             line = f.readlines()
-            if line[-1] == "finished\n":
+            if line != [] and line[-1] == "finished\n":
                 rerun = False
 
     if rerun:
         log = open(log_path, "w")
         sys.stdout = log
 
-        model_path = os.path.join(source_path, name)
-        file_path = os.path.join(model_path, v["file"])
+        file_path = os.path.join(source_path, v["file"])
         model = onnx.load(file_path)
         log.write("input shape:\n" + str(v["shape"]) + "\n\n")
 
