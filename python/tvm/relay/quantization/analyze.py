@@ -165,10 +165,6 @@ def recursive_identity_axis(input_axis, node, vertex_config):
 def _quantized_judge(vertex_config, node, input_axis, quantized, config):
     """quantized judge"""
 
-    vertex_config[node].output_config["ref_count"] = (
-        vertex_config[node].output_config["ref_count"] + 1
-    )
-
     # dtype set
     # arg not quantized and self not quantized: dtype:float16
     if vertex_config[node].quantized or not vertex_config[node].quantized and quantized:
@@ -201,6 +197,11 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
         # --the quantized_axis should be the smallest to all-possible axis
         # --notice! when do 'threshold' the input_axis is not really use axis,
         # ----------------  finally use the output_config['quantized_axis']
+
+        vertex_config[node].output_config["ref_count"] = (
+            vertex_config[node].output_config["ref_count"] + 1
+        )
+
         if vertex_config[node].output_config["quantized_axis"] == "none":
             input_config.update(
                 {
@@ -387,13 +388,6 @@ class Tuple:
         self.input_config = {}
         for arg_dix in range(len_arg):
 
-            # for case concat(%1, %1, %1, %1)
-            if node.fields[arg_dix] in self.input_config:
-                vertex_config[node.fields[arg_dix]].output_config["ref_count"] = (
-                    vertex_config[node.fields[arg_dix]].output_config["ref_count"] + 1
-                )
-                continue
-
             input_config = _quantized_judge(
                 vertex_config,
                 node.fields[arg_dix],
@@ -401,6 +395,11 @@ class Tuple:
                 self.quantized,
                 config["input" + str(arg_dix)],
             )
+
+            # for case concat(%1, %1, %1, %1)
+            if node.fields[arg_dix] in self.input_config:
+                continue
+
             self.input_config.update({node.fields[arg_dix]: input_config})
 
         # set output0_config
