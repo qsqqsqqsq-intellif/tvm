@@ -17,11 +17,14 @@
 # pylint: disable=unused-argument,inconsistent-return-statements,len-as-condition
 """debug"""
 
+import logging
 import os
 import numpy
 import matplotlib.pyplot as plt
 import tvm
 from tvm import relay
+
+LOGGER = logging.getLogger("quantize")
 
 
 def norm_0(m1_, m2_):
@@ -225,6 +228,7 @@ def compare_statistics(cls, method):
     while True:
         try:
             batch = next(dataset)
+
             old_result = _run_graph(batch, old_r, old_ik, old_no)
             new_result = _run_graph(batch, new_r, new_ik, new_no)
             float_new_result = _int2float(new_result, new_scale)
@@ -288,8 +292,20 @@ def compare_statistics_api(cls, method, display_en, path):
 
     dataset = cls.dataset()
     all_result = []
+    dataset_idx = -1
     while True:
         try:
+            dataset_idx = dataset_idx + 1
+            if dataset_idx > cls.calibrate_num - 1:
+                break
+
+            if dataset_idx % 10 == 0:
+                LOGGER.info(
+                    "[evaluate layer similarity] now start img index %d total is %d",
+                    dataset_idx,
+                    cls.calibrate_num,
+                )
+
             batch = next(dataset)
             old_result = _run_graph(batch, old_r, old_ik, old_no)
             new_result = _run_graph(batch, new_r, new_ik, new_no)
@@ -302,7 +318,8 @@ def compare_statistics_api(cls, method, display_en, path):
                 tmp = cls.new2old[new_node[i]]["node"]
                 name = cls.node_id[tmp]
                 dtype = str(old_node[i].checked_type.shape)
-                # plot_statistics(o_r, n_r, distance, name, path)
+                if display_en:
+                    plot_statistics(o_r, n_r, distance, name, path)
                 one_result.append([name, distance])
                 print("{x:<30}{y:<50}{z:<40}".format(x=name, y=dtype, z=distance))
             all_result.append(one_result)

@@ -261,8 +261,6 @@ class QuantizeSearch:
         quantize = Quantize(self, config)
         self.quantize_instance = quantize
 
-        self.quantized_func = quantize.post_processed_mod
-
         tmp = {
             "mod": quantize.post_processed_mod,
             "config": quantize.config,

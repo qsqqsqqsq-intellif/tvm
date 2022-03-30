@@ -69,8 +69,8 @@ class FloatOp:
             tmp = "input" + str(i)
 
             input_axis = -1
-            if vertex_config[one_arg].quantized:
-                input_axis = vertex_config[one_arg].output_config["axis"]
+            # if vertex_config[one_arg].quantized:
+            #     input_axis = vertex_config[one_arg].output_config["axis"]
 
             # about avgpool, support perchannel
             if (

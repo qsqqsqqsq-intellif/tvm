@@ -279,11 +279,6 @@ def quantize300(
     config = quantize_search.get_default_config()
     quantize_search.quantize(config)
 
-    if check_layer_similarity:
-        compare_statistics_api(
-            quantize_search.quantize_instance, "cosine", display_result, save_dir
-        )
-
     if similarity_dataset is not None:
         if isinstance(similarity_dataset, str):
             quantize_search.image_path = similarity_dataset
@@ -297,10 +292,19 @@ def quantize300(
                 similarity_dataset(), Iterator
             ), "similarity_dataset() must be Iterator"
             quantize_search.dataset = similarity_dataset
+            quantize_search.calibrate_num = len(list(quantize_search.dataset()))
     else:
         quantize_search.calibrate_num = min(quantize_search.calibrate_num, similarity_img_num)
 
     if check_similarity:
+        quantize_search.use_default_eval = True
         quantize_search.evaluate("post_process", config)
 
-    return quantize_search.quantized_func, quantize_search.nnp300_pre_processed_mod
+    if check_layer_similarity:
+        quantize_search.quantize_instance.dataset = quantize_search.dataset
+        quantize_search.quantize_instance.calibrate_num = quantize_search.calibrate_num
+        compare_statistics_api(
+            quantize_search.quantize_instance, "cosine", display_result, save_dir
+        )
+
+    return quantize_search.results[-1]["mod"], quantize_search.nnp300_pre_processed_mod

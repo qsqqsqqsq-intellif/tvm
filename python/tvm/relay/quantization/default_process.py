@@ -17,11 +17,14 @@
 # pylint: disable=unused-argument,inconsistent-return-statements
 """default data"""
 
+import logging
 import os
 import random
 import cv2
 import numpy as np
 import tvm
+
+LOGGER = logging.getLogger("quantize")
 
 
 def fiter_img(file):
@@ -139,11 +142,16 @@ def default_eval(cls):
     def evaluate(runtime):
         """evaluate"""
         total_output = []
-        idx_count = 1
+        dataset_idx = -1
         for data in cls.dataset():
-            if idx_count > cls.calibrate_num:
+            dataset_idx = dataset_idx + 1
+            if dataset_idx > cls.calibrate_num - 1:
                 break
-            idx_count = idx_count + 1
+
+            if dataset_idx % 10 == 0:
+                LOGGER.info(
+                    "[evaluate] now start img index %d total is %d", dataset_idx, cls.calibrate_num
+                )
 
             runtime.set_input(**data)
             # print("num_count_" + str(idx_count), data["data"])
