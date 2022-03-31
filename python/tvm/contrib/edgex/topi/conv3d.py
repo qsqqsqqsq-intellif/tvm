@@ -15,12 +15,12 @@
 # specific language governing permissions and limitations
 # under the License.
 # pylint: disable=invalid-name, missing-function-docstring, unused-argument, unexpected-keyword-arg
-"""Conv2D schedule on edgex"""
+"""Conv3D schedule on edgex"""
 import functools
 import re
 import tvm
 from tvm import tir, relay
-from tvm.topi.nn.utils import get_pad_tuple
+from tvm.topi.nn.utils import get_pad_tuple3d
 from tvm.topi.utils import get_const_tuple
 from tvm.contrib.edgex.tir.schedule import EdgexSchedule
 from tvm.contrib.edgex.relay.transform import PostScheduleArgumentRewriteManager
@@ -40,8 +40,8 @@ from .utils import (
 )
 
 
-class Conv2dScheduleConfig:
-    """Conv2d schedule configuration"""
+class Conv3dScheduleConfig:
+    """Conv3d schedule configuration"""
 
     # whether input data need load from DDR
     is_ddr_input: bool = True
@@ -56,8 +56,8 @@ class Conv2dScheduleConfig:
     tile_co_num: int = -1
 
 
-class ScheduleConv2d:
-    """Conv2d schedule class for edgex"""
+class ScheduleConv3d:
+    """Conv3d schedule class for edgex"""
 
     def __init__(
         self,
@@ -77,14 +77,14 @@ class ScheduleConv2d:
         layout,
         kernel_layout,
         relay_rewrite_mgr: PostScheduleArgumentRewriteManager = None,
-        cfg: Conv2dScheduleConfig = None,
+        cfg: Conv3dScheduleConfig = None,
     ):
         # init schedule state
         self._sch: EdgexSchedule = sch
         self._conv_block = conv_block
         self._relay_rewrite_mgr = relay_rewrite_mgr
         if cfg is None:
-            cfg = Conv2dScheduleConfig()
+            cfg = Conv3dScheduleConfig()
         self._cfg = cfg
         self._global_hw_cfg = EdgexConfig.get_current()
         self._cube_enable = int(self._global_hw_cfg.PE_NUM) - 1
@@ -103,8 +103,8 @@ class ScheduleConv2d:
         self._strides = strides
         self._padding = padding
         self._dilation = dilation
-        self._interleaved_data = re.match(r"NCHW(\d*)c", layout)
-        self._interleaved_weight = re.match(r"OIHW(\d*i\d*o)", kernel_layout)
+        self._interleaved_data = re.match(r"NCDHW(\d*)c", layout)
+        self._interleaved_weight = re.match(r"OIDHW(\d*i\d*o)", kernel_layout)
         self._input_C = self._input_shape[1] * (
             self._input_shape[-1] if self._interleaved_data else 1
         )
@@ -140,11 +140,11 @@ class ScheduleConv2d:
         self._odma_out_elem_bytes = 4
         self._ci_para_lines = 16
 
-    def __rewrite_conv2d_weight_layout_oihw(
+    def __rewrite_conv3d_weight_layout_oidhw(
         self,
         conv,
     ):
-        """Rewrite conv2d weight layout by edgex cube weight layout convention"""
+        """Rewrite conv3d weight layout by edgex cube weight layout convention"""
         # schedule use OIHW weight layout
         if self._interleaved_weight:
             co, ci, kh, kw, ib, ob = self._sch.get_read_buffer_axes(conv, 2)
@@ -153,7 +153,7 @@ class ScheduleConv2d:
             self._sch.fuse_buffer(ci, ib)
             if self._relay_rewrite_mgr is not None:
                 self._relay_rewrite_mgr.update_func_info()
-        co, ci, kh, kw = self._sch.get_read_buffer_axes(conv, 2)
+        co, ci, kd, kh, kw = self._sch.get_read_buffer_axes(conv, 2)
         origin_weight_buffer = self._sch.get_buffer_of(co)
         num_co_group = self._weight_O // self._groups
         if self._cfg.tile_co:
@@ -219,7 +219,7 @@ class ScheduleConv2d:
         epsilon_times, eps_ci_times, beta_unit = self._sch.split_buffer(
             ci, factors=[self._epsilon_times, self._eps_ci_times, beta]
         )
-        kernel = self._sch.fuse_buffer(kh, kw)
+        kernel = self._sch.fuse_buffer(kd, kh, kw)
         shape_pre_transpose = [int(x) for x in self._sch.get_buffer_of(delta_times).shape]
         # transpose
         if self._cfg.tile_co:
@@ -376,7 +376,7 @@ class ScheduleConv2d:
     ):
         """Tensorize eidma block"""
         axes = self._sch.get_write_buffer_axes(eidma, 0)
-        n, c, h, w = axes[:4]
+        n, c, d, h, w = axes[:5]
         group, ci_group = self._sch.split_buffer(c, factors=[self._groups, None])
         if not self._interleaved_data:
             c1, c0 = self._sch.split_buffer(ci_group, factor=self._ci_para_lines)
@@ -384,10 +384,10 @@ class ScheduleConv2d:
 
         if self._cfg.tile_co:
             loops = self._sch.get_loops(eidma)
-            n, c, h, w = loops[1:5]
+            n, c, d, h, w = loops[1:6]
         else:
             loops = self._sch.get_loops(eidma)
-            n, c, h, w = loops[:4]
+            n, c, d, h, w = loops[:5]
         group, ci_group = self._sch.split(c, factors=[self._groups, None])
         if not self._interleaved_data:
             c1, c0 = self._sch.split(ci_group, factors=[None, self._ci_para_lines])
@@ -768,7 +768,7 @@ class ScheduleConv2d:
         else:
             self._sch.pragma(self._sch.get_loops(eodma)[1], "nnp_dma_scope", "eodma")
 
-    def __conv2d_tensorize(
+    def __conv3d_tensorize(
         self,
         Xdm,
         Wdm,
@@ -780,7 +780,7 @@ class ScheduleConv2d:
         Yddr,
         Compute,
     ):
-        """Conv2d tensorize helper"""
+        """Conv3d tensorize helper"""
         kernel_size = self._kernel_size
         strides = self._strides
         padding = self._padding
@@ -942,7 +942,7 @@ class ScheduleConv2d:
         return cur, Bbuf
 
     def schedule(self):
-        """Conv2d edgex schedule helper"""
+        """Conv3d edgex schedule helper"""
         self._ci_para_lines = get_line_num(self._input_dtype)
 
         # inline padding into idma, assume there is always a padding block before conv
@@ -986,13 +986,13 @@ class ScheduleConv2d:
         )
 
         # read weight from ddr -> dm -> wbuf, refactor weight layouts
-        self.__rewrite_conv2d_weight_layout_oihw(Conv)
+        self.__rewrite_conv3d_weight_layout_oidhw(Conv)
         Wdm = self._sch.cache_read(Conv, 2, "dm")
         Wbuf = self._sch.cache_read(Conv, 2, "wbuf")
 
         # schedule tiling
         if self._cfg.tile_co:
-            # tile C dim for r"NCHW(\d*c)?" layout
+            # tile C dim for r"NCDHW(\d*c)?" layout
             loops = self._sch.get_loops(last_Y_block)
             no, co = loops[:2]
             co_o, co_i = self._sch.split(co, factors=[self._cfg.tile_co_num, None])
@@ -1017,7 +1017,7 @@ class ScheduleConv2d:
             self._sch.pragma(self._sch.get_loops(Ydm)[0], "nnp_num_co", self._output_C)
 
         # block tensorizations
-        self.__conv2d_tensorize(Xdm, Wdm, Bdm, Xbuf, Wbuf, Bbuf, Ydm, Yddr, Conv)
+        self.__conv3d_tensorize(Xdm, Wdm, Bdm, Xbuf, Wbuf, Bbuf, Ydm, Yddr, Conv)
 
 
 def schedule_edgex_conv_block(
@@ -1034,8 +1034,8 @@ def schedule_edgex_conv_block(
     cfg=None,
 ):
     """schedule edgex convolution on current schedule state"""
-    if not (layout.startswith("NCHW") and kernel_layout.startswith("OIHW")):
-        el.e(r"Only support 'NCHW(\d*c)?' and 'OIHW(\d*i\d*o)?' layout.")
+    if not (layout == "NCDHW" and kernel_layout == "OIDHW"):
+        el.e(r"Only support 'NCDHW'-'OIHW' layout.")
     block_stmt = sched.get_sref(conv).stmt
     output_buffer = block_stmt.reads[0].buffer
     input_buffer = block_stmt.reads[1].buffer
@@ -1051,7 +1051,7 @@ def schedule_edgex_conv_block(
     input_dtype = input_buffer.dtype
     weight_dtype = weight_buffer.dtype
     output_dtype = output_buffer.dtype
-    scheduler = ScheduleConv2d(
+    scheduler = ScheduleConv3d(
         sched,
         conv,
         input_shape=input_shape,
@@ -1073,13 +1073,13 @@ def schedule_edgex_conv_block(
     scheduler.schedule()
 
 
-def conv2d_nchw_tir_schedule(attrs, prim_func, tgt):
-    """Conv2d edgex tir schedule"""
+def conv3d_tir_schedule(attrs, prim_func, tgt):
+    """Conv3d edgex tir schedule"""
     kernel_size = attrs.get_int_tuple("kernel_size")
     strides = attrs.get_int_tuple("strides")
     dilation = attrs.get_int_tuple("dilation")
     padding = attrs.get_int_tuple("padding")
-    padding = get_pad_tuple(padding, kernel_size)
+    padding = get_pad_tuple3d(padding, kernel_size)
     groups = attrs.groups
     layout = attrs.data_layout
     kernel_layout = attrs.kernel_layout
