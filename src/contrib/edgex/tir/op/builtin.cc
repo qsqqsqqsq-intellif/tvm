@@ -33,6 +33,8 @@
 #include <tvm/tir/op_attr_types.h>
 
 #include "../../topi/op.h"
+#include "../attrs.h"
+#include "../edgex_ir_utils.h"
 
 namespace tvm {
 namespace tir {
@@ -45,6 +47,12 @@ namespace builtin {
     return op;                                     \
   }                                                \
   TVM_REGISTER_OP("tir." #OpName)
+
+#define TIR_REGISTER_NLFC_OP_CONVERSION(OpName, TargetOpName)                        \
+  TVM_REGISTER_OP("tir." #OpName)                                                    \
+      .set_attr("FEdgexGetNlfcOp", TypedPackedFunc<Op(const Op&)>([](const Op& op) { \
+                  return tvm::Op::Get("tir." #TargetOpName);                         \
+                }));
 
 TIR_DEFINE_BUILTIN_FUNC(nnp_bdma_load)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
@@ -74,6 +82,10 @@ TIR_DEFINE_BUILTIN_FUNC(nnp_vidma_load)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
     .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU));
 
+TIR_DEFINE_BUILTIN_FUNC(nnp_vidma_load_nlfc)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU));
+
 TIR_DEFINE_BUILTIN_FUNC(nnp_vodma_store)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
     .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU));
@@ -100,6 +112,10 @@ TIR_DEFINE_BUILTIN_FUNC(nnp_unlock_vcu)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
     .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::CU));
 
+TIR_DEFINE_BUILTIN_FUNC(nnp_inline_asm_vcu)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU));
+
 TIR_DEFINE_BUILTIN_FUNC(nnp_iss_bind_input_buffer)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
     .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::CU));
@@ -113,10 +129,6 @@ TIR_DEFINE_BUILTIN_FUNC(nnp_vint)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
     .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU))
     .set_attr<TVectorizable>("TVectorizable", true);
-
-TIR_DEFINE_BUILTIN_FUNC(nnp_vacc_madd_right_shift)
-    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
-    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU));
 
 TIR_DEFINE_BUILTIN_FUNC(nnp_round_right_shift)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
@@ -137,6 +149,13 @@ TIR_DEFINE_BUILTIN_FUNC(nnp_round_right_shift)
       const auto& y = call->args[1];
       return topi::round_right_shift(x, y);
     });
+
+TIR_REGISTER_NLFC_OP_CONVERSION(sigmoid, nnp_nlfc_sigmoid);
+TIR_DEFINE_BUILTIN_FUNC(nnp_nlfc_sigmoid)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
+    .set_attr<TVectorizable>("TVectorizable", true)
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU))
+    .set_attr<NlfcOpInfo>(attr::kNlfcOpInfo, NlfcOpInfo({"non_iter"}, "vnlf", 0x4be0, 0, 0));
 
 }  // namespace builtin
 }  // namespace edgex

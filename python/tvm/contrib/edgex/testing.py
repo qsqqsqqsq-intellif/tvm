@@ -423,6 +423,8 @@ def check_edgex_relay_build(
     input_data=None,
     test_fused=False,
     rmse=None,
+    rtol=1e-5,
+    atol=1e-5,
     nothrow=False,
     legacy_lower=False,
 ):
@@ -459,6 +461,12 @@ def check_edgex_relay_build(
     rmse : float
         If specified, check root-mean-square deviation between results and expects
         instead of close assertion.
+
+    rtol : float
+        Relative tolerance.
+
+    atol : float, optional
+        Absolute tolerance.
 
     nothrow : bool
         Do not raise error if check result failed.
@@ -566,7 +574,7 @@ def check_edgex_relay_build(
         if expect is None:
             expect = cpu_result.numpy()
         else:
-            check_numpy_result(cpu_result.numpy(), expect, rmse=rmse)
+            check_numpy_result(cpu_result.numpy(), expect, rtol=rtol, atol=atol, rmse=rmse)
 
     if check_edgex:
         pass_ctx = build_config_nnp()
@@ -604,7 +612,9 @@ def check_edgex_relay_build(
                 else:
                     edgex_result = get_relay_output(edgex_mod, edgex_target, tvm.edgex())
         if expect is not None:
-            return check_numpy_result(edgex_result.numpy(), expect, rmse=rmse, nothrow=nothrow)
+            return check_numpy_result(
+                edgex_result.numpy(), expect, rmse=rmse, rtol=rtol, atol=atol, nothrow=nothrow
+            )
     return None
 
 
@@ -620,6 +630,8 @@ def check_edgex_tir_build(
     data_range=None,
     input_data=None,
     rmse=None,
+    rtol=1e-5,
+    atol=1e-5,
     output_idx=None,
 ):
     """build and check edgex tir module
@@ -659,6 +671,12 @@ def check_edgex_tir_build(
     rmse : float
         If specified, check root-mean-square deviation between results and expects
         instead of close assertion.
+
+    rtol : float
+        Relative tolerance.
+
+    atol : float, optional
+        Absolute tolerance.
 
     output_idx : int or List[int]
         If specified, compare only the tensor at these indices.
@@ -745,7 +763,7 @@ def check_edgex_tir_build(
             for i, (expect, res) in enumerate(zip(expects, cpu_results)):
                 if output_idx is not None and not i in output_idx:
                     continue
-                check_numpy_result(res, expect, rmse=rmse)
+                check_numpy_result(res, expect, rmse=rmse, rtol=rtol, atol=atol)
 
     # device execution
     if check_edgex:
@@ -763,7 +781,7 @@ def check_edgex_tir_build(
             for i, (expect, res) in enumerate(zip(expects, edgex_results)):
                 if output_idx is not None and not i in output_idx:
                     continue
-                check_numpy_result(res, expect, rmse=rmse)
+                check_numpy_result(res, expect, rmse=rmse, rtol=rtol, atol=atol)
 
 
 def get_fs_fused_workload(net, fix_norm=False):

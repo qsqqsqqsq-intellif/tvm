@@ -25,6 +25,7 @@ import subprocess
 import shutil
 import importlib
 import inspect
+import numpy as np
 import tvm
 from tvm import relay
 from tvm import IRModule
@@ -294,6 +295,27 @@ class RelayGraphDebugger:
             "edgex",
             fschedule=fschedule_general_vu,
         ):
+            # fix norm value range temporarily
+            params = dict(params.items())
+            for k in params:
+                if k.find("round_right_shift") >= 0:
+                    norm = params[k].asnumpy()
+                    norm = np.minimum(norm, 24)
+                    norm = np.maximum(norm, 1)
+                    params[k] = tvm.nd.array(norm)
+                elif k.find("multiply") >= 0:
+                    norm = params[k].asnumpy()
+                    norm = np.minimum(norm, 127)
+                    params[k] = tvm.nd.array(norm)
+                elif k.find("bias_add") >= 0:
+                    norm = params[k].asnumpy()
+                    norm = np.maximum(np.minimum(norm, 2 ** 20), -(2 ** 20))
+                    params[k] = tvm.nd.array(norm)
+
+            if isinstance(mod, relay.Function):
+                mod = tvm.IRModule.from_expr(mod)
+            mod, params = tvm.contrib.edgex.relay.transform.ConvertDepthwiseConv2D()(mod, params)
+
             check_result = check_edgex_relay_build(
                 mod,
                 params,

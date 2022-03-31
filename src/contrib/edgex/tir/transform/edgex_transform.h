@@ -103,6 +103,18 @@ TVM_DLL Pass LiftGlobalAllocation();
 TVM_DLL Pass RewriteVcuOps();
 
 /*!
+ * \brief Rewrite nlfc computation pattern.
+ * \return The pass.
+ */
+TVM_DLL Pass RewriteNlfc();
+
+/*!
+ * \brief Convert fp arithmetics to nlfc computation pattern.
+ * \return The pass.
+ */
+TVM_DLL Pass ConvertFpToNlfc();
+
+/*!
  * \brief Isolate round_right_shift input with let binding to prevent PushCastToChildren simplify.
  * \return The pass.
  */

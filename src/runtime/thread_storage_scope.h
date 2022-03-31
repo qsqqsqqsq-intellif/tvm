@@ -61,16 +61,15 @@ enum class StorageRank {
   /*! \brief wmma scope memory of accumulator */
   kWMMAAccumulator = 6,
   /*! \brief nnp scope memory of accumulator */
-  kBUF = 7,
   kDM = 8,
   kWM = 9,
   kVM = 10,
   kCM = 11,
-  kDDR = 12,
   kBBUF = 13,
   kWBUF = 14,
   kIOBUF = 15,
   kCUBE = 16,
+  kNLFCMEM = 17,
 };
 
 /*!
@@ -120,8 +119,6 @@ struct StorageScope {
         return "wmma.matrix_b" + tag;
       case StorageRank::kWMMAAccumulator:
         return "wmma.accumulator" + tag;
-      case StorageRank::kBUF:
-        return "buf" + tag;
       case StorageRank::kDM:
         return "dm" + tag;
       case StorageRank::kWM:
@@ -130,8 +127,6 @@ struct StorageScope {
         return "vm" + tag;
       case StorageRank::kCM:
         return "cm" + tag;
-      case StorageRank::kDDR:
-        return "ddr" + tag;
       case StorageRank::kBBUF:
         return "bbuf" + tag;
       case StorageRank::kWBUF:
@@ -140,6 +135,8 @@ struct StorageScope {
         return "iobuf" + tag;
       case StorageRank::kCUBE:
         return "cube" + tag;
+      case StorageRank::kNLFCMEM:
+        return "nlfcmem" + tag;
       default:
         LOG(FATAL) << "unknown storage scope";
         return "";
@@ -175,9 +172,6 @@ struct StorageScope {
     } else if (s.compare(0, 16, "wmma.accumulator") == 0) {
       r.rank = StorageRank::kWMMAAccumulator;
       r.tag = s.substr(16, std::string::npos);
-    } else if (s.compare(0, 3, "buf") == 0) {
-      r.rank = StorageRank::kBUF;
-      r.tag = s.substr(3, std::string::npos);
     } else if (s.compare(0, 2, "dm") == 0) {
       r.rank = StorageRank::kDM;
       r.tag = s.substr(2, std::string::npos);
@@ -190,9 +184,6 @@ struct StorageScope {
     } else if (s.compare(0, 2, "cm") == 0) {
       r.rank = StorageRank::kCM;
       r.tag = s.substr(2, std::string::npos);
-    } else if (s.compare(0, 3, "ddr") == 0) {
-      r.rank = StorageRank::kDDR;
-      r.tag = s.substr(3, std::string::npos);
     } else if (s.compare(0, 4, "bbuf") == 0) {
       r.rank = StorageRank::kBBUF;
       r.tag = s.substr(4, std::string::npos);
@@ -205,6 +196,9 @@ struct StorageScope {
     } else if (s.compare(0, 4, "cube") == 0) {
       r.rank = StorageRank::kCUBE;
       r.tag = s.substr(4, std::string::npos);
+    } else if (s.compare(0, 7, "nlfcmem") == 0) {
+      r.rank = StorageRank::kNLFCMEM;
+      r.tag = s.substr(7, std::string::npos);
     } else {
       LOG(FATAL) << "unknown storage scope " << s;
     }

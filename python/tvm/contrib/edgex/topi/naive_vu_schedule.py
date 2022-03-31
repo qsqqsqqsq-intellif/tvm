@@ -21,7 +21,9 @@ from __future__ import annotations
 from functools import reduce
 import tvm
 from tvm import tir
+from tvm import relay
 import tvm.testing
+from tvm.contrib.edgex.arith import extract_nlfc_params
 from tvm.contrib.edgex.tir.schedule import EdgexSchedule
 from tvm.contrib.edgex.relay.transform import PostScheduleArgumentRewriteManager
 from tvm.tir.expr import IntImm
@@ -261,6 +263,7 @@ class NaiveVuSchedule:
         is_cpu: bool = False,
         allow_multi_block: bool = False,
         relay_rewrite_mgr: PostScheduleArgumentRewriteManager = None,
+        nlfc_buffers=None,
         cfg: NaiveVuScheduleConfig = None,
     ) -> None:
         self._prim_func = prim_func
@@ -270,6 +273,7 @@ class NaiveVuSchedule:
         self._is_cpu = is_cpu
         self._allow_multi_block = allow_multi_block
         self._packing_buffer_reorder_only = False
+        self._nlfc_buffers = nlfc_buffers
         self.analyze()
 
     def analyze_compute_at(self):
@@ -389,6 +393,11 @@ class NaiveVuSchedule:
         for i in range(len(block_stmt.reads)):
             buf = s.get_buffer_of(s.get_read_buffer_axes(main_block, i)[0])
             if buf in write_bufs or buf.scope() == "vm":
+                continue
+            if self._nlfc_buffers and buf in self._nlfc_buffers:
+                # nlfc buffer should only schedule to dm
+                eidma = s.cache_read(main_block, i, "dm")
+                eidma_blocks[buf] = eidma
                 continue
             vidma = s.cache_read(main_block, i, "vm")
             vidma_blocks[buf] = vidma
@@ -785,14 +794,39 @@ class NaiveVuSchedule:
         return s.mod["main"]
 
 
-def naive_vu_schedule(prim_func, is_cpu=False, allow_multi_block=False, enable_relay_rewrite=False):
+def naive_vu_schedule(
+    prim_func, is_cpu=False, allow_multi_block=False, enable_relay_rewrite=False, nlfc_buffers=None
+):
     """naive_vu_schedule interface"""
+    # pre-schedule operations
+    origin_func = prim_func
+    nlfc_arrs = None
+    if nlfc_buffers is None:
+        # no externally determined nlfc buffer, run convert
+        nlfc_buffers = []
+        prim_func = tvm.contrib.edgex.tir.transform.ConvertFpToNlfc()(
+            tvm.IRModule({"main": prim_func})
+        )["main"]
+        nlfc_params, nlfc_arrs, prim_func = extract_nlfc_params(prim_func)
+        if nlfc_params:
+            for p in nlfc_params:
+                nlfc_buffers.append(prim_func.buffer_map[p])
+
     sch = EdgexSchedule(prim_func)
     relay_rewrite_mgr = (
-        PostScheduleArgumentRewriteManager(sch) if enable_relay_rewrite is not None else None
+        PostScheduleArgumentRewriteManager(sch, origin_func=origin_func)
+        if enable_relay_rewrite
+        else None
     )
+
+    # trace pre-schedule operations relay argument updates
+    if nlfc_arrs and relay_rewrite_mgr:
+        forward_transform = lambda: [relay.Constant(_) for _ in nlfc_arrs]
+        backward_transform = lambda *x: []
+        relay_rewrite_mgr.trace_update([], nlfc_buffers, forward_transform, backward_transform)
+
     cfg = NaiveVuScheduleConfig()
     scheduled_func = NaiveVuSchedule(
-        prim_func, sch, is_cpu, allow_multi_block, relay_rewrite_mgr, cfg
+        prim_func, sch, is_cpu, allow_multi_block, relay_rewrite_mgr, set(nlfc_buffers), cfg
     ).schedule()
     return scheduled_func

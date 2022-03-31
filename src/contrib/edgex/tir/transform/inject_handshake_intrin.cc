@@ -286,6 +286,11 @@ class HandShakeIntrinInjector : public StmtExprMutator {
       seq.emplace_back(CreateSyncStmt({StringImm("vidma"), StringImm("ub"), StringImm("vcu")}));
       seq.emplace_back(CreateSyncStmt({StringImm("vcu"), StringImm("wo"), StringImm("vidma")}));
       return SeqStmt::Flatten(seq);
+    } else if (op->value.as<CallNode>()->op.same_as(edgex::builtin::nnp_vidma_load_nlfc())) {
+      seq.emplace_back(stmt);
+      seq.emplace_back(CreateSyncStmt({StringImm("vidma"), StringImm("ub"), StringImm("vcu")}));
+      seq.emplace_back(CreateSyncStmt({StringImm("vcu"), StringImm("wo"), StringImm("vidma")}));
+      return SeqStmt::Flatten(seq);
     } else if (op->value.as<CallNode>()->op.same_as(edgex::builtin::nnp_vodma_store())) {
       seq.emplace_back(stmt);
       seq.emplace_back(CreateSyncStmt({StringImm("vodma"), StringImm("ub"), StringImm("vcu")}));

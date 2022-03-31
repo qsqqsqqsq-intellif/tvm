@@ -29,6 +29,8 @@
 #include <tvm/tir/op.h>
 
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "../../../runtime/thread_storage_scope.h"
 #include "../../../tir/transforms/ir_utils.h"
@@ -59,6 +61,9 @@ std::ostream& operator<<(std::ostream& os, NNPUnitKind kind);
 
 /*! \brief Use integer to record the kind. */
 using TNNPUnitKind = Integer;
+
+/*! \brief Get nlfc op from original op function */
+using FEdgexGetNlfcOp = runtime::TypedPackedFunc<Op(const Op&)>;
 
 /*!
  * \brief utility to determine whether a call node's
@@ -182,6 +187,82 @@ inline const CallNode* NNPGetCubeWeight(const CallNode* call) {
  * \return The key's value of the specified op.
  */
 int GetValueByKey(const CallNode* call, const std::string& key);
+
+/*!
+ * \brief Helper to create inline asm call
+ * \param constraint inline asm argument constraint.
+ * \param inline_asm inline asm string.
+ * \param vf vectorize factor, the intrin will try partition inputs on non-zero vf,
+ *           since the asm code generally should assume a certain input lanes but
+ *           actual input arguments may take larger lanes.
+ * \param result_type result datatype, maybe with lanes.
+ * \param state_types datatype for actual output arguments in inline asm.
+ * \param args actual tir input arguments.
+ * \param placeholder_args argument not take effect in asm, just as some placeholder
+ *                         for memory analysis and etc.
+ */
+PrimExpr CreateNNPInlineAsmVcu(const std::string& constraint, const std::string& inline_asm,
+                               size_t vf, const DataType& result_type,
+                               const std::vector<DataType>& state_types,
+                               const Array<PrimExpr>& args,
+                               const Array<PrimExpr>& placeholder_args);
+
+/*! \brief Node for nlfc op information */
+class NlfcOpInfoNode : public Object {
+ public:
+  /*! \brief nlfc op's table keys */
+  Array<String> table_keys;
+
+  /*! \brief inline asm implementation informations, currently the inst name
+    in vrecip/vsqrt/vrsqrt/vexp2/vlog2/vnlf
+    todo(bxq): remove inline asm when llvm intrinsics ready. */
+  String inst_name;
+
+  /*! \brief nlf_th_value */
+  int32_t nlf_th_value;
+
+  /*! \brief nlf_th_mode */
+  bool nlf_th_mode;
+
+  /*! \brief nlf_th_sel */
+  bool nlf_th_sel;
+
+  /*! \brief constructor */
+  NlfcOpInfoNode() {}
+
+  void VisitAttrs(AttrVisitor* v) {
+    v->Visit("table_keys", &table_keys);
+    v->Visit("inst_name", &inst_name);
+    v->Visit("nlf_th_value", &nlf_th_value);
+    v->Visit("nlf_th_mode", &nlf_th_mode);
+    v->Visit("nlf_th_sel", &nlf_th_sel);
+  }
+
+  static constexpr const char* _type_key = "tir.edgex.NlfcOpInfo";
+  TVM_DECLARE_FINAL_OBJECT_INFO(NlfcOpInfoNode, Object);
+};
+
+/*!
+ * \brief Nlfc op information.
+ */
+class NlfcOpInfo : public ObjectRef {
+ public:
+  /*!
+   * \brief Construct NlfcOpInfo
+   * \param table_keys The keys for the nlfc tables the op required to use.
+   * \param inst_name Inst name, in vrecip/vsqrt/vrsqrt/vexp2/vlog2/vnlf.
+   * \param nlf_th_value nlf_th_value.
+   * \param nlf_th_mode nlf_th_mode.
+   * \param nlf_th_sel nlf_th_sel.
+   */
+  TVM_DLL NlfcOpInfo(const Array<String>& table_keys, String inst_name, int32_t nlf_th_value,
+                     bool nlf_th_mode, bool nlf_th_sel);
+
+  TVM_DEFINE_OBJECT_REF_METHODS(NlfcOpInfo, ObjectRef, NlfcOpInfoNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(NlfcOpInfoNode);
+
+  static const int32_t HW_DEFAULT_NLF_TH_VALUE = 0x3fff3fff;
+};
 
 }  // namespace edgex
 

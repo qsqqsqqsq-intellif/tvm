@@ -140,6 +140,9 @@ class NNP400LinearAccessPatternFinder final : public StmtExprVisitor {
       const VarNode* v = op->args[1].as<VarNode>();
       CHECK(v);
       VisitBufferAccess(v);
+      for (size_t i = 1; i < op->args.size(); ++i) {
+        VisitExpr(op->args[i]);  // visit begin and extent arguments
+      }
     } else {
       StmtExprVisitor::VisitExpr_(op);
       // For cube dmas (bdma/idma/wdma), the accessed dm buffer
@@ -216,6 +219,8 @@ class NNP400LinearAccessPatternFinder final : public StmtExprVisitor {
   void VisitStmt_(const WhileNode* op) final { VisitNewScope(op); }
 
   void VisitStmt_(const AssertStmtNode* op) final { VisitNewScope(op); }
+
+  void VisitStmt_(const LetStmtNode* op) final { VisitNewScope(op); }
 
   // Whether already in thread env.
   bool in_thread_env_{false};
@@ -340,12 +345,6 @@ class NNP400InplaceOpVerifier : public StmtExprVisitor {
         result_ = false;
         return;
       }
-      if (load_cnt_ > 0) {
-        // only allow read once under scope
-        result_ = false;
-        return;
-      }
-      ++load_cnt_;
       for (const VarNode* loop_var : loop_vars_) {
         // partial check to reject non-bijective access index on current loop nests
         if (!UsesVar(op->indices[0], [loop_var](const VarNode* v) { return v == loop_var; })) {
@@ -366,8 +365,6 @@ class NNP400InplaceOpVerifier : public StmtExprVisitor {
   const VarNode* dst_;
   // source variable
   const VarNode* src_;
-  // counter of load,
-  size_t load_cnt_{0};
   // it is not safe to inplace when there is nested load like A[B[i]]
   int mem_nest_{0};
   // The current store to be inspected
@@ -513,6 +510,13 @@ class NNP400StoragePlanRewriter : public StmtExprMutator {
       SetStaticDMAAddr("wt_st_addr1_wdma", "wt_end_addr1_wdma", n.get(), src_access);
       SetStaticDMAAddr("wt_st_addr2_wdma", "wt_end_addr2_wdma", n.get(), src_access);
     } else if (op.same_as(edgex::builtin::nnp_vidma_load())) {
+      PrimExpr src_access = call->args[2];
+      PrimExpr dst_access = call->args[1];
+      SetStaticDMAAddr("start_addr1_dm_vidma", "end_addr1_dm_vidma", n.get(), src_access);
+      SetStaticDMAAddr("start_addr2_dm_vidma", "end_addr2_dm_vidma", n.get(), src_access);
+      SetStaticDMAAddr("cb_buf_start_addr_vm_vidma", "cb_buf_end_addr_vm_vidma", n.get(),
+                       dst_access);
+    } else if (op.same_as(edgex::builtin::nnp_vidma_load_nlfc())) {
       PrimExpr src_access = call->args[2];
       PrimExpr dst_access = call->args[1];
       SetStaticDMAAddr("start_addr1_dm_vidma", "end_addr1_dm_vidma", n.get(), src_access);

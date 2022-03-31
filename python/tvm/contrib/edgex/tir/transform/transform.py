@@ -114,6 +114,28 @@ def LiftGlobalAllocation():
     return _ffi_api.LiftGlobalAllocation()
 
 
+def ConvertFpToNlfc():
+    """Convert fp arithmetics to nlfc computation pattern.
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.ConvertFpToNlfc()
+
+
+def RewriteNlfc():
+    """Rewrite nlfc computation pattern.
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.RewriteNlfc()
+
+
 def RewriteVcuOps():
     """Optimize vectorized computation in vcu units.
 

@@ -23,6 +23,8 @@
  */
 #include "edgex_ir_utils.h"
 
+#include "./op/builtin.h"
+
 namespace tvm {
 namespace tir {
 namespace edgex {
@@ -56,6 +58,42 @@ std::ostream& operator<<(std::ostream& os, NNPUnitKind kind) {
     os << "vcu";
   }
   return os;
+}
+
+PrimExpr CreateNNPInlineAsmVcu(const std::string& constraint, const std::string& inline_asm,
+                               size_t vf, const DataType& result_type,
+                               const std::vector<DataType>& state_types,
+                               const Array<PrimExpr>& args,
+                               const Array<PrimExpr>& placeholder_args) {
+  ICHECK_EQ(vf & (vf - 1), 0);
+  Array<PrimExpr> intrin_args;
+  intrin_args.push_back(StringImm(constraint));
+  intrin_args.push_back(StringImm(inline_asm));
+  intrin_args.push_back(make_const(DataType::Int(32), vf));
+  intrin_args.push_back(make_const(DataType::Int(32), state_types.size()));
+  for (size_t i = 0; i < state_types.size(); ++i) {
+    intrin_args.push_back(TypeAnnotation(state_types[i]));
+  }
+  intrin_args.push_back(make_const(DataType::Int(32), args.size()));
+  for (size_t i = 0; i < args.size(); ++i) {
+    intrin_args.push_back(args[i]);
+  }
+  intrin_args.push_back(make_const(DataType::Int(32), placeholder_args.size()));
+  for (size_t i = 0; i < placeholder_args.size(); ++i) {
+    intrin_args.push_back(placeholder_args[i]);
+  }
+  return std::move(Call(result_type, tvm::tir::edgex::builtin::nnp_inline_asm_vcu(), intrin_args));
+}
+
+NlfcOpInfo::NlfcOpInfo(const Array<String>& table_keys, String inst_name, int32_t nlf_th_value,
+                       bool nlf_th_mode, bool nlf_th_sel) {
+  ObjectPtr<NlfcOpInfoNode> node = make_object<NlfcOpInfoNode>();
+  node->table_keys = table_keys;
+  node->inst_name = inst_name;
+  node->nlf_th_value = nlf_th_value;
+  node->nlf_th_mode = nlf_th_mode;
+  node->nlf_th_sel = nlf_th_sel;
+  data_ = std::move(node);
 }
 
 }  // namespace edgex

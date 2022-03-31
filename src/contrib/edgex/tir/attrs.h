@@ -29,6 +29,16 @@ namespace tvm {
 namespace tir {
 namespace attr {
 
+/* NLFC related attrs */
+/*! \brief Attr key for FEdgexGetNlfcOp */
+constexpr const char* kFEdgexGetNlfcOp = "FEdgexGetNlfcOp";
+/*! \brief Attr key for nlfc op information */
+constexpr const char* kNlfcOpInfo = "NlfcOpInfo";
+/*! \brief Primfunc attr to mark nlfc param vars */
+constexpr const char* kNlfcTableParams = "NlfcTableParams";
+/*! \brief Primfunc attr to mark nlfc table data */
+constexpr const char* kNlfcTableData = "NlfcTableData";
+
 /*! \brief Mark underlying block should lower to nnp dma intrinsic. */
 constexpr const char* nnp_dma_scope = "pragma_nnp_dma_scope";
 

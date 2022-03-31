@@ -27,13 +27,19 @@ from tvm.contrib.edgex.tir.schedule.edgex_schedule import EdgexSchedule
 class PostScheduleArgumentRewriteManager:
     """Manage post schedule relay arguments rewrite operations in schedule phase"""
 
-    def __init__(self, schedule: EdgexSchedule, funcname="main"):
+    def __init__(self, schedule: EdgexSchedule, funcname="main", origin_func=None):
         self.funcname = funcname
         self.schedule = schedule
         self.cur_params = []
         self.updates = []
         self.update_func_info()
-        self.origin_params = self.cur_params
+        if origin_func is not None:
+            self.origin_params = [
+                (p, origin_func.buffer_map[p] if p in origin_func.buffer_map else None)
+                for p in origin_func.params
+            ]
+        else:
+            self.origin_params = self.cur_params
 
     def trace_update(self, origin_buf, new_buf, forward_transform, backward_transform):
         """Trace relay rewrite operation to apply to function arguments

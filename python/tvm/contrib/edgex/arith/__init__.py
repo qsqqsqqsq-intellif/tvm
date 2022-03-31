@@ -17,3 +17,4 @@
 """Namespace for edgex Specialized arithmetic utilities"""
 from .detect_dma_pattern import *
 from .utils import *
+from .nlfc import *

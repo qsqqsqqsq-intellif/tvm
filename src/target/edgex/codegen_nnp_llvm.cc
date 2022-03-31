@@ -527,6 +527,31 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
         {}, bind_keys, op);
   }
 
+  llvm::Value* CreateVidmaLoadNlfc(const CallNode* op) {
+    std::map<std::string, llvm::Value*> bind_keys;
+    const CallNode* src = NNPGetDmaSrc(op);
+    if (!IsConstBufferAddress(src)) {
+      DataType dtype = src->args[0].dtype();
+      int elem_bytes = dtype.bytes() * dtype.lanes();
+      llvm::Value* dm_start_addr = VisitTVMAccessPtr(src, true);
+      llvm::Value* dm_end_addr =
+          builder_->CreateAdd(dm_start_addr, MakeValue(src->args[3] * elem_bytes));
+      bind_keys["start_addr1_dm_vidma"] = dm_start_addr;
+      bind_keys["start_addr2_dm_vidma"] = dm_start_addr;
+      bind_keys["end_addr1_dm_vidma"] = dm_end_addr;
+      bind_keys["end_addr2_dm_vidma"] = dm_end_addr;  // config addr1=addr2 if addr2 not used
+    }
+    return CreateDMAOp(
+        {llvm::Intrinsic::nnp_vidma_layer_cfg0, llvm::Intrinsic::nnp_vidma_layer_cfg1,
+         llvm::Intrinsic::nnp_vidma_layer_cfg2, llvm::Intrinsic::nnp_vidma_layer_cfg3,
+         llvm::Intrinsic::nnp_vidma_layer_cfg4, llvm::Intrinsic::nnp_vidma_layer_cfg5,
+         llvm::Intrinsic::nnp_vidma_layer_cfg6, llvm::Intrinsic::nnp_vidma_layer_cfg7,
+         llvm::Intrinsic::nnp_vidma_layer_cfg8, llvm::Intrinsic::nnp_vidma_layer_cfg9,
+         llvm::Intrinsic::nnp_vidma_layer_cfg10, llvm::Intrinsic::nnp_vidma_layer_cfg11,
+         llvm::Intrinsic::nnp_vidma_layer_cfg12, llvm::Intrinsic::nnp_vidma_layer_burst},
+        {}, bind_keys, op);
+  }
+
   llvm::Value* CreateVodmaStore(const CallNode* op) {
     std::map<std::string, llvm::Value*> bind_keys;
     const CallNode* dst = NNPGetDmaDst(op);
@@ -642,69 +667,94 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     });
   }
 
-  llvm::Value* CreateVacccMaddRightShift(const CallNode* op) {
-    auto f_support_elem_ty = [](llvm::Type* ty) {
-      // interger ty safe castable to i32
-      if (!ty->isIntegerTy()) return false;
-      auto ity = llvm::cast<llvm::IntegerType>(ty);
-      return ity->getBitWidth() <= 32;
-    };
-    ICHECK_GE(op->args.size(), 4);
-    llvm::Value* vs0 = VisitExpr(op->args[0]);
-    llvm::Value* vs1 = VisitExpr(op->args[1]);
-    llvm::Value* vs2 = VisitExpr(op->args[2]);
-    llvm::Type* vs0_ty = vs0->getType();
-    llvm::Type* vs1_ty = vs1->getType();
-    llvm::Type* vs2_ty = vs2->getType();
-    ICHECK(llvm::isa<llvm::VectorType>(vs0_ty));
-    ICHECK(llvm::isa<llvm::VectorType>(vs1_ty));
-    ICHECK(llvm::isa<llvm::VectorType>(vs2_ty));
-    llvm::Type* elem0_ty = llvm::cast<llvm::VectorType>(vs0_ty)->getArrayElementType();
-    llvm::Type* elem1_ty = llvm::cast<llvm::VectorType>(vs1_ty)->getArrayElementType();
-    llvm::Type* elem2_ty = llvm::cast<llvm::VectorType>(vs2_ty)->getArrayElementType();
-    auto lanes = llvm::cast<llvm::VectorType>(vs0_ty)->getElementCount();
-    llvm::Type* i32_vec_ty = llvm::VectorType::get(builder_->getInt32Ty(), lanes);
-    llvm::Type* i8_vec_ty = llvm::VectorType::get(t_int8_, lanes);
-    llvm::Type* res_ty = llvm::StructType::get(i8_vec_ty, i32_vec_ty, i32_vec_ty, i32_vec_ty);
-    // maybe extent data to i32
-    ICHECK(f_support_elem_ty(elem0_ty));
-    if (elem0_ty != t_int32_) {
-      vs0 = builder_->CreateIntCast(vs0, i32_vec_ty, true);
+  llvm::Value* CreateNNPInlineAsmVcu(const CallNode* op) {
+    auto constraint = Downcast<StringImm>(op->args[0]);
+    auto inline_asm = Downcast<StringImm>(op->args[1]);
+    size_t state_num = Downcast<IntImm>(op->args[3])->value;
+    size_t input_num = Downcast<IntImm>(op->args[4 + state_num])->value;
+
+    std::vector<llvm::Type*> constraint_res_tys;
+    constraint_res_tys.push_back(GetLLVMType(GetRef<Call>(op)));
+    for (size_t i = 0; i < state_num; ++i) {
+      constraint_res_tys.push_back(GetLLVMType(op->args[4 + i]));
     }
-    ICHECK(f_support_elem_ty(elem1_ty));
-    if (elem1_ty != t_int32_) {
-      vs1 = builder_->CreateIntCast(vs1, i32_vec_ty, true);
+    llvm::Type* res_ty =
+        state_num == 0 ? constraint_res_tys[0]
+                       : llvm::StructType::get(module_->getContext(), constraint_res_tys, false);
+    std::vector<llvm::Type*> input_tys;
+    std::vector<llvm::Value*> input_args;
+    for (size_t i = 0; i < input_num; ++i) {
+      llvm::Value* arg_value = MakeValue(op->args[5 + state_num + i]);
+      input_tys.push_back(arg_value->getType());
+      input_args.push_back(arg_value);
     }
-    ICHECK(f_support_elem_ty(elem2_ty));
-    if (elem2_ty != t_int32_) {
-      vs2 = builder_->CreateIntCast(vs2, i32_vec_ty, true);
+
+    // vectorize factor, if non-zero, partition input vector typed arguments
+    size_t vf = Downcast<IntImm>(op->args[2])->value;
+    size_t lanes = op->dtype.lanes();
+    llvm::Type* func_res_ty = res_ty;
+    if (vf > 0) {
+      ICHECK_EQ(vf & (vf - 1), 0) << "Vu inline asm's vectorize factor should be power of 2 " << vf;
+      for (size_t i = 0; i < input_num; ++i) {
+        PrimExpr arg = op->args[5 + state_num + i];
+        ICHECK_EQ(lanes, arg->dtype.lanes())
+            << "Inline asm op inputs must be of same lanes for non-zero vectorize factor";
+        ICHECK(input_tys[i]->isVectorTy());
+        input_tys[i] = llvm::FixedVectorType::get(input_tys[i]->getArrayElementType(), vf);
+      }
+      if (lanes == 1) {
+        ICHECK_EQ(vf, 1);  // sanity check for dummy case
+      }
+      ICHECK(res_ty->isVectorTy());
+      func_res_ty = llvm::FixedVectorType::get(res_ty->getArrayElementType(), vf);
     }
-    auto fty = llvm::FunctionType::get(res_ty, {i32_vec_ty, i32_vec_ty, i32_vec_ty}, false);
-    const char* inline_asm =
-        "nop.10\n"
-        "vmov.s32 $1 1\n"
-        "nop.10\n"
-        "vsub.s32 $2 $6 $1\n"
-        "nop.10\n"
-        "vasl.s32 $2 $1 $2\n"
-        "nop.10\n"
-        "vmul.s32 $3 $4 $5\n"
-        "nop.10\n"
-        "vcmp.s32.ge vpp0 $3 $1\n"
-        "nop.10\n"
-        "vsub.s32.vpp0i $2 $2 $1\n"
-        "nop.10\n"
-        "vcmp.s32.ge vpp0 $6 $1\n"
-        "nop.10\n"
-        "vadd.s32.vpp0 $3 $3 $2\n"
-        "nop.10\n"
-        "vasr.s32 $0 $3 $6\n"
-        "nop.10\n"
-        "vint.s32ts8 $0 $0 0\n"
-        "nop.10\n";
-    auto val =
-        llvm::InlineAsm::get(fty, inline_asm, "={vv},=&{vv},=&{vv},={vacc},{vv},{vv},{vv}", true);
-    return builder_->CreateExtractValue(builder_->CreateCall(val, {vs0, vs1, vs2}), {0});
+
+    auto func_ty = llvm::FunctionType::get(func_res_ty, input_tys, false);
+    auto inline_asm_func =
+        llvm::InlineAsm::get(func_ty, inline_asm->value, constraint->value, true);
+    llvm::Value* res = nullptr;
+
+    if (vf == 0) {
+      res = builder_->CreateCall(inline_asm_func, input_args);
+      if (state_num > 0) {
+        res = builder_->CreateExtractValue(res, {0});
+      }
+    } else {
+      llvm::Value* undef =
+          input_args.empty() ? nullptr : llvm::UndefValue::get(input_args[0]->getType());
+      llvm::ArrayType* mask_ty = llvm::ArrayType::get(t_int32_, vf);
+      std::vector<llvm::Value*> partition_input_args(input_args.size());
+      std::vector<llvm::Constant*> partition_mask(vf);
+      res = llvm::UndefValue::get(res_ty);
+
+      size_t num_partitions = (lanes + vf - 1) / vf;
+      for (size_t i = 0; i < num_partitions; ++i) {
+        for (size_t j = 0; j < vf; ++j) {
+          if (i * vf + j < lanes) {
+            partition_mask[j] = builder_->getInt32(i * vf + j);
+          } else {
+            partition_mask[j] = llvm::UndefValue::get(t_int32_);
+          }
+        }
+        for (size_t j = 0; j < input_args.size(); ++j) {
+          llvm::Value* part = builder_->CreateShuffleVector(
+              input_args[j], undef, llvm::ConstantArray::get(mask_ty, partition_mask));
+          partition_input_args[j] = part;
+        }
+        llvm::Value* partition_res = builder_->CreateCall(inline_asm_func, partition_input_args);
+        if (state_num > 0) {
+          partition_res = builder_->CreateExtractValue(partition_res, {0});
+        }
+        for (size_t j = 0; j < vf; ++j) {
+          if (i * vf + j >= lanes) {
+            break;
+          }
+          llvm::Value* elem = builder_->CreateExtractElement(partition_res, j);
+          res = builder_->CreateInsertElement(res, elem, i * vf + j);
+        }
+      }
+    }
+    return res;
   }
 
   llvm::Value* CreateLockVcu(const CallNode* op) {
@@ -763,8 +813,8 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     llvm::Value* buffer = MakeValue(op->args[1]);
     bool is_ddr = IsDDRBuffer(op->args[1]);
     llvm::Value* index = MakeValue(op->args[2]);
-    ICHECK(index->getType()->isIntegerTy());
     if (in_dma_intrinsic) {
+      ICHECK(index->getType()->isIntegerTy());
       if (is_ddr) {
         llvm::Value* ddr_addr = CreateBufferPtr(buffer, elemtype, index, i8_type).addr;
         return builder_->CreatePtrToInt(ddr_addr, builder_->getInt64Ty());
@@ -773,7 +823,7 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
         return builder_->CreateMul(index, llvm::ConstantInt::get(index->getType(), elem_bytes));
       }
     } else {
-      return CreateBufferPtr(buffer, elemtype, index, i8_type).addr;
+      return CreateBufferPtr(buffer, elemtype, index, elemtype).addr;
     }
   }
 
@@ -841,6 +891,8 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     RegisterNNPIntrinsic(edgex::builtin::nnp_idma_load(), &CodeGenNNP400LLVM::CreateIdmaLoad);
     RegisterNNPIntrinsic(edgex::builtin::nnp_odma_store(), &CodeGenNNP400LLVM::CreateOdmaStore);
     RegisterNNPIntrinsic(edgex::builtin::nnp_vidma_load(), &CodeGenNNP400LLVM::CreateVidmaLoad);
+    RegisterNNPIntrinsic(edgex::builtin::nnp_vidma_load_nlfc(),
+                         &CodeGenNNP400LLVM::CreateVidmaLoadNlfc);
     RegisterNNPIntrinsic(edgex::builtin::nnp_vodma_store(), &CodeGenNNP400LLVM::CreateVodmaStore);
     RegisterNNPIntrinsic(edgex::builtin::nnp_wdma_load(), &CodeGenNNP400LLVM::CreateWdmaLoad);
     RegisterNNPIntrinsic(edgex::builtin::nnp_bdma_load(), &CodeGenNNP400LLVM::CreateBdmaLoad);
@@ -859,8 +911,8 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     // vu intrinsics
     RegisterNNPIntrinsic(edgex::builtin::nnp_veltadd(), &CodeGenNNP400LLVM::CreateVeltadd);
     RegisterNNPIntrinsic(edgex::builtin::nnp_vint(), &CodeGenNNP400LLVM::CreateVint);
-    RegisterNNPIntrinsic(edgex::builtin::nnp_vacc_madd_right_shift(),
-                         &CodeGenNNP400LLVM::CreateVacccMaddRightShift);
+    RegisterNNPIntrinsic(edgex::builtin::nnp_inline_asm_vcu(),
+                         &CodeGenNNP400LLVM::CreateNNPInlineAsmVcu);
   }
 
   /*! \brief keep input buffer variables from tir function arguments. */

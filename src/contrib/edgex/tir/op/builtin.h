@@ -51,24 +51,6 @@ namespace edgex {
 /*! \brief Collection of builtin intrinsics as ops */
 namespace builtin {
 
-/*! \brief NNP unit kind enum */
-enum class NNPUnitKind : int {
-  // if stmt, means a stmt should be kept on both vcu/cu.
-  // if expr, means a expr can be evaluated safely on either vcu/cu.
-  ALL = 0,
-
-  // if stmt, means a stmt should be on vcu only.
-  // if expr, means a expr can be evaluated only on vcu.
-  VCU = 1,
-
-  // if stmt, means a stmt should be on cu only.
-  // if expr, means a expr can be evaluated only on cu.
-  CU = 2
-};
-
-/*! \brief Use integer to record the kind. */
-using TNNPUnitKind = Integer;
-
 /*!
  * \brief tvm intrinsic for nnp load data from dm to bbuf operator.
  */
@@ -105,6 +87,11 @@ TVM_DLL const Op& nnp_odma_store();
 TVM_DLL const Op& nnp_vidma_load();
 
 /*!
+ * \brief tvm intrinsic for nnp load data from dm to nlfc operator.
+ */
+TVM_DLL const Op& nnp_vidma_load_nlfc();
+
+/*!
  * \brief tvm intrinsic for nnp store data from vm to dm operator.
  */
 TVM_DLL const Op& nnp_vodma_store();
@@ -128,6 +115,21 @@ TVM_DLL const Op& nnp_cube();
  * \brief tvm intrinsic for nnp cuid register read.
  */
 TVM_DLL const Op& nnp_cuid();
+
+/*!
+ * \brief inline asm intrinsic for vcu computation.
+ * nnp_inline_asm(constraint_str, asm_str, vector_factor,
+ *                state_num, state_type_annotations...,
+ *                input_num, input_args...,
+ *                placeholder_num, placeholder_args...)
+ * the inputs and states should match with constraint string, eg:
+ * if the constraint_str is "={vv},=&{vv},=&{vv},={vacc},{vv},{vv}", then
+ *    - the first "={vv}" denotes the output, resides in vv reg
+ *    - the "=&{vv},=&{vv},={vacc}" part denotes there are 3 state arguments, the first two in vv
+ * and the last in vacc
+ *    - the final "{vv},{vv}" denotes there are two inputs, both in vv
+ */
+TVM_DLL const Op& nnp_inline_asm_vcu();
 
 /*!
  * \brief tvm intrinsic for nnp iss buffer handling.
@@ -155,14 +157,14 @@ TVM_DLL const Op& nnp_veltadd();
 TVM_DLL const Op& nnp_vint();
 
 /*!
- * \brief tvm intrinsic for nnp vu madd and right shift in vacc.
- */
-TVM_DLL const Op& nnp_vacc_madd_right_shift();
-
-/*!
  * \brief tvm intrinsic for nnp round right shift.
  */
 TVM_DLL const Op& nnp_round_right_shift();
+
+/*!
+ * \brief tvm intrinsic for nnp nlfc sigmoid.
+ */
+TVM_DLL const Op& nnp_nlfc_sigmoid();
 
 }  // namespace builtin
 }  // namespace edgex
