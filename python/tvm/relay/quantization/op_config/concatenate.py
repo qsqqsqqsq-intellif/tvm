@@ -122,6 +122,7 @@ class Concatenate:
             if input_config[arg]["axis"] > -1:
                 scale_all_scalar = 0
         axis = max(axis_list)
+        self.output_config["axis"] = axis
 
         if scale_all_scalar == 1:
             concat_scale = numpy.array([])
