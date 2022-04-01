@@ -16,11 +16,10 @@
 # under the License.
 
 import os
-import numpy
 import tqdm
+import numpy
 import torch
 import torchvision
-from timm.models import create_model
 import tvm
 from tvm import relay
 import tvm.relay.quantization
@@ -35,8 +34,8 @@ target = "llvm"
 batch_size = 1
 calibrate_num = 500
 num_workers = 8
-model_name = "vit_base_patch32_224"
-performance = {"float32": 80.7160, "int8": 79.3160}
+model_name = "vit_b_32"
+performance = {"float": None, "int8": None}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/imagenet"
 
@@ -47,12 +46,13 @@ all_op = [
     "concatenate",
     "add",
     "nn.layer_norm",
-    "high_dimension_dense_add",
-    "take",
-    "nn.batch_matmul",
+    "nn.dense",
+    "nn.bias_add",
     "multiply",
+    "nn.batch_matmul",
     "nn.softmax",
     "GELU",
+    "take",
     "dense_bias_add",
 ]
 
@@ -62,9 +62,7 @@ def prepare_data_loaders(data_path, batch_size):
         os.path.join(data_path, "val"),
         torchvision.transforms.Compose(
             [
-                torchvision.transforms.Resize(
-                    248, interpolation=torchvision.transforms.functional.InterpolationMode.BICUBIC
-                ),
+                torchvision.transforms.Resize(256),
                 torchvision.transforms.CenterCrop(224),
                 torchvision.transforms.ToTensor(),
             ]
@@ -119,14 +117,7 @@ if os.path.exists(path):
     params = None
 else:
     x = torch.randn([1, 3, 224, 224])
-    model = create_model(
-        model_name,
-        pretrained=True,
-        num_classes=None,
-        in_chans=3,
-        global_pool=None,
-        scriptable=False,
-    )
+    model = torchvision.models.vit_b_32(pretrained=True)
     scripted_model = torch.jit.trace(model.eval(), x)
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
@@ -143,8 +134,8 @@ quantize_search = relay.quantization.QuantizeSearch(
     root_path=root_path,
     norm={
         "input": {
-            "mean": [127.5, 127.5, 127.5],
-            "std": [127.5, 127.5, 127.5],
+            "mean": [123.675, 116.28, 103.53],
+            "std": [58.395, 57.12, 57.375],
             "axis": 1,
         },
     },

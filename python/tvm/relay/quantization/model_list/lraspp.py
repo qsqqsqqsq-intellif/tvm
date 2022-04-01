@@ -38,19 +38,22 @@ target = "llvm"
 batch_size = 1
 calibrate_num = 500
 num_workers = 16
-model_name = "deeplabv3_resnet50"
-performance = {"float": 64.5607, "int8": 64.4320}
+model_name = "lraspp_mobilenet_v3_large"
+performance = {"float": None, "int8": None}
 root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
 data_path = "/data/zhaojinxi/data/coco"
 
 all_op = [
     "conv2d_bias_add",
+    "hard_swish",
     "nn.relu",
-    "nn.max_pool2d",
     "add",
     "nn.sum_pool2d",
+    "hard_sigmoid",
+    "multiply",
+    "nn.conv2d",
+    "sigmoid",
     "image.resize2d",
-    "concatenate",
 ]
 
 
@@ -218,19 +221,18 @@ if os.path.exists(path):
     params = None
 else:
     x = torch.randn([1, 3, 520, 520])
-    model = torchvision.models.segmentation.deeplabv3_resnet50(pretrained=True)
+    model = torchvision.models.segmentation.lraspp_mobilenet_v3_large(pretrained=True)
 
-    class Deeplabv3Resnet50(torch.nn.Module):
+    class LrasppMobilenetv3(torch.nn.Module):
         def __init__(self):
-            super(Deeplabv3Resnet50, self).__init__()
+            super(LrasppMobilenetv3, self).__init__()
             self.model = model
 
         def forward(self, x):
             x = self.model(x)
             return x["out"]
 
-    model = Deeplabv3Resnet50()
-    # scripted_model = torch.jit.load("/home/zhaojinxi/Documents/quantize_result/deeplabv3_resnet50/deeplabv3_resnet50.pt")
+    model = LrasppMobilenetv3()
     scripted_model = torch.jit.trace(model.eval(), x)
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
