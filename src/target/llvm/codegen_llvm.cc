@@ -802,7 +802,11 @@ CodeGenLLVM::TypedPointer CodeGenLLVM::CreateBufferPtr(llvm::Value* buffer_ptr,
   llvm::Type* value_type = DTypeToLLVMType(value_dtype);
   llvm::PointerType* value_ptr_type = value_type->getPointerTo(address_space);
 
-  ICHECK(index->getType()->isIntegerTy()) << "Expected buffer index to be an integer";
+  llvm::Type* index_type = index->getType();
+  if (index_type->isVectorTy()) {
+    index_type = index_type->getArrayElementType();
+  }
+  ICHECK(index_type->isIntegerTy()) << "Expected buffer index to be an integer";
 
   if (buffer_ptr_type != element_ptr_type) {
     buffer_ptr = builder_->CreatePointerCast(buffer_ptr, element_ptr_type);

@@ -29,7 +29,7 @@ namespace tvm {
 namespace tir {
 namespace attr {
 
-/* NLFC related attrs */
+/******************************** NLFC related attrs ***********************************/
 /*! \brief Attr key for FEdgexGetNlfcOp */
 constexpr const char* kFEdgexGetNlfcOp = "FEdgexGetNlfcOp";
 /*! \brief Attr key for nlfc op information */
@@ -39,11 +39,18 @@ constexpr const char* kNlfcTableParams = "NlfcTableParams";
 /*! \brief Primfunc attr to mark nlfc table data */
 constexpr const char* kNlfcTableData = "NlfcTableData";
 
+/******************************** Schedule pragma keys *********************************/
 /*! \brief Mark underlying block should lower to nnp dma intrinsic. */
 constexpr const char* nnp_dma_scope = "pragma_nnp_dma_scope";
 
 /*! \brief Tag for conv co info. */
 constexpr const char* nnp_num_co_scope = "pragma_nnp_num_co";
+
+/*! \brief Mark allow vectorized scattered store in underlying scope. */
+constexpr const char* nnp_scatter_store_scope = "pragma_nnp_scatter_store_scope";
+
+/*! \brief Mark allow vectorized gathered load in underlying scope. */
+constexpr const char* nnp_gather_load_scope = "pragma_nnp_gather_load_scope";
 
 /*! \brief Vcore resource usage mark on primfunc, kth bit encode it uses vcu[k] */
 constexpr const char* nnp_vcore_resource = "vcore_resource";

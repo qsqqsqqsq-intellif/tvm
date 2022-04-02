@@ -20,6 +20,7 @@
 /*!
  * \file rewrite_vcu_ops.cc
  */
+#include <llvm/IR/Intrinsics.h>
 #include <tvm/arith/analyzer.h>
 #include <tvm/arith/pattern.h>
 #include <tvm/runtime/registry.h>
@@ -29,6 +30,7 @@
 #include <tvm/tir/stmt_functor.h>
 #include <tvm/tir/transform.h>
 
+#include "../attrs.h"
 #include "../edgex_ir_utils.h"
 #include "./edgex_pattern_match.h"
 
@@ -222,6 +224,70 @@ static PrimExpr RewriteVintPattern(const PrimExpr& expr) {
   }
 }
 
+/*! \brief Determine non-consecutive vectorized store indices. */
+static bool IsScatteredStore(const BufferStoreNode* store) {
+  ICHECK_EQ(store->indices.size(), 1U);
+  PrimExpr index = store->indices[0];
+  size_t lanes = index->dtype.lanes();
+  if (lanes <= 1) {
+    return false;
+  }
+  PVar<PrimExpr> offset;
+  PVar<PrimExpr> lanes_ph;
+  auto consecutive_access_pat = ramp(offset, 1, lanes);
+  auto broadcast_access_pat = broadcast(offset, lanes_ph);
+  return !consecutive_access_pat.Match(index) && !broadcast_access_pat.Match(index);
+}
+
+/*! \brief Rewrite non-consecutive vectorized store to masked_scatter intrin. */
+static Stmt RewriteScatteredStore(const BufferStoreNode* store) {
+  size_t lanes = store->indices[0]->dtype.lanes();
+
+  Call access_ptrs(DataType::Handle(64, lanes), tir::builtin::tvm_access_ptr(),
+                   {tir::TypeAnnotation(store->value->dtype.with_lanes(1)), store->buffer->data,
+                    store->indices[0], Broadcast(1, lanes), StringImm("rw")});
+  Call call_intrin(DataType::Void(), tir::builtin::call_llvm_intrin(),
+                   {/*intrin=*/make_const(DataType::UInt(32), llvm::Intrinsic::masked_scatter),
+                    /*arg_num=*/make_const(DataType::UInt(32), 4),
+                    /*values=*/store->value,
+                    /*addrs=*/access_ptrs,
+                    /*alignment=*/make_const(DataType::Int(32), 0),
+                    /*masks=*/Broadcast(make_const(DataType::Bool(), 1), lanes)});
+  return std::move(Evaluate(call_intrin));
+}
+
+/*! \brief Determine non-consecutive vectorized load indices. */
+static bool IsGatherLoad(const BufferLoadNode* load) {
+  ICHECK_EQ(load->indices.size(), 1U);
+  PrimExpr index = load->indices[0];
+  size_t lanes = index->dtype.lanes();
+  if (lanes <= 1) {
+    return false;
+  }
+  PVar<PrimExpr> offset;
+  PVar<PrimExpr> lanes_ph;
+  auto consecutive_access_pat = ramp(offset, 1, lanes);
+  auto broadcast_access_pat = broadcast(offset, lanes_ph);
+  return !consecutive_access_pat.Match(index) && !broadcast_access_pat.Match(index);
+}
+
+/*! \brief Rewrite non-consecutive vectorized load to masked_gather intrin. */
+static PrimExpr RewriteGatherLoad(const BufferLoadNode* load) {
+  size_t lanes = load->indices[0]->dtype.lanes();
+
+  Call access_ptrs(DataType::Handle(64, lanes), tir::builtin::tvm_access_ptr(),
+                   {tir::TypeAnnotation(load->dtype.with_lanes(1)), load->buffer->data,
+                    load->indices[0], Broadcast(1, lanes), StringImm("rw")});
+  Call call_intrin(load->dtype, tir::builtin::call_llvm_intrin(),
+                   {/*intrin=*/make_const(DataType::UInt(32), llvm::Intrinsic::masked_gather),
+                    /*arg_num=*/make_const(DataType::UInt(32), 4),
+                    /*addrs=*/access_ptrs,
+                    /*alignment=*/make_const(DataType::Int(32), 0),
+                    /*masks=*/Broadcast(make_const(DataType::Bool(), 1), lanes),
+                    /*passthrough=*/Broadcast(make_const(load->dtype.element_of(), 0), lanes)});
+  return std::move(call_intrin);
+}
+
 class VectorizedOpsRewritter : public StmtExprMutator {
  private:
   PrimExpr VisitExpr(const PrimExpr& expr) override {
@@ -235,6 +301,79 @@ class VectorizedOpsRewritter : public StmtExprMutator {
     }
     return StmtExprMutator::VisitExpr(expr);
   }
+
+  PrimExpr VisitExpr_(const BufferLoadNode* load) override {
+    if ((allow_wildcard_gather_load_buffer_ ||
+         gather_load_buffer_vars_.count(load->buffer->data)) &&
+        IsGatherLoad(load)) {
+      return VisitExpr(RewriteGatherLoad(load));
+    }
+    return StmtExprMutator::VisitExpr_(load);
+  }
+
+  Stmt VisitStmt_(const BufferStoreNode* store) override {
+    if ((allow_wildcard_scatter_store_buffer_ ||
+         scatter_store_buffer_vars_.count(store->buffer->data)) &&
+        IsScatteredStore(store)) {
+      return VisitStmt(RewriteScatteredStore(store));
+    }
+    return StmtExprMutator::VisitStmt_(store);
+  }
+
+  Stmt VisitStmt_(const AttrStmtNode* attr) override {
+    if (attr->attr_key == attr::nnp_gather_load_scope) {
+      bool tmp = allow_wildcard_gather_load_buffer_;
+      bool has_var = attr->value->IsInstance<VarNode>();
+      Var buffer_var;
+      if (has_var) {
+        buffer_var = Downcast<Var>(attr->value);
+        gather_load_buffer_vars_.insert(buffer_var);
+      } else {
+        allow_wildcard_gather_load_buffer_ = true;
+      }
+      auto res = StmtExprMutator::VisitStmt(attr->body);
+      if (has_var) {
+        gather_load_buffer_vars_.erase(buffer_var);
+      } else {
+        allow_wildcard_gather_load_buffer_ = tmp;
+      }
+      return res;
+    } else if (attr->attr_key == attr::nnp_scatter_store_scope) {
+      bool tmp = allow_wildcard_scatter_store_buffer_;
+      bool has_var = attr->value->IsInstance<VarNode>();
+      Var buffer_var;
+      if (has_var) {
+        buffer_var = Downcast<Var>(attr->value);
+        scatter_store_buffer_vars_.insert(buffer_var);
+      } else {
+        allow_wildcard_scatter_store_buffer_ = true;
+      }
+      auto res = StmtExprMutator::VisitStmt(attr->body);
+      if (has_var) {
+        scatter_store_buffer_vars_.erase(buffer_var);
+      } else {
+        allow_wildcard_scatter_store_buffer_ = tmp;
+      }
+      return res;
+    }
+    return StmtExprMutator::VisitStmt_(attr);
+  }
+
+  /*!
+   * \brief buffer vars to allow vectorized scatter store.
+   */
+  std::unordered_set<Var, ObjectPtrHash, ObjectPtrEqual> scatter_store_buffer_vars_;
+
+  /*!
+   * \brief buffer vars to allow vectorized gather load.
+   */
+  std::unordered_set<Var, ObjectPtrHash, ObjectPtrEqual> gather_load_buffer_vars_;
+
+  /*! \brief allow wildcard vectorized scatter store rewrite. */
+  bool allow_wildcard_scatter_store_buffer_;
+
+  /*! \brief allow wildcard vectorized gather load rewrite. */
+  bool allow_wildcard_gather_load_buffer_;
 };
 
 namespace transform {
