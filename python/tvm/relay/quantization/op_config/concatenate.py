@@ -122,62 +122,48 @@ class Concatenate:
             if input_config[arg]["axis"] > -1:
                 scale_all_scalar = 0
         axis = max(axis_list)
-        self.output_config["axis"] = axis
 
         if scale_all_scalar == 1:
-            concat_scale = numpy.array([])
-            arg_shape = relay.frontend.common.infer_type(old_arg.fields[0]).checked_type.shape
-            if len(arg_shape) == 4 and self.output_config["axis"] == 1:
-                # axis use perchannel
-                axis = old_node.attrs.axis
-                for arg in old_arg:
-                    temp_scale = input_config[arg]["scale"]
-                    arg_shape = relay.frontend.common.infer_type(arg).checked_type.shape
-                    arg_len = arg_shape[axis].value
-                    temp_scale = numpy.ones([arg_len]) * temp_scale
-                    concat_scale = numpy.append(concat_scale, temp_scale)
+
+            scale_new = input_config[old_arg.fields[0]]["scale"]
+            for arg_ in old_arg.fields[1:]:
+                scale_new = max(scale_new, input_config[arg_]["scale"])
+
+            axis = -1
+            adjust_input_config = {
+                "zero_point": input_config[old_arg.fields[0]]["zero_point"],
+                "axis": axis,
+                "dtype": input_config[old_arg.fields[0]]["dtype"],
+                "scale": scale_new,
+            }
+
+            new_tuple_node = []
+            for old_arg_, new_arg_ in zip(old_arg.fields, new_arg.fields):
+                new_arg_ = operate(
+                    "requantize",
+                    new_arg_,
+                    input_config[old_arg_],
+                    adjust_input_config,
+                    True,
+                    multiplier=1,
+                )
+                new_tuple_node.append(new_arg_)
+
+            if "ir_pass" not in relay.__dict__:
+                new_tup = relay.Tuple(new_tuple_node, old_arg.span)
             else:
-                scale_new = input_config[old_arg.fields[0]]["scale"]
-                for arg_ in old_arg.fields[1:]:
-                    scale_new = max(scale_new, input_config[arg_]["scale"])
+                new_tup = relay.Tuple(new_tuple_node)
 
-                axis = -1
-                adjust_input_config = {
-                    "zero_point": input_config[old_arg.fields[0]]["zero_point"],
-                    "axis": axis,
-                    "dtype": input_config[old_arg.fields[0]]["dtype"],
-                    "scale": scale_new,
-                }
+            self.input_config[old_arg].update(adjust_input_config)
+            self.output_config.update(adjust_input_config)
 
-                new_tuple_node = []
-                for old_arg_, new_arg_ in zip(old_arg.fields, new_arg.fields):
-                    new_arg_ = operate(
-                        "requantize",
-                        new_arg_,
-                        input_config[old_arg_],
-                        adjust_input_config,
-                        True,
-                        multiplier=1,
-                    )
-                    new_tuple_node.append(new_arg_)
-
-                if "ir_pass" not in relay.__dict__:
-                    new_tup = relay.Tuple(new_tuple_node, old_arg.span)
-                else:
-                    new_tup = relay.Tuple(new_tuple_node)
-
-                self.input_config[old_arg].update(adjust_input_config)
-                self.output_config.update(adjust_input_config)
-
-                if "ir_pass" not in relay.__dict__:
-                    new_node = relay.Call(
-                        old_node.op, [new_tup], new_node.attrs, new_node.type_args, new_node.span
-                    )
-                else:
-                    new_node = relay.Call(
-                        old_node.op, [new_tup], new_node.attrs, new_node.type_args
-                    )
-                return new_node
+            if "ir_pass" not in relay.__dict__:
+                new_node = relay.Call(
+                    old_node.op, [new_tup], new_node.attrs, new_node.type_args, new_node.span
+                )
+            else:
+                new_node = relay.Call(old_node.op, [new_tup], new_node.attrs, new_node.type_args)
+            return new_node
 
         elif scale_all_scalar == 0:
             concat_scale = numpy.array([])
