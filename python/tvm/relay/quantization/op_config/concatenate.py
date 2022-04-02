@@ -124,7 +124,6 @@ class Concatenate:
         axis = max(axis_list)
 
         if scale_all_scalar == 1:
-
             scale_new = input_config[old_arg.fields[0]]["scale"]
             for arg_ in old_arg.fields[1:]:
                 scale_new = max(scale_new, input_config[arg_]["scale"])
@@ -165,18 +164,18 @@ class Concatenate:
                 new_node = relay.Call(old_node.op, [new_tup], new_node.attrs, new_node.type_args)
             return new_node
 
-        elif scale_all_scalar == 0:
-            concat_scale = numpy.array([])
-            for arg in old_arg:
-                scale_arg = input_config[arg]["scale"]
-                arg_shape = relay.frontend.common.infer_type(arg).checked_type.shape
-                if scale_arg.size > 1:
-                    concat_scale = numpy.append(concat_scale, scale_arg)
-                else:
-                    # use axis, because of nhwc
-                    concat_scale = numpy.append(
-                        concat_scale, (scale_arg * numpy.ones(arg_shape[axis].value))
-                    )
+        # scale_all_scalar == 0
+        concat_scale = numpy.array([])
+        for arg in old_arg:
+            scale_arg = input_config[arg]["scale"]
+            arg_shape = relay.frontend.common.infer_type(arg).checked_type.shape
+            if scale_arg.size > 1:
+                concat_scale = numpy.append(concat_scale, scale_arg)
+            else:
+                # use axis, because of nhwc
+                concat_scale = numpy.append(
+                    concat_scale, (scale_arg * numpy.ones(arg_shape[axis].value))
+                )
 
         zero_point = numpy.zeros_like(concat_scale, dtype=numpy.int32)
         y = {"scale": concat_scale, "zero_point": zero_point, "axis": axis}
