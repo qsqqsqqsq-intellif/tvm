@@ -46,7 +46,7 @@ calibrate_num = 500
 num_workers = 16
 model_name = "yolov5s"
 performance = {"float": 37.098, "int8": 34.788}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/coco"
 # data_path = "/home/yhh/Desktop/dedatasets-lfs/coco_val2017"
 
@@ -516,7 +516,7 @@ if os.path.exists(path):
     params = None
 else:
     x = torch.randn([1, 3, 640, 640])
-    model = torch.jit.load("/home/zhaojinxi/Documents/quantize_result/yolov5s/yolov5s.pt")
+    model = torch.jit.load("/data/zhaojinxi/Documents/quantize_result/yolov5s/yolov5s.pt")
     # model = torch.jit.load("/home/yhh/Desktop/detvm/deepeye/demodels-lfs/pytorch/yolov5s/yolov5s.pt")
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(model, shape_list)

@@ -37,7 +37,7 @@ calibrate_num = 500
 num_workers = 16
 model_name = "r3d_18"
 performance = {"float": 51.5192, "int8": 51.3242}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/kinetics400"
 
 all_op = [

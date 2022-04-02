@@ -36,7 +36,7 @@ calibrate_num = 500
 num_workers = 8
 model_name = "CvT-13-224x224-IN-1k"
 performance = {"float32": 81.5860, "int8": 81.2240}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/imagenet"
 
 all_op = [

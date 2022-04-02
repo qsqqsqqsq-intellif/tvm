@@ -36,7 +36,7 @@ calibrate_num = 500
 num_workers = 8
 model_name = "regnet_y_400mf"
 performance = {"float": 74.0460, "int8": 73.6020}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/imagenet"
 
 all_op = [

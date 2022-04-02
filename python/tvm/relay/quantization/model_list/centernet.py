@@ -41,7 +41,7 @@ calibrate_num = 500
 num_workers = 16
 model_name = "center_net_resnet50_v1b_coco"
 performance = {"float": 32.3, "int8": None}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/coco"
 # data_path = "/home/yhh/Desktop/dedatasets-lfs/coco_val2017"
 

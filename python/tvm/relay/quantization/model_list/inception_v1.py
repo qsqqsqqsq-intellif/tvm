@@ -40,7 +40,7 @@ calibrate_num = 500
 num_workers = 8
 model_name = "googlenet"
 performance = {"float": 72.882, "int8": 72.6640}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/imagenet"
 # data_path = "/home/yhh/Desktop/dedatasets-lfs"
 

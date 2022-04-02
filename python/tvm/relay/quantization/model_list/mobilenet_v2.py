@@ -36,7 +36,7 @@ calibrate_num = 500
 num_workers = 8
 model_name = "mobilenet_v2"
 performance = {"float": 71.878, "int8": 70.7220}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/imagenet"
 # data_path = "/home/yhh/Desktop/dedatasets-lfs"
 

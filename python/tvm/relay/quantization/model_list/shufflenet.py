@@ -36,7 +36,7 @@ calibrate_num = 500
 num_workers = 8
 model_name = "shufflenet_v2_x1_0"
 performance = {"float": 69.3620, "int8": 68.6720}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/imagenet"
 
 all_op = [

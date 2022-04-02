@@ -43,7 +43,7 @@ calibrate_num = 500
 num_workers = 16
 model_name = "slow_r50"
 performance = {"float": 63.4735, "int8": 63.3776}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/kinetics400/val"
 
 all_op = [

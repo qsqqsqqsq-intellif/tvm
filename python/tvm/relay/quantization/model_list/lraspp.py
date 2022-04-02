@@ -40,7 +40,7 @@ calibrate_num = 500
 num_workers = 16
 model_name = "lraspp_mobilenet_v3_large"
 performance = {"float": None, "int8": None}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/coco"
 
 all_op = [

@@ -42,7 +42,7 @@ batch_size = 1
 calibrate_num = 500
 model_name = "InceptionV4"
 performance = {"float": 80.142, "int8": 79.866}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 
 all_op = [
     "conv2d_bias_add",

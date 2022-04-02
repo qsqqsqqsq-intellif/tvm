@@ -40,7 +40,7 @@ calibrate_num = 500
 num_workers = 8
 model_name = "wide_resnet50_2"
 performance = {"float": 78.4680, "int8": 78.4160}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/imagenet"
 
 all_op = [

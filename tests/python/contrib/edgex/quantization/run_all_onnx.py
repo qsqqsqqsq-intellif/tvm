@@ -2285,15 +2285,15 @@ test = {}
 
 meta = {}
 meta.update(classification)
-meta.update(transformer)
-meta.update(detection)
-meta.update(body)
-meta.update(manipulation)
-meta.update(nlp)
+# meta.update(transformer)
+# meta.update(detection)
+# meta.update(body)
+# meta.update(manipulation)
+# meta.update(nlp)
 # meta.update(test)
 
 source_path = "/data/share/demodels-lfs/onnx"
-target_path = "/home/zhaojinxi/Documents/onnx_result"
+target_path = "/data/zhaojinxi/Documents/onnx_result"
 
 models = {}
 for name in os.listdir(source_path):
@@ -2312,22 +2312,22 @@ for k, v in meta.items():
         for i in models[k]["file"]:
             print(os.path.join(k, i))
 
-# for name, v in meta.items():
-#     save_path = os.path.join(target_path, name)
-#     if not os.path.exists(save_path):
-#         os.makedirs(save_path)
+for name, v in meta.items():
+    save_path = os.path.join(target_path, name)
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
 
-#     log_path = os.path.join(save_path, "log.txt")
+    log_path = os.path.join(save_path, "log.txt")
 
-#     rerun = True
-#     if os.path.exists(log_path):
-#         with open(log_path, "r") as f:
-#             line = f.readlines()
-#             if line != [] and line[-1] != "finished\n":
-#                 for i in line:
-#                     print(i)
-#                 print(name)
-#                 print()
+    rerun = True
+    if os.path.exists(log_path):
+        with open(log_path, "r") as f:
+            line = f.readlines()
+            # if line != [] and line[-1] != "finished\n":
+            for i in line:
+                print(i)
+            print(name)
+            print()
 
 for name, v in meta.items():
     save_path = os.path.join(target_path, name)

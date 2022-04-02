@@ -36,8 +36,8 @@ calibrate_num = 500
 num_workers = 8
 model_name = "resnet50"
 performance = {"float": 76.13, "int8": 76.03}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
-data_path = os.getenv("QUANT_DIR", "/data/zhaojinxi") + "/data/imagenet"
+root_path = "/data/zhaojinxi/Documents/quantize_result"
+data_path = "/data/zhaojinxi/data/imagenet"
 # data_path = "/home/yhh/Desktop/dedatasets-lfs"
 
 all_op = [
@@ -140,4 +140,4 @@ quantize_search = relay.quantization.QuantizeSearch(
 config = quantize_search.get_default_config()
 quantize_search.quantize(config)
 # quantize_search.visualize("post_process", config)
-# quantize_search.evaluate("post_process", config)
+quantize_search.evaluate("post_process", config)

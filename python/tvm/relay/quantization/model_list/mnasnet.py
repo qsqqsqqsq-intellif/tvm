@@ -36,7 +36,7 @@ calibrate_num = 500
 num_workers = 8
 model_name = "mnasnet1_0"
 performance = {"float": 73.4560, "int8": 72.8260}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/imagenet"
 
 all_op = [

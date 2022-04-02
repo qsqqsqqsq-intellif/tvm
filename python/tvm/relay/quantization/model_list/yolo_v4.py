@@ -35,7 +35,7 @@ batch_size = 1
 calibrate_num = 500
 model_name = "yolov4-darknet"
 performance = {"float": 64.088, "int8": None}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 
 all_op = [
     "conv2d_bias_add",
