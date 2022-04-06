@@ -1,0 +1,43 @@
+{
+    "resnet34-v1": {
+        "framework": "onnx",
+        "path": "resnet34-v1/resnet34-v1-7.onnx",
+        "input_names": ["data"],
+        "input_shapes": [[1,3,224,224]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "dataset_dir": null
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["classification"],
+        "backend": {}
+    },
+
+    "resnet50-v1": {
+        "framework": "onnx",
+        "path": "resnet50-v1/resnet50-v1-7.onnx",
+        "input_names": ["data"],
+        "input_shapes": [[1,3,224,224]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "mean_scale",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["classification"],
+        "backend": {}
+    }
+}
+ 

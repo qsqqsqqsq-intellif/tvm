@@ -40,10 +40,10 @@ def get_framework_infer(name):
 
 
 def get_tvm_outputs(
-    mod, params, target, dev, baseline_inputs, add_optimize_before_quantize, add_mac_count
+    mod, params, target, dev, baseline_inputs, add_optimize_before_quantize, add_mac_count, executor
 ):
     """ tvm compilation and get outputs """
-    if add_mac_count:
+    if add_mac_count and mod is not None:
         compute_count = relay.analysis.get_total_mac_number(mod["main"])
         print(
             "---------\033[1;32;43m FLOPS = \033[0m-------: {} GFLOPS".format(
@@ -54,22 +54,23 @@ def get_tvm_outputs(
     # todo: consider after realizing optimization
     # if add_optimize_before_quantize:
     #     mod = relay.quantize.optimize(mod, params)
+    if executor is None:
+        opt_level = 0  # default
+        with tvm.transform.PassContext(opt_level=opt_level):
+            lib = relay.build(mod, target, params=params)
 
-    opt_level = 0  # default
-    with tvm.transform.PassContext(opt_level=opt_level):
-        lib = relay.build(mod, target, params=params)
+        # create executor
+        executor = graph_executor.GraphModule(lib["default"](dev))
 
-    # create module
-    module = graph_executor.GraphModule(lib["default"](dev))
     # set input and parameters
-    module.set_input(**baseline_inputs)
+    executor.set_input(**baseline_inputs)
     # run
-    module.run()
+    executor.run()
     # get output
-    num_outputs = module.get_num_outputs()
+    num_outputs = executor.get_num_outputs()
     tvm_compile_outputs = []
     for i in range(num_outputs):
-        compiled_output = module.get_output(i).numpy()
+        compiled_output = executor.get_output(i).numpy()
         tvm_compile_outputs.append(compiled_output)
     return tvm_compile_outputs
 
@@ -102,6 +103,7 @@ def model_verify(
     atol=1e-3,
     add_optimize_before_quantize=True,
     add_mac_count=True,
+    executor=None,
 ):
     """ verify precision between tvm and framework with float point """
     input_names = model_config["input_names"]
@@ -157,17 +159,28 @@ def model_verify(
     logger.info("model_file = %s", model_config["model_file"])
 
     # tvm processing
-    frontend_kwargs = frontend_args(
-        input_names, input_shapes, input_dtypes, model_config["framework"]
-    )
-    mod, params = get_from_framework_frontend(model_config["framework"])(f_model, **frontend_kwargs)
-    mod = relay.transform.InferType()(mod)
-    logger.info("from %s", model_config["framework"])
-    logger.info(mod)
+    mod, params = None, None
+    if executor is None:
+        frontend_kwargs = frontend_args(
+            input_names, input_shapes, input_dtypes, model_config["framework"]
+        )
+        mod, params = get_from_framework_frontend(model_config["framework"])(
+            f_model, **frontend_kwargs
+        )
+        mod = relay.transform.InferType()(mod)
+        logger.info("from %s", model_config["framework"])
+        logger.info(mod)
 
     # get tvm outputs
     tvm_outputs = get_tvm_outputs(
-        mod, params, target, dev, baseline_inputs, add_optimize_before_quantize, add_mac_count
+        mod,
+        params,
+        target,
+        dev,
+        baseline_inputs,
+        add_optimize_before_quantize,
+        add_mac_count,
+        executor,
     )
 
     # compare
@@ -203,6 +216,7 @@ def verify_model_precision(
     atol=1e-3,
     add_optimize_before_quantize=True,
     add_mac_count=True,
+    executor=None,
 ):
     """Assert that the output of a compiled model matches with that of its
         baseline from framework.
@@ -228,6 +242,8 @@ def verify_model_precision(
     add_mac_count: bool,
                   whether to add mac compute
 
+    executor: pre-built model executor
+
     Returns:
     ---------
     """
@@ -251,6 +267,7 @@ def verify_model_precision(
                 atol,
                 add_optimize_before_quantize,
                 add_mac_count,
+                executor,
             )
     else:
         i = 0
@@ -264,6 +281,7 @@ def verify_model_precision(
                 atol,
                 add_optimize_before_quantize,
                 add_mac_count,
+                executor,
             )
             i += 1
     print("PRECISION VERIFY SUCCESS!!!")

@@ -19,6 +19,7 @@
 stages:
   - build
   - test
+  - integration
 
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
@@ -214,3 +215,33 @@ tvm_gpu_nightly_test:
       bash ./tests/scripts/task_python_unittest_gpuonly.sh
       bash ./tests/scripts/task_python_integration_gpuonly.sh
       bash ./tests/scripts/task_python_topi.sh
+
+
+# tvm model integration
+model_integration:
+  stage: integration
+  needs: [build]
+  before_script:
+    - *tvm_env
+    - export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
+    - export TVM_CI_WORKING_DIR=integration
+    - export TVM_CI_DEMODELS_DIR=${EDGEX_MODELS_DIR}/demodels-lfs
+    - export TVM_CI_PARALLELISM=2
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - |
+      echo "********** START MODEL INTEGRATION TEST **********"
+      python3 tests/model_test/task_ci_integration.py
+      echo "********** CLEAN MODEL INTEGRATION WORKING DIR **********"
+      rm -rf integration/*/*.so  integration/*/converted  integration/*/quantized
+      if [ "$CI_COMMIT_REF_NAME" == "edgex_main" ]
+      then
+        cp -r integration ${EDGEX_MODELS_DIR}/ci_test/integration_res
+      fi
+      rm -rf integration/*/quantized
+  artifacts:
+    when: on_success
+    paths:
+    - integration
+    expire_in: 5 day

@@ -320,6 +320,25 @@ class RelayToTIRAnnotator(relay.ExprMutator):
         return call
 
 
+class OnDeviceDetector(relay.ExprVisitor):
+    """Detect on device annotations"""
+
+    def __init__(self):
+        super().__init__()
+        self.has_cpu = False
+        self.has_edgex = False
+        self.has_annotations = False
+
+    def visit_call(self, call):
+        if isinstance(call.attrs, relay.op.op_attrs.OnDeviceAttrs):
+            self.has_annotations = True
+            if call.attrs.virtual_device.device_type_int == tvm.cpu().device_type:
+                self.has_cpu = True
+            elif call.attrs.virtual_device.device_type_int == tvm.edgex().device_type:
+                self.has_edgex = True
+        super().visit_call(call)
+
+
 def check_numpy_result(
     result, expect, nothrow=False, ref_inputs=None, rmse=None, rtol=1e-5, atol=1e-5
 ):
@@ -427,6 +446,7 @@ def check_edgex_relay_build(
     atol=1e-5,
     nothrow=False,
     legacy_lower=False,
+    edgex_lib=None,
 ):
     """build and check edgex from relay
     Parameters
@@ -474,6 +494,9 @@ def check_edgex_relay_build(
     legacy_lower : bool
         legacy relay to tir lowering, the legacy behavior is reserved for debug purpose
         until relay_to_tir functionality is totally checked.
+
+    edgex_lib : runtime.Module
+        Prebuilt device library module, use it instead of compile edgex module
     """
     arrs = {}
     if isinstance(function, IRModule):
@@ -520,10 +543,13 @@ def check_edgex_relay_build(
         data_list = [arrs[p.name_hint] for p in function.params]
         expect = numpy_func(*data_list)
 
-    def get_relay_output(relay_mod, target, ctx):
+    def get_relay_output(relay_mod_or_lib, target, ctx):
         if not isinstance(ctx, (tuple, list)):
             ctx = [ctx]
-        lib = relay.build(relay_mod, target=target, params=params)
+        if isinstance(relay_mod_or_lib, tvm.IRModule):
+            lib = relay.build(relay_mod_or_lib, target=target, params=params)
+        else:
+            lib = relay_mod_or_lib
         m = graph_executor.GraphModule(lib["default"](*ctx))
         for name, arr in arrs.items():
             # param is bind already
@@ -532,24 +558,6 @@ def check_edgex_relay_build(
             m.set_input(name, arr)
         m.run()
         return m.get_output(0)
-
-    class OnDeviceDetector(relay.ExprVisitor):
-        """Detect on device annotations"""
-
-        def __init__(self):
-            super().__init__()
-            self.has_cpu = False
-            self.has_edgex = False
-            self.has_annotations = False
-
-        def visit_call(self, call):
-            if isinstance(call.attrs, relay.op.op_attrs.OnDeviceAttrs):
-                self.has_annotations = True
-                if call.attrs.virtual_device.device_type_int == tvm.cpu().device_type:
-                    self.has_cpu = True
-                elif call.attrs.virtual_device.device_type_int == tvm.edgex().device_type:
-                    self.has_edgex = True
-            super().visit_call(call)
 
     class OnDeviceCleaner(relay.ExprMutator):
         """Clean on device annotation"""
@@ -576,10 +584,18 @@ def check_edgex_relay_build(
         else:
             check_numpy_result(cpu_result.numpy(), expect, rtol=rtol, atol=atol, rmse=rmse)
 
-    if check_edgex:
+    edgex_target = tvm.target.edgex()
+    cpu_target = tvm.target.Target("llvm")
+    if edgex_lib is not None:
+        if device_annotation_detector.has_cpu:
+            targets = {"edgex": edgex_target, "cpu": cpu_target}
+            ctxs = [tvm.edgex(), tvm.cpu()]
+            edgex_result = get_relay_output(edgex_lib, targets, ctxs)
+        else:
+            edgex_result = get_relay_output(edgex_lib, edgex_target, tvm.edgex())
+    elif check_edgex:
         pass_ctx = build_config_nnp()
-        edgex_target = tvm.target.edgex()
-        cpu_target = tvm.target.Target("llvm")
+
         plan_device_cfg = get_edgex_plan_device_config(pass_ctx)
         edgex_mod = IRModule.from_expr(function)
         edgex_mod = relay.transform.InferType()(edgex_mod)
