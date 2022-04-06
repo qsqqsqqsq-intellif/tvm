@@ -98,9 +98,13 @@ class UpSampling:
         if self.quantized:
             new_node = relay.nn.upsampling(new_arg, **dict(new_node.attrs))
             clip_attr = _get_dtype_info(self.input_config[old_arg]["dtype"])
-            new_node = relay.clip(
-                new_node, clip_attr["qmin"], clip_attr["qmax"], self.output_config["dtype"]
-            )
+
+            if "ir_pass" in relay.__dict__:
+                new_node = relay.clip(
+                    new_node, clip_attr["qmin"], clip_attr["qmax"], self.output_config["dtype"]
+                )
+            else:
+                new_node = relay.clip(new_node, clip_attr["qmin"], clip_attr["qmax"])
         else:
             tmp = relay.frontend.common.infer_type(new_arg)
             # todo support int16
