@@ -1998,7 +1998,7 @@ manipulation = {
     },
     "esrgan": {
         "input": "input",
-        "shape": [1, 3, 512, 512],
+        "shape": [1, 3, 224, 224],
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -2014,7 +2014,7 @@ manipulation = {
     },
     "EnlightenGAN": {
         "input": "input",
-        "shape": [1, 3, 512, 512],
+        "shape": [1, 3, 224, 224],
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -2284,11 +2284,11 @@ nlp = {
 test = {}
 
 meta = {}
-meta.update(classification)
+# meta.update(classification)
 # meta.update(transformer)
 # meta.update(detection)
 # meta.update(body)
-# meta.update(manipulation)
+meta.update(manipulation)
 # meta.update(nlp)
 # meta.update(test)
 

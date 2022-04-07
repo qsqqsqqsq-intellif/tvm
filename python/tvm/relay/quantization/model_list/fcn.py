@@ -32,14 +32,18 @@ torch.manual_seed(0)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
-ctx = tvm.cpu()
-target = "llvm"
+if tvm.runtime.enabled("gpu"):
+    ctx = tvm.cuda()
+    target = "cuda"
+else:
+    ctx = tvm.cpu()
+    target = "llvm"
 
 batch_size = 1
 calibrate_num = 500
 num_workers = 16
 model_name = "fcn_resnet50"
-performance = {"float": None, "int8": None}
+performance = {"float": 59.8289, "int8": 59.6815}
 root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/coco"
 
