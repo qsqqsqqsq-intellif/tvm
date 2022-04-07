@@ -112,6 +112,7 @@ class FixedOpTwoArgs:
 
         self.axis = max(input0_axis, input1_axis)
 
+        # the self.axis not the final axis, after calibrate is the last axis
         output0_config = {
             "dtype": DataType.Int32 if self.quantized else DataType.Float16,
             "axis": self.axis,
@@ -227,7 +228,7 @@ class FixedOpTwoArgs:
 
             if new_y["axis"] == 0:
                 new_y["axis"] = 1
-
+            self.axis = new_y["axis"]
             self.output_config.update(new_y)
 
     def realize(self, old_node, new_node, vertex_config, n2o):
@@ -358,8 +359,6 @@ class FixedOpTwoArgs:
             op_dict = {
                 "add": relay.add,
                 "subtract": relay.subtract,
-                "minimum": relay.minimum,
-                "maximum": relay.maximum,
             }
 
             if self.name != "nn.bias_add":
