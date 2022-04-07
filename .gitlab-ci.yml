@@ -224,7 +224,7 @@ model_integration:
   before_script:
     - *tvm_env
     - export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
-    - export TVM_CI_WORKING_DIR=integration
+    - export TVM_CI_WORKING_DIR=/tvm_ci_working_dir/${CI_COMMIT_REF_NAME}
     - export TVM_CI_DEMODELS_DIR=${EDGEX_MODELS_DIR}/demodels-lfs
     - export TVM_CI_PARALLELISM=2
   rules:
@@ -234,14 +234,15 @@ model_integration:
       echo "********** START MODEL INTEGRATION TEST **********"
       python3 tests/model_test/task_ci_integration.py
       echo "********** CLEAN MODEL INTEGRATION WORKING DIR **********"
-      rm -rf integration/*/*.so  integration/*/converted  integration/*/quantized
+      mv ${TVM_CI_WORKING_DIR}/integration ./integration_res
+      rm -rf integration_res/*/*.so  integration_res/*/converted
       if [ "$CI_COMMIT_REF_NAME" == "edgex_main" ]
       then
-        cp -r integration ${EDGEX_MODELS_DIR}/ci_test/integration_res
+        cp -r integration_res ${EDGEX_MODELS_DIR}/ci_test/
       fi
-      rm -rf integration/*/quantized
+      rm -rf integration_res/*/quantized
   artifacts:
     when: on_success
     paths:
-    - integration
+    - integration_res
     expire_in: 5 day

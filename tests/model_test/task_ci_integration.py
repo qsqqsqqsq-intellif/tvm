@@ -53,7 +53,7 @@ def launch_task(task_config, model_config, working_dir, task_records, timeout=30
     args = ["python3", "./tasks.py"]
     title = task_config.pop("title")
     model_name = task_config["model-name"]
-    log_file = os.path.join(working_dir, task_config["task"] + ".log")
+    log_file = os.path.join(working_dir, task_config["task"] + ".txt")
     log_file_fd = open(log_file, "w")
     envs = {k: v for k, v in os.environ.items()}
     if "environments" in task_config:
@@ -195,7 +195,9 @@ def make_summary(all_records):
 
     # 写入html表格文件
     html_template = """
-    <html>
+    <!DOCTYPE html><html>
+    <head><meta charset="UTF-8"></head>
+    <body>
         <table border="1" cellpadding="0" cellspacing="0" width=800 padding-top=5 padding-bottom=5>
         <tr>
             <th>模型名称</th>
@@ -207,7 +209,7 @@ def make_summary(all_records):
         </tr>
         {ROWS}
         </table>
-    </html>
+    </body></html>
     """
     for framework in all_tables:
         table = all_tables[framework]
@@ -236,21 +238,33 @@ def run_sub_worker(model_list, records):
 
 
 def run_integration():
-    all_records = []
     workers = []
-    workload_cnt = (len(TEST_MODELS) + WORKER_NUM - 1) // WORKER_NUM
-    for i in range(WORKER_NUM):
-        all_records.append([])
-        p = multiprocessing.Process(
-            target=run_sub_worker,
-            args=(TEST_MODELS[i * workload_cnt : i * workload_cnt + workload_cnt], all_records[i]),
-            daemon=True,
-        )
-        workers.append(p)
-        p.start()
-    for i in range(WORKER_NUM):
-        workers[i].join()
-    make_summary(all_records)
+    if WORKER_NUM == 1:
+        records = [[]]
+        run_sub_worker(TEST_MODELS, records[0])
+    else:
+        records = []
+        workload_cnt = (len(TEST_MODELS) + WORKER_NUM - 1) // WORKER_NUM
+        with multiprocessing.Manager() as manager:
+            record_lists = []
+            for i in range(WORKER_NUM):
+                record_lists.append(manager.list())
+                p = multiprocessing.Process(
+                    target=run_sub_worker,
+                    args=(
+                        TEST_MODELS[i * workload_cnt : i * workload_cnt + workload_cnt],
+                        record_lists[i],
+                    ),
+                    daemon=True,
+                )
+                workers.append(p)
+                p.start()
+            for i in range(WORKER_NUM):
+                workers[i].join()
+
+            for l in record_lists:
+                records.append(list(l))
+        make_summary(records)
 
 
 if __name__ == "__main__":
