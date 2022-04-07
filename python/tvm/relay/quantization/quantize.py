@@ -154,7 +154,7 @@ def run_quantization(
     return quantized_mod, quantized_params
 
 
-def quantize300(
+def quantize(
     sym,
     params=None,
     dataset=None,

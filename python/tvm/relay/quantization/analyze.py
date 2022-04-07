@@ -46,6 +46,8 @@ DISABLE_PERCHANNEL_OP = [
     "split",
     "reverse",
     "take",
+    "nn.depth_to_space",
+    "nn.space_to_depth",
 ]
 
 # the input and output same dtype
@@ -73,6 +75,8 @@ IDENTITY_INPUT_DTYPE_OP = [
     "nn.upsampling",
     "nn.unmaxpool_upsample",
     "split",
+    "nn.depth_to_space",
+    "nn.space_to_depth",
 ]
 
 # the in-out axis should be same and nodo requantize
@@ -104,6 +108,8 @@ IDENTITY_OP_LIST = [
     "zeros_like",
     "ones_like",
     "broadcast_to",
+    "nn.depth_to_space",
+    "nn.space_to_depth",
 ]
 
 # only support fp16
