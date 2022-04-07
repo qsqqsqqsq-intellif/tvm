@@ -14,13 +14,11 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-import pytest
 import tvm
 from tvm import tir
 import numpy as np
 import tvm.testing
 import tvm.script.tir as T
-from tvm.contrib.edgex.tir.schedule import EdgexSchedule
 from tvm.contrib.edgex.topi import naive_vu_schedule
 from tvm.contrib.edgex.testing import check_edgex_tir_build
 from tvm.contrib.edgex.topi import schedule_memcpy_style_edgex_impl
@@ -32,8 +30,6 @@ def split_func(
     T_split_sections: T.Buffer[(1, 8, 10, 256), "float16"],
     T_split_sections_1: T.Buffer[(1, 8, 10, 256), "float16"],
 ) -> None:
-    # body
-    # with T.block("root")
     for i0, i1, i2, i3 in T.grid(1, 8, 10, 256):
         with T.block("T_split_sections"):
             ax0, ax1, ax2, ax3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -52,12 +48,16 @@ def split_func(
 
 @T.prim_func
 def transpose_func(
-    placeholder_0: T.Buffer[(1, 8, 10, 2, 256), "float16"],
-    T_transpose: T.Buffer[(1, 8, 10, 256, 2), "float16"],
+    input: T.handle,
+    output: T.handle,
 ) -> None:
-    # body
-    # with T.block("root")
-    for i0, i1, i2, i3, i4 in T.grid(1, 8, 10, 256, 2):
+    w = T.var("int32")
+    h = T.var("int32")
+    c0 = T.var("int32")
+    c1 = T.var("int32")
+    placeholder_0 = T.match_buffer(input, [1, w, h, c0, c1], dtype="float16")
+    T_transpose = T.match_buffer(output, [1, w, h, c1, c0], dtype="float16")
+    for i0, i1, i2, i3, i4 in T.grid(1, w, h, c1, c0):
         with T.block("T_transpose"):
             ax0, ax1, ax2, ax3, ax4 = T.axis.remap("SSSSS", [i0, i1, i2, i3, i4])
             T.reads(placeholder_0[ax0, ax1, ax2, ax4, ax3])
@@ -67,11 +67,9 @@ def transpose_func(
 
 
 @T.prim_func
-def reshape_func(
+def reshape_small(
     placeholder_0: T.Buffer[(1, 8, 10, 48), "int8"], T_reshape: T.Buffer[(1, 8, 10, 3, 16), "int8"]
 ) -> None:
-    # body
-    # with T.block("root")
     for i0, i1, i2, i3, i4 in T.grid(1, 8, 10, 3, 16):
         with T.block("T_reshape"):
             ax0, ax1, ax2, ax3, ax4 = T.axis.remap("SSSSS", [i0, i1, i2, i3, i4])
@@ -94,6 +92,34 @@ def reshape_func(
 
 
 @T.prim_func
+def reshape_large(
+    placeholder_0: T.Buffer[(1, 3, 80, 80, 85), "float16"],
+    T_reshape: T.Buffer[(1, 19200, 85), "float16"],
+) -> None:
+    for i0, i1, i2 in T.grid(1, 19200, 85):
+        with T.block("T_reshape"):
+            ax0, ax1, ax2 = T.axis.remap("SSS", [i0, i1, i2])
+            T.reads(
+                placeholder_0[
+                    0,
+                    (ax2 // 85 + ax1) % 19200 // 6400,
+                    (ax2 // 85 + ax1) % 6400 // 80,
+                    (ax2 // 85 + ax1) % 80,
+                    ax2 % 85,
+                ]
+            )
+            T.writes(T_reshape[ax0, ax1, ax2])
+            T.block_attr({"relay_op_attrs.newshape": [1, -1, 85], "relay_op_name": "reshape"})
+            T_reshape[ax0, ax1, ax2] = placeholder_0[
+                0,
+                (ax2 // 85 + ax1) % 19200 // 6400,
+                (ax2 // 85 + ax1) % 6400 // 80,
+                (ax2 // 85 + ax1) % 80,
+                ax2 % 85,
+            ]
+
+
+@T.prim_func
 def concat_func(
     input_0: T.handle,
     input_1: T.handle,
@@ -101,10 +127,6 @@ def concat_func(
     input_3: T.handle,
     output: T.handle,
 ) -> None:
-    # function attr dict
-    T.func_attr({"tir.noalias": True})
-    # body
-    # with T.block("root")
     w = T.var("int32")
     h = T.var("int32")
     c0 = T.var("int32")
@@ -168,15 +190,8 @@ def do_test_concat(shapes, use_auto_vu_strategy):
     check_edgex_tir_build("concat", edgex_schedule, cpu_prim_func=cpu_schedule, check_cpu=True)
 
 
-def do_test_reshape(shapes, use_auto_vu_strategy):
-    primfunc = reshape_func
-    input_param, output_param = primfunc.params
-    primfunc = primfunc.specialize(
-        {
-            input_param: tir.decl_buffer(shapes[0]),
-            output_param: tir.decl_buffer(shapes[1]),
-        }
-    )
+def do_test_reshape(prim_func, use_auto_vu_strategy):
+    primfunc = prim_func
     target = tvm.target.Target("edgex")
     if use_auto_vu_strategy:
         edgex_schedule = naive_vu_schedule(primfunc, is_cpu=False, allow_multi_block=True)
@@ -233,17 +248,30 @@ def test_concat():
 
     # c0 + c1 + c2 + c3 == c_out
     assert shapes[0][1] + shapes[1][1] + shapes[2][1] + shapes[3][1] == shapes[4][1]
+    # test concat small
+    do_test_concat(shapes, use_auto_vu_strategy=True)
+    do_test_concat(shapes, use_auto_vu_strategy=False)
+
+    # test concat large
+    h = 140
+    w = 140
+    shapes = [(1, 64, h, w), (1, 128, h, w), (1, 32, h, w), (1, 32, h, w), (1, 256, h, w)]
     do_test_concat(shapes, use_auto_vu_strategy=True)
     do_test_concat(shapes, use_auto_vu_strategy=False)
 
 
 def test_reshape():
-    shapes = [(1, 8, 10, 48), (1, 8, 10, 3, 16)]
-    do_test_reshape(shapes, use_auto_vu_strategy=False)
+    do_test_reshape(reshape_small, use_auto_vu_strategy=False)
+    do_test_reshape(reshape_large, use_auto_vu_strategy=False)
 
 
 def test_transpose():
-    shapes = [(1, 8, 10, 2, 256), (1, 8, 10, 256, 2)]
+    # test transpose small
+    shapes = [(1, 80, 10, 2, 256), (1, 80, 10, 256, 2)]
+    do_test_transpose(shapes, use_auto_vu_strategy=False)
+
+    # test transpose large
+    shapes = [(1, 80, 10, 20, 2560), (1, 80, 10, 2560, 20)]
     do_test_transpose(shapes, use_auto_vu_strategy=False)
 
 

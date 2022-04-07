@@ -18,8 +18,8 @@
 # pylint: disable-msg=C0103,W0401,W0614
 import os
 import struct
-import tvm
 import numpy as np
+import tvm
 
 
 DEFAULT_NLFC_TABLE_DIR = os.path.join(tvm.__path__[0], "contrib/edgex/arith/nlfc_tables")
