@@ -938,7 +938,6 @@ class ScheduleConv3d:
 
         # block tensorizations
         self.__conv3d_tensorize(Xdm, Wdm, Bdm, Xbuf, Wbuf, Bbuf, Ydm, Yddr, Conv)
-        print(self._sch.mod["main"])
 
 
 def schedule_edgex_conv_block(

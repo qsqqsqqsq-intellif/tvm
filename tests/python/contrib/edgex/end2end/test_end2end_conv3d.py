@@ -40,16 +40,17 @@ def verify_conv3d(input_shape, input_dtype, weight_shape, weight_dtype, groups=1
     check_edgex_relay_build(mod, params=relay_params, check_cpu=True, test_fused=True)
 
 
-def test_conv3d_end2end_d1_nontile():
+@pytest.mark.parametrize("input_shape", [[1, 3, 1, 128, 128], [1, 3, 1, 224, 224]])
+def test_conv3d_end2end_d1(input_shape):
     verify_conv3d(
-        input_shape=[1, 3, 1, 128, 128],
+        input_shape=input_shape,
         input_dtype="uint8",
-        weight_shape=[16, 3, 3, 3, 3],
+        weight_shape=[64, 3, 3, 3, 3],
         weight_dtype="int8",
-        strides=[1, 1, 1],
+        strides=[1, 2, 2],
         padding=[1, 1, 1],
         dilation=[1, 1, 1],
-        channels=16,
+        channels=64,
         kernel_size=[3, 3, 3],
         out_dtype="int32",
         data_layout="NCDHW",
@@ -57,36 +58,56 @@ def test_conv3d_end2end_d1_nontile():
     )
 
 
-@pytest.mark.skip
-def test_conv3d_end2end_d1_tile():
+@pytest.mark.parametrize("input_shape", [[1, 16, 4, 54, 54], [1, 16, 4, 128, 128]])
+def test_conv3d_end2end_d4(input_shape):
     verify_conv3d(
-        input_shape=[1, 3, 1, 224, 224],
+        input_shape=input_shape,
         input_dtype="uint8",
-        weight_shape=[16, 3, 3, 3, 3],
-        weight_dtype="uint8",
-        strides=[1, 1, 1],
-        padding=[1, 1, 1],
+        weight_shape=[128, 16, 1, 2, 2],
+        weight_dtype="int8",
+        strides=[1, 2, 2],
+        padding=[1, 1, 1, 1, 1, 1],
         dilation=[1, 1, 1],
-        channels=16,
-        kernel_size=[3, 3, 3],
+        channels=128,
+        kernel_size=[1, 2, 2],
         out_dtype="int32",
         data_layout="NCDHW",
         kernel_layout="OIDHW",
     )
 
 
-@pytest.mark.skip
-def test_conv3d_end2end_d3_nontile():
+@pytest.mark.parametrize(
+    ["input_shape", "weight_shape"],
+    [((1, 128, 8, 28, 28), (128, 128, 3, 3, 3)), ((1, 256, 4, 14, 14), (256, 256, 3, 3, 3))],
+)
+def test_conv3d_end2end_r3d_18_torchvision(input_shape, weight_shape):
     verify_conv3d(
-        input_shape=[1, 3, 3, 128, 128],
+        input_shape=input_shape,
         input_dtype="uint8",
-        weight_shape=[16, 3, 3, 3, 3],
+        weight_shape=weight_shape,
         weight_dtype="int8",
-        strides=[1, 1, 1],
-        padding=[1, 1, 1],
-        dilation=[1, 1, 1],
-        channels=16,
-        kernel_size=[3, 3, 3],
+        padding=[1, 1, 1, 1, 1, 1],
+        channels=weight_shape[0],
+        kernel_size=weight_shape[2:],
+        out_dtype="int32",
+        data_layout="NCDHW",
+        kernel_layout="OIDHW",
+    )
+
+
+@pytest.mark.parametrize(
+    ["input_shape", "weight_shape"],
+    [((1, 460, 8, 14, 14), (256, 460, 3, 1, 1)), ((1, 256, 4, 14, 14), (460, 256, 1, 3, 3))],
+)
+def test_conv3d_end2end_r2plus1d_18_torchvision(input_shape, weight_shape):
+    verify_conv3d(
+        input_shape=input_shape,
+        input_dtype="uint8",
+        weight_shape=weight_shape,
+        weight_dtype="int8",
+        padding=[0, 1, 1, 0, 1, 1],
+        channels=weight_shape[0],
+        kernel_size=weight_shape[2:],
         out_dtype="int32",
         data_layout="NCDHW",
         kernel_layout="OIDHW",
