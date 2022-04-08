@@ -722,7 +722,6 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     } else {
       llvm::Value* undef =
           input_args.empty() ? nullptr : llvm::UndefValue::get(input_args[0]->getType());
-      llvm::ArrayType* mask_ty = llvm::ArrayType::get(t_int32_, vf);
       std::vector<llvm::Value*> partition_input_args(input_args.size());
       std::vector<llvm::Constant*> partition_mask(vf);
       res = llvm::UndefValue::get(res_ty);
@@ -738,7 +737,7 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
         }
         for (size_t j = 0; j < input_args.size(); ++j) {
           llvm::Value* part = builder_->CreateShuffleVector(
-              input_args[j], undef, llvm::ConstantArray::get(mask_ty, partition_mask));
+              input_args[j], undef, llvm::ConstantVector::get(partition_mask));
           partition_input_args[j] = part;
         }
         llvm::Value* partition_res = builder_->CreateCall(inline_asm_func, partition_input_args);
