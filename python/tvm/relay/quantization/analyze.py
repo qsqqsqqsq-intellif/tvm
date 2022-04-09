@@ -46,6 +46,7 @@ DISABLE_PERCHANNEL_OP = [
     "split",
     "reverse",
     "take",
+    "gather_nd",
     "nn.depth_to_space",
     "nn.space_to_depth",
 ]
@@ -66,6 +67,7 @@ IDENTITY_INPUT_DTYPE_OP = [
     "ones_like",
     "broadcast_to",
     "take",
+    "gather_nd",
     "slice_like",
     "nn.pad",
     "image.resize",
@@ -443,7 +445,7 @@ class TupleGetitem:
             "vision.multibox_transform_loc",
             "nn.max_pool2d",
         ]:
-            assert 0, "meet tupleGetitem no support, call yhh"
+            LOGGER.info("[analyze] TupleGetitem %s ", arg.op.name)
         if self.quantized:
             dtype = DataType.Int8
         else:

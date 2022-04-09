@@ -27,7 +27,7 @@ from ..realize import _realize_core
 
 LOGGER = logging.getLogger("quantize")
 
-__all__ = ("Take",)
+__all__ = ("Gathernd",)
 
 VALIDCONFIG = {
     "threshold": (
@@ -48,10 +48,10 @@ DEFAULTCONFIG = {
 }
 
 
-class Take:
-    """Take"""
+class Gathernd:
+    """gather_nd"""
 
-    name = "take"
+    name = "gather_nd"
     controlable = False
 
     def __init__(self, node, vertex_config, config):
@@ -63,7 +63,7 @@ class Take:
 
         ci0 = config["input0"]
 
-        LOGGER.debug("[analyze] take start...")
+        LOGGER.debug("[analyze] gather_nd start...")
         # get input0_config
         input_axis = -1
 
@@ -93,7 +93,7 @@ class Take:
 
         self.output_config = output0_config
 
-        LOGGER.debug("[analyze] take finish")
+        LOGGER.debug("[analyze] gather_nd finish")
 
     @classmethod
     def get_config(cls, config, call):
@@ -112,11 +112,11 @@ class Take:
 
     def realize(self, old_node, new_node, vertex_config, n2o):
         """realize"""
-        LOGGER.debug("[realize]take start...")
+        LOGGER.debug("[realize] gather_nd start...")
         old_arg = old_node.args[0]
         new_arg = new_node.args[0]
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
-        new_node = relay.take(new_arg, new_node.args[1], **dict(new_node.attrs))
+        new_node = relay.gather_nd(new_arg, new_node.args[1])
         return new_node
