@@ -108,21 +108,8 @@ class QuantizeSearch:
 
             # nnp300_prj
             if "optimize" in tvm.relay.quantize.__dict__:
-                norm_en = 1
-                if isinstance(mean, (float, int)):
-                    mean = (mean,)
-                if isinstance(scale, (float, int)):
-                    scale = (scale,)
-                if (
-                    (numpy.all(numpy.array(mean) == 0.0) and numpy.all(numpy.array(scale) == 1.0))
-                    or mean is None
-                    or scale is None
-                ):
-                    norm_en = 0
 
-                self.nnp300_pre_processed_mod = tvm.relay.quantize.optimize(
-                    mod, params, norm_en, mean, scale
-                )
+                self.nnp300_pre_processed_mod = tvm.relay.quantize.optimize(mod, params, norm)
                 self.pre_processed_mod = (
                     tvm.relay.quantize.detvm_quantize_optimize.FuseConv2dBiasadd().run(
                         self.nnp300_pre_processed_mod
@@ -134,6 +121,7 @@ class QuantizeSearch:
                 # todo support origin float mode
                 self.origin_mod = self.pre_processed_mod
             else:
+                # todo compatible with evaluate
                 self.origin_mod = relay.transform.InferType()(mod)
                 if self.ori_path:
                     with open(self.ori_path, "w") as f:

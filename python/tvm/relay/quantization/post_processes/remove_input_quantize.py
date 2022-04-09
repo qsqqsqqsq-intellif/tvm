@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements,bad-continuation,arguments-differ
+# pylint: disable=all
 """convert_input"""
 
 import tvm
@@ -32,10 +32,11 @@ class RemoveInputQuantize(ExprMutator):
 
     def __init__(self, mod, net_in_dtype):
         super().__init__()
-        self.new_params = []
-        self.convert = False
+        self.original_params = []
         self.net_in_dtype = net_in_dtype
-        # nnp300_prj
+        self.expr_var_map = {}
+        self.new_vars = {}
+
         if isinstance(mod, relay.Function):
             mod = self.visit(mod)
             self.new_mod = relay.ir_pass.infer_type(mod)
@@ -43,34 +44,11 @@ class RemoveInputQuantize(ExprMutator):
             mod["main"] = self.visit(mod["main"])
             self.new_mod = relay.transform.InferType()(mod)
 
-    def visit_var(self, var):
-        if (
-            var in self.ori_params
-            and self.net_in_dtype in ["uint8", "int16"]
-            and len(var.checked_type.shape) >= 4
-        ):
-            new_var = relay.var(
-                var.name_hint, shape=var.type_annotation.shape, dtype=self.net_in_dtype
-            )
-            self.new_params.append(new_var)
-            return new_var
-        return var
-
     def visit_call(self, call):
         visited = super().visit_call(call)
-        if self.convert or self.net_in_dtype not in ["uint8", "int16"]:
-            return visited
-        if is_call(visited.args[0], "qnn.quantize"):
-            self.convert = True
-            return relay.Call(
-                visited.op,
-                [visited.args[0].args[0], visited.args[1]],
-                visited.attrs,
-                visited.type_args,
-            )
 
-        if is_call(visited.args[0], "cast") and visited.args[0].attrs.dtype == self.net_in_dtype:
-            the_expr = visited.args[0].args[0]
+        if is_call(visited, "cast") and visited.attrs.dtype in ["uint8", "int16"]:
+            the_expr = visited.args[0]
             if is_call(the_expr, "clip"):
                 the_expr = the_expr.args[0]
                 if is_call(the_expr, "round"):
@@ -78,28 +56,48 @@ class RemoveInputQuantize(ExprMutator):
                     if is_call(the_expr, "multiply"):
                         the_expr = the_expr.args[0]
                         if is_call(the_expr, "cast") and isinstance(the_expr.args[0], relay.Var):
-                            self.convert = True
-                            return relay.Call(
-                                visited.op,
-                                [the_expr.args[0], *visited.args[1:]],
-                                visited.attrs,
-                                visited.type_args,
-                            )
+                            expr = the_expr.args[0]
+                            var_name = expr.name_hint
+
+                            if expr in self.original_params:
+                                if self.expr_var_map.get(expr) is None:
+
+                                    if (
+                                        isinstance(self.net_in_dtype, dict)
+                                        and var_name in self.net_in_dtype
+                                        and self.net_in_dtype[var_name] == visited.attrs.dtype
+                                    ):
+                                        dtype = self.net_in_dtype[var_name]
+                                    elif (
+                                        isinstance(self.net_in_dtype, str)
+                                        and self.net_in_dtype == visited.attrs.dtype
+                                    ):
+                                        dtype = self.net_in_dtype
+
+                                    shape = expr.checked_type.shape
+
+                                    new_var = relay.var(expr.name_hint, shape=shape, dtype=dtype)
+                                    self.new_vars[var_name] = new_var
+                                    self.expr_var_map[expr] = new_var
+                                    return new_var
+
+                                return self.expr_var_map[expr]
 
         return visited
 
     def visit_function(self, fn):
-        self.ori_params = fn.params
+        self.original_params = fn.params
         visited = super().visit_function(fn)
 
-        # nnp300_proj
-        if "ir_pass" in relay.__dict__:
-            new_body = relay.ir_pass.infer_type(visited.body)
-            new_params = relay.ir_pass.free_vars(new_body)
+        params = list(visited.params)
+        new_params = list(self.new_vars.values())
+        for param in params:
+            if param.name_hint not in list(self.new_vars.keys()):
+                new_params.append(param)
 
-            visited = relay.Function(
-                new_params, new_body, new_body.checked_type, visited.type_params, visited.attrs
-            )
+        visited = relay.Function(
+            new_params, visited.body, visited.ret_type, visited.type_params, visited.attrs
+        )
 
         return visited
 

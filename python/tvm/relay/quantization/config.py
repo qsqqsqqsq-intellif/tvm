@@ -130,7 +130,17 @@ class ConfigSpace(ExprVisitor):
                 }
             }
 
-        if isinstance(arg, relay.Var) and net_in_dtype != "float32":
+        # todo only support dict
+        if isinstance(arg, relay.Var) and isinstance(net_in_dtype, dict):
+            arg_name = arg.name_hint
+            if arg_name in net_in_dtype:
+                tmp_dict["default_config"]["dtype"] = net_in_dtype[arg_name]
+
+        elif (
+            isinstance(arg, relay.Var)
+            and isinstance(net_in_dtype, str)
+            and net_in_dtype != "float32"
+        ):
             tmp_dict["default_config"]["dtype"] = net_in_dtype
 
         map_dict = {
