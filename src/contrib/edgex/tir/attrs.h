@@ -61,6 +61,9 @@ constexpr const char* relay_op_name = "relay_op_name";
 /*! \brief Relay op attrs annotation on block */
 constexpr const char* relay_op_attrs = "relay_op_attrs";
 
+/*! \brief Tag for op data layout format. */
+constexpr const char* nnp_data_layout = "pragma_nnp_data_layout";
+
 }  // namespace attr
 }  // namespace tir
 }  // namespace tvm

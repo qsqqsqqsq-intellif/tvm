@@ -546,7 +546,7 @@ def test_tir_func_conv2d_NCHW16c():
             padding=padding,
             dilation=dilation,
             groups=1,
-            layout="NCHW16c",
+            data_layout="NCHW16c",
             kernel_layout="OIHW16i16o",
             relay_rewrite_mgr=relay_rewrite_mgr,
         )
@@ -688,7 +688,7 @@ def test_tir_func_conv2d_NCHW16c_with_oihw():
             padding=padding,
             dilation=dilation,
             groups=1,
-            layout="NCHW16c",
+            data_layout="NCHW16c",
             kernel_layout="OIHW",
             relay_rewrite_mgr=relay_rewrite_mgr,
         )

@@ -51,6 +51,7 @@ enum OpMode { CONV, MATMUL };
 enum ParaMode { TILE_PARA, CO_PARA };
 
 // The isa key assist to calculate the injected isa's value.
+// NOTE: wt_st_addr1_wdma/wt_end_addr1_wdma are produced by StorageRewriteNNP400.
 static const std::unordered_map<std::string, std::vector<std::string>> dma_isa_map{
     {"idma",
      {"sparsity_en_idma", "num_ci_group_idma", "op_idma", "wino_en_idma", "para_mode_idma",
@@ -62,33 +63,61 @@ static const std::unordered_map<std::string, std::vector<std::string>> dma_isa_m
      {"extract_2to1_odma", "num_group_odma", "data_type_odma", "psum_out_en_odma", "int_type_odma",
       "co_w_odma", "co_ch_offset_odma"}}};
 
-// The isa no need inject
+// The isa maybe no need inject
 static const std::set<std::string> isa_inject_backup{"epsilon",     "epsilon_times", "delta",
                                                      "delta_times", "eps_ci_times",  "last_epsilon",
                                                      "last_delta"};
 
-// Collect useful isa's value to calculate injected isa's value.
-class AssistedIsaCollector : public StmtExprVisitor {
+// Evaluate injected isa's value.
+class InjectedIsaEvaluator : public StmtExprVisitor {
  public:
   // Collect isa value from call node.
   void VisitExpr_(const CallNode* call) final {
     auto op = call->op;
-    if (op.same_as(edgex::builtin::nnp_idma_load())) {
-      inject_loop_isa_ = true;
-      this->SetMapByKeyValue(call, "idma");
-      for (auto it = isa_inject_backup.begin(); it != isa_inject_backup.end(); it++) {
-        int32_t val = GetValueByKey(call, *it + "_idma");
-        if (val != -1) {
-          blacklist_isa_val_map_.emplace(*it, val);
-          isa_inject_blacklist_.emplace(*it);
+    if (edgex::IsNNPNUIntrinsic(op)) {
+      inject_isa_ = true;
+      if (op.same_as(edgex::builtin::nnp_idma_load())) {
+        ICHECK(!resident_idma_) << "Idma already existed, the nu intrinsic maybe disorder. call: "
+                                << GetRef<Call>(call);
+        resident_idma_ = call;
+        this->SetMapByKeyValue(call, "idma");
+        for (auto it = isa_inject_backup.begin(); it != isa_inject_backup.end(); it++) {
+          int32_t val = GetValueByKey(call, *it + "_idma");
+          if (val != -1) {
+            blacklist_isa_val_map_.emplace(*it, val);
+            if (!isa_inject_blacklist.count(*it)) {
+              // assume all the nu blocks' blacklist are the same.
+              isa_inject_blacklist.emplace(*it);
+            }
+          }
         }
+      } else if (op.same_as(edgex::builtin::nnp_wdma_load())) {
+        this->SetMapByKeyValue(call, "wdma");
+      } else if (op.same_as(edgex::builtin::nnp_odma_store())) {
+        start_evaluate_ = true;
+        this->SetMapByKeyValue(call, "odma");
       }
-    } else if (op.same_as(edgex::builtin::nnp_wdma_load())) {
-      this->SetMapByKeyValue(call, "wdma");
-    } else if (op.same_as(edgex::builtin::nnp_odma_store())) {
-      this->SetMapByKeyValue(call, "odma");
+      ICHECK(dma_idma_map.count(call) < 1) << "Duplicate call, call: " << GetRef<Call>(call);
+      dma_idma_map.emplace(call, resident_idma_);
     }
+
     StmtExprVisitor::VisitExpr_(call);
+
+    // Start evaluate isa value
+    if (start_evaluate_) {
+      // calculate the loop value.
+      this->CalculateLoopVal();
+      // calculate the odma constraint value.
+      this->CalculateOdmaConstraintVal();
+      // calculate the wdma constraint value.
+      this->CalculateWdmaConstraintVal();
+      // calculate cube burst size pipe num
+      this->CalculateCubeBurstSize();
+      // record the idma & evaluate_isa_val_map
+      idma_isa_val_map.emplace(resident_idma_, evaluate_isa_val_map_);
+      // reset some local variable.
+      this->ResetVar();
+    }
   }
 
   // Collect useful value from attr node.
@@ -103,169 +132,47 @@ class AssistedIsaCollector : public StmtExprVisitor {
   }
 
   /*! \brief Record whether need inject loop isa. */
-  bool NeedInjectLoopIsa() const { return inject_loop_isa_; }
+  bool NeedInjectIsa() const { return inject_isa_; }
 
-  /*! \brief The assisted isa key-value map. */
-  std::unordered_map<std::string, int32_t> exist_isa_val_map_;
-  /*! \brief The blacklist isa key-value map. */
-  std::unordered_map<std::string, int32_t> blacklist_isa_val_map_;
   /*! \brief The blacklist isa no need inject. */
-  std::set<std::string> isa_inject_blacklist_;
+  std::set<std::string> isa_inject_blacklist;
+  /*! \brief The assisted dma-idma key-value map. */
+  std::unordered_map<const CallNode*, const CallNode*> dma_idma_map;
+  /*! \brief The idma-isa-value map. */
+  std::unordered_map<const CallNode*, std::unordered_map<std::string, int32_t>> idma_isa_val_map;
 
  private:
-  // Collect the call node's isa value specified by the key.
+  /*! \brief Reset some variable. */
+  void ResetVar() {
+    resident_idma_ = nullptr;
+    start_evaluate_ = false;
+    blacklist_isa_val_map_.clear();
+    exist_isa_val_map_.clear();
+    evaluate_isa_val_map_.clear();
+  }
+
+  /*! \brief Collect the call node's isa value specified by the key. */
   void SetMapByKeyValue(const CallNode* call, const std::string& key) {
     auto it = dma_isa_map.find(key);
-    if (it != dma_isa_map.end()) {
-      const std::vector<std::string>& vec = it->second;
-      for (auto vec_it = vec.begin(); vec_it != vec.end(); vec_it++) {
-        int32_t val = GetValueByKey(call, *vec_it);
-        if (val != -1) {
-          exist_isa_val_map_[*vec_it] = val;
-        } else {
-          LOG(ERROR) << "Not find isa: " << *vec_it;
-          return;
-        }
-      }
-    } else {
-      LOG(ERROR) << "Not find key: " << key;
-      return;
+    ICHECK(it != dma_isa_map.end()) << "Not find key: " << key;
+    const std::vector<std::string>& vec = it->second;
+    for (auto vec_it = vec.begin(); vec_it != vec.end(); vec_it++) {
+      int32_t val = GetValueByKey(call, *vec_it);
+      ICHECK(val != -1) << "Not find isa: " << *vec_it;
+      exist_isa_val_map_.emplace(*vec_it, val);
     }
-  }
-
-  /*! \brief Record whether need inject loop isa. */
-  bool inject_loop_isa_{false};
-};
-
-class CalculatedIsaInjector : public StmtExprMutator {
- public:
-  Stmt Injector(Stmt stmt) {
-    // collect the assist isa's value.
-    collector_(stmt);
-    if (collector_.NeedInjectLoopIsa()) {
-      // calculate the loop value.
-      this->CalculateLoopVal();
-      // calculate the odma constraint value.
-      this->CalculateOdmaConstraintVal();
-      // calculate the wdma constraint value.
-      this->CalculateWdmaConstraintVal();
-      // calculate cube burst size pipe num
-      this->CalculateCubeBurstSize();
-      // start inject the calculated isa.
-      return operator()(std::move(stmt));
-    } else {
-      return stmt;
-    }
-  }
-
-  PrimExpr VisitExpr_(const CallNode* call) final {
-    if (edgex::IsNNPIntrinsic(call->op)) {
-      auto updated = StmtExprMutator::VisitExpr_(call);
-      return this->VisitNNPIntrinsic(updated.as<CallNode>());
-    } else {
-      return StmtExprMutator::VisitExpr_(call);
-    }
-  }
-
-  Stmt VisitStmt_(const AttrStmtNode* attr) final {
-    if (attr->attr_key == attr::nnp_num_co_scope) {
-      return VisitStmt(attr->body);
-    } else {
-      return StmtExprMutator::VisitStmt_(attr);
-    }
-  }
-
- private:
-  // Visit NNP intrinsic and inject the calculated isa.
-  PrimExpr VisitNNPIntrinsic(const CallNode* call) {
-    auto op = call->op;
-    auto n = make_object<CallNode>(*call);
-    if (op.same_as(edgex::builtin::nnp_bdma_load())) {
-      InjectCalculatedIsa({"delta", "zeta", "dense", "epsilon_times", "delta_times", "zeta_times",
-                           "dense_times", "last_delta", "last_zeta", "last_dense"},
-                          n.get(), "bdma");
-    } else if (op.same_as(edgex::builtin::nnp_cube())) {
-      InjectCalculatedIsa({"epsilon", "delta", "zeta", "dense", "epsilon_times", "delta_times",
-                           "zeta_times", "dense_times", "last_epsilon", "last_delta", "last_zeta",
-                           "last_dense", "last_beta_remind", "burst_size_pipe_num"},
-                          n.get(), "cube");
-    } else if (op.same_as(edgex::builtin::nnp_idma_load())) {
-      InjectCalculatedIsa({"epsilon", "delta", "zeta", "dense", "epsilon_times", "delta_times",
-                           "zeta_times", "dense_times", "last_epsilon", "last_delta", "last_zeta",
-                           "last_dense", "last_zeta_width", "eps_ci_times", "last_eps_ci_times",
-                           "ub_ci_num", "wo_ci_num", "wo_d_num", "wo_h_num"},
-                          n.get(), "idma");
-    } else if (op.same_as(edgex::builtin::nnp_odma_store())) {
-      InjectCalculatedIsa({"delta",
-                           "zeta",
-                           "dense",
-                           "delta_times",
-                           "zeta_times",
-                           "dense_times",
-                           "last_delta",
-                           "last_zeta",
-                           "last_dense",
-                           "last_zeta_width",
-                           "last_delta_co",
-                           "zeta_offset",
-                           "wino_zeta_add_en",
-                           "init_xbar_wr_byte",
-                           "last_xbar_co_times",
-                           "last_xbar_pixel_times",
-                           "last_xbar_wr_byte",
-                           "last_xbar_cube_times",
-                           "delta_times_transfer_co",
-                           "delta_ch_offset"},
-                          n.get(), "odma");
-    } else if (op.same_as(edgex::builtin::nnp_wdma_load())) {
-      InjectCalculatedIsa(
-          {"epsilon", "delta", "zeta", "dense", "epsilon_times", "delta_times", "zeta_times",
-           "dense_times", "last_epsilon", "last_delta", "last_zeta", "last_dense",
-           "epsilon_times_rewrite_dm", "delta_inc_addr", "ksize_inc_addr", "epstimes_inc_addr",
-           "delta_times_inc_addr", "mat_row_offset"},
-          n.get(), "wdma");
-    }
-    return std::move(Call(n));
-  }
-
-  // Inject isa.
-  void InjectCalculatedIsa(const std::vector<std::string>& isa_set, CallNode* call,
-                           const std::string& dma_name) {
-    if (isa_set.empty()) {
-      LOG(INFO) << "The inject isa is empty.";
-      return;
-    }
-    for (auto it = isa_set.begin(); it != isa_set.end(); it++) {
-      auto map_it = inject_isa_val_map_.find(*it);
-      if ((map_it != inject_isa_val_map_.end()) &&
-          (collector_.isa_inject_blacklist_.find(*it) == collector_.isa_inject_blacklist_.end())) {
-        int32_t val = map_it->second;
-        auto to_hex = [](size_t i) -> std::string {
-          std::stringstream ss;
-          ss << "0x" << std::hex << i;
-          return ss.str();
-        };
-        std::stringstream key;
-        key << *it << "_" << dma_name;
-        edgex::NNPAddArg(call, key.str(), to_hex(val));
-      } else {
-        ICHECK(collector_.isa_inject_blacklist_.find(*it) != collector_.isa_inject_blacklist_.end())
-            << "Not find key: " << *it;
-      }
-    }
-    return;
   }
 
   // Calculate epsilon region loop value.
   void CalculateEpsilonRegionLoop(const int32_t& op_mode) {
     // calculate epsilon and epsilon_times.
-    int32_t sparsity_en = GetValueFromMap(collector_.exist_isa_val_map_, "sparsity_en_idma");
-    int32_t kernel_size = GetValueFromMap(collector_.exist_isa_val_map_, "k_size_wdma");
-    int32_t data_type = GetValueFromMap(collector_.exist_isa_val_map_, "data_type_idma");
+    int32_t sparsity_en = GetValueFromMap(exist_isa_val_map_, "sparsity_en_idma");
+    int32_t kernel_size = GetValueFromMap(exist_isa_val_map_, "k_size_wdma");
+    int32_t data_type = GetValueFromMap(exist_isa_val_map_, "data_type_idma");
     int32_t num_ci_group_a_dim2{0};
     int32_t eps_ci_times{1}, epsilon{0}, epsilon_times{0};
     if (op_mode == CONV) {
-      int32_t num_ci_group = GetValueFromMap(collector_.exist_isa_val_map_, "num_ci_group_idma");
+      int32_t num_ci_group = GetValueFromMap(exist_isa_val_map_, "num_ci_group_idma");
       int32_t num_ci_group_sparsity{0};
       if (sparsity_en == 1) {
         CHECK((num_ci_group % 2) == 0) << "The num_ci_group should be divided evenly by 2.";
@@ -284,7 +191,7 @@ class CalculatedIsaInjector : public StmtExprMutator {
           eps_ci_times;
     } else {
       // op is matmul.
-      int32_t a_dim2 = GetValueFromMap(collector_.exist_isa_val_map_, "A_dim2_wdma");
+      int32_t a_dim2 = GetValueFromMap(exist_isa_val_map_, "A_dim2_wdma");
       int32_t a_dim2_sparsity{0};
       if (sparsity_en == 1) {
         CHECK((a_dim2 % 2) == 0) << "The a_dim2 should be divided evenly by 2.";
@@ -301,26 +208,26 @@ class CalculatedIsaInjector : public StmtExprMutator {
       epsilon_times =
           ((a_dim2_sparsity + BETA(data_type) - 1) / BETA(data_type) + epsilon - 1) / epsilon;
     }
-    auto it = collector_.blacklist_isa_val_map_.find("epsilon");
-    if (it != collector_.blacklist_isa_val_map_.end()) {
+    auto it = blacklist_isa_val_map_.find("epsilon");
+    if (it != blacklist_isa_val_map_.end()) {
       epsilon = it->second;
     }
-    it = collector_.blacklist_isa_val_map_.find("epsilon_times");
-    if (it != collector_.blacklist_isa_val_map_.end()) {
+    it = blacklist_isa_val_map_.find("epsilon_times");
+    if (it != blacklist_isa_val_map_.end()) {
       epsilon_times = it->second;
     }
-    it = collector_.blacklist_isa_val_map_.find("eps_ci_times");
-    if (it != collector_.blacklist_isa_val_map_.end()) {
+    it = blacklist_isa_val_map_.find("eps_ci_times");
+    if (it != blacklist_isa_val_map_.end()) {
       eps_ci_times = it->second;
     }
-    inject_isa_val_map_.emplace("epsilon", epsilon);
-    inject_isa_val_map_.emplace("epsilon_times", epsilon_times);
-    inject_isa_val_map_.emplace("eps_ci_times", eps_ci_times);
+    evaluate_isa_val_map_.emplace("epsilon", epsilon);
+    evaluate_isa_val_map_.emplace("epsilon_times", epsilon_times);
+    evaluate_isa_val_map_.emplace("eps_ci_times", eps_ci_times);
     // TODO(someone): double check
-    inject_isa_val_map_.emplace("wo_ci_num", epsilon);
+    evaluate_isa_val_map_.emplace("wo_ci_num", epsilon);
     // calculate last_beta_remind.
     int32_t last_beta_remind = num_ci_group_a_dim2 % BETA(data_type);
-    inject_isa_val_map_.emplace("last_beta_remind", last_beta_remind);
+    evaluate_isa_val_map_.emplace("last_beta_remind", last_beta_remind);
     // calculate last_epsilon
     // TODO(someone): need double check the ci_k_size if is matmul.
     int32_t last_epsilon{0};
@@ -331,18 +238,18 @@ class CalculatedIsaInjector : public StmtExprMutator {
           (num_ci_group_a_dim2 + BETA(data_type) - 1) / BETA(data_type) * kernel_size;
       last_epsilon = ((ci_k_size % epsilon) == 0) ? epsilon : (ci_k_size % epsilon);
     }
-    it = collector_.blacklist_isa_val_map_.find("last_epsilon");
-    if (it != collector_.blacklist_isa_val_map_.end()) {
+    it = blacklist_isa_val_map_.find("last_epsilon");
+    if (it != blacklist_isa_val_map_.end()) {
       last_epsilon = it->second;
     }
-    inject_isa_val_map_.emplace("last_epsilon", last_epsilon);
+    evaluate_isa_val_map_.emplace("last_epsilon", last_epsilon);
     // calculate ub_ci_num < ((epsilon_times - 1) * epsilon + last_epsilon) * 16/8.
     // TODO(someone): double check.
     int32_t ub_ci_num = 16;
-    inject_isa_val_map_.emplace("ub_ci_num", ub_ci_num);
+    evaluate_isa_val_map_.emplace("ub_ci_num", ub_ci_num);
     // calculate last_eps_ci_times
     int32_t last_eps_ci_times{0};
-    int32_t winograd_en = GetValueFromMap(collector_.exist_isa_val_map_, "wino_en_idma");
+    int32_t winograd_en = GetValueFromMap(exist_isa_val_map_, "wino_en_idma");
     if (op_mode == CONV && winograd_en == 1) {
       last_eps_ci_times =
           ((((num_ci_group_a_dim2 + BETA(data_type) - 1) / BETA(data_type)) % eps_ci_times) == 0)
@@ -351,7 +258,7 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else {
       last_eps_ci_times = 1;
     }
-    inject_isa_val_map_.emplace("last_eps_ci_times", last_eps_ci_times);
+    evaluate_isa_val_map_.emplace("last_eps_ci_times", last_eps_ci_times);
   }
 
   // Calculate delta region loop value.
@@ -363,8 +270,8 @@ class CalculatedIsaInjector : public StmtExprMutator {
     int32_t delta{4}, delta_times{0};
     int32_t max_delta{0}, num_co_group_a_dim1{0};
     if (op_mode == CONV) {
-      int32_t num_co = GetValueFromMap(collector_.exist_isa_val_map_, "num_co");
-      int32_t num_group = GetValueFromMap(collector_.exist_isa_val_map_, "num_group_odma");
+      int32_t num_co = GetValueFromMap(exist_isa_val_map_, "num_co");
+      int32_t num_group = GetValueFromMap(exist_isa_val_map_, "num_group_odma");
       CHECK((num_co % num_group) == 0) << "The num_co should be divided evenly by num_group.";
       int32_t num_co_group = num_co / num_group;
       num_co_group_a_dim1 = num_co_group;
@@ -386,7 +293,7 @@ class CalculatedIsaInjector : public StmtExprMutator {
       }
     } else {
       // op is matmul.
-      int32_t a_dim1 = GetValueFromMap(collector_.exist_isa_val_map_, "A_dim1_wdma");
+      int32_t a_dim1 = GetValueFromMap(exist_isa_val_map_, "A_dim1_wdma");
       num_co_group_a_dim1 = a_dim1;
       max_delta = (a_dim1 + ALPHA - 1) / ALPHA;
       if (para_mode == TILE_PARA) {
@@ -404,16 +311,16 @@ class CalculatedIsaInjector : public StmtExprMutator {
         delta_times = ((a_dim1 + ALPHA - 1) / ALPHA + delta * pe_num - 1) / (delta * pe_num);
       }
     }
-    auto it = collector_.blacklist_isa_val_map_.find("delta");
-    if (it != collector_.blacklist_isa_val_map_.end()) {
+    auto it = blacklist_isa_val_map_.find("delta");
+    if (it != blacklist_isa_val_map_.end()) {
       delta = it->second;
     }
-    it = collector_.blacklist_isa_val_map_.find("delta_times");
-    if (it != collector_.blacklist_isa_val_map_.end()) {
+    it = blacklist_isa_val_map_.find("delta_times");
+    if (it != blacklist_isa_val_map_.end()) {
       delta_times = it->second;
     }
-    inject_isa_val_map_.emplace("delta", delta);
-    inject_isa_val_map_.emplace("delta_times", delta_times);
+    evaluate_isa_val_map_.emplace("delta", delta);
+    evaluate_isa_val_map_.emplace("delta_times", delta_times);
     // calculate last_delta.
     int32_t last_delta{0};
     if (delta_times == 1) {
@@ -427,11 +334,11 @@ class CalculatedIsaInjector : public StmtExprMutator {
                          : ((max_delta + pe_num - 1) / pe_num) % delta;
       }
     }
-    it = collector_.blacklist_isa_val_map_.find("last_delta");
-    if (it != collector_.blacklist_isa_val_map_.end()) {
+    it = blacklist_isa_val_map_.find("last_delta");
+    if (it != blacklist_isa_val_map_.end()) {
       last_delta = it->second;
     }
-    inject_isa_val_map_.emplace("last_delta", last_delta);
+    evaluate_isa_val_map_.emplace("last_delta", last_delta);
     // calculate last_delta_co.
     int32_t last_delta_co{0};
     if (para_mode == TILE_PARA) {
@@ -441,7 +348,7 @@ class CalculatedIsaInjector : public StmtExprMutator {
                           ? ALPHA * pe_num
                           : num_co_group_a_dim1 % (ALPHA * pe_num);
     }
-    inject_isa_val_map_.emplace("last_delta_co", last_delta_co);
+    evaluate_isa_val_map_.emplace("last_delta_co", last_delta_co);
   }
 
   // Calculate zeta region loop value.
@@ -453,10 +360,9 @@ class CalculatedIsaInjector : public StmtExprMutator {
     int32_t zeta{16}, zeta_times{0};
     int32_t max_zeta{0}, co_wxco_h_b_dim2{0};
     if (op_mode == CONV) {
-      int32_t co_w = GetValueFromMap(collector_.exist_isa_val_map_, "co_w_idma");
-      int32_t co_h = GetValueFromMap(collector_.exist_isa_val_map_, "co_h_idma");
-      int32_t extract_2to1_odma =
-          GetValueFromMap(collector_.exist_isa_val_map_, "extract_2to1_odma");
+      int32_t co_w = GetValueFromMap(exist_isa_val_map_, "co_w_idma");
+      int32_t co_h = GetValueFromMap(exist_isa_val_map_, "co_h_idma");
+      int32_t extract_2to1_odma = GetValueFromMap(exist_isa_val_map_, "extract_2to1_odma");
       int32_t co_w_x2{0};
       if (extract_2to1_odma == 1) {
         co_w_x2 = co_w * 2;
@@ -482,7 +388,7 @@ class CalculatedIsaInjector : public StmtExprMutator {
       }
     } else {
       // op is matmul.
-      int32_t b_dim2 = GetValueFromMap(collector_.exist_isa_val_map_, "B_dim2_idma");
+      int32_t b_dim2 = GetValueFromMap(exist_isa_val_map_, "B_dim2_idma");
       max_zeta = (b_dim2 + GAMMA - 1) / GAMMA;
       co_wxco_h_b_dim2 = b_dim2;
       if (para_mode == TILE_PARA) {
@@ -500,10 +406,10 @@ class CalculatedIsaInjector : public StmtExprMutator {
         zeta_times = ((b_dim2 + GAMMA - 1) / GAMMA + zeta - 1) / zeta;
       }
     }
-    inject_isa_val_map_.emplace("zeta", zeta);
-    inject_isa_val_map_.emplace("zeta_times", zeta_times);
+    evaluate_isa_val_map_.emplace("zeta", zeta);
+    evaluate_isa_val_map_.emplace("zeta_times", zeta_times);
     // TODO(someone): double check
-    inject_isa_val_map_.emplace("wo_h_num", zeta);
+    evaluate_isa_val_map_.emplace("wo_h_num", zeta);
     // calculate last zeta.
     int32_t last_zeta{0};
     if (zeta_times == 1) {
@@ -517,10 +423,10 @@ class CalculatedIsaInjector : public StmtExprMutator {
         last_zeta = (max_zeta % zeta) == 0 ? zeta : (max_zeta % zeta);
       }
     }
-    inject_isa_val_map_.emplace("last_zeta", last_zeta);
+    evaluate_isa_val_map_.emplace("last_zeta", last_zeta);
     // calculate last_zeta_width
     int32_t last_zeta_width{0};
-    int32_t winograd_en = GetValueFromMap(collector_.exist_isa_val_map_, "wino_en_idma");
+    int32_t winograd_en = GetValueFromMap(exist_isa_val_map_, "wino_en_idma");
     if (para_mode == TILE_PARA) {
       if (winograd_en == 0) {
         last_zeta_width = co_wxco_h_b_dim2 % (GAMMA * pe_num) == 0
@@ -541,7 +447,7 @@ class CalculatedIsaInjector : public StmtExprMutator {
             ((co_wxco_h_b_dim2 % GAMMA == 0 ? GAMMA : co_wxco_h_b_dim2 % GAMMA) + 3) / 4;
       }
     }
-    inject_isa_val_map_.emplace("last_zeta_width", last_zeta_width);
+    evaluate_isa_val_map_.emplace("last_zeta_width", last_zeta_width);
   }
 
   // Calculate dense region loop value.
@@ -551,25 +457,25 @@ class CalculatedIsaInjector : public StmtExprMutator {
     // assume max zeta is 16, max delta is 4, dense=1.
     // TODO(someone): dense can be optimized in valid range.
     // dense <= co_d
-    int32_t co_d = GetValueFromMap(collector_.exist_isa_val_map_, "co_d_idma");
+    int32_t co_d = GetValueFromMap(exist_isa_val_map_, "co_d_idma");
     int32_t dense = 1;
     int32_t dense_times = (co_d + dense - 1) / dense;
-    inject_isa_val_map_.emplace("dense", dense);
-    inject_isa_val_map_.emplace("dense_times", dense_times);
+    evaluate_isa_val_map_.emplace("dense", dense);
+    evaluate_isa_val_map_.emplace("dense_times", dense_times);
     // TODO(someone): double check
-    inject_isa_val_map_.emplace("wo_d_num", dense);
+    evaluate_isa_val_map_.emplace("wo_d_num", dense);
     // calculate last_dense.
     int32_t last_dense = (co_d % dense == 0) ? dense : (co_d % dense);
-    inject_isa_val_map_.emplace("last_dense", last_dense);
+    evaluate_isa_val_map_.emplace("last_dense", last_dense);
   }
 
   // Calculate the loop value.
   void CalculateLoopVal() {
-    int32_t op_mode = GetValueFromMap(collector_.exist_isa_val_map_, "op_idma");
+    int32_t op_mode = GetValueFromMap(exist_isa_val_map_, "op_idma");
     // Calculate epsilon region loop value.
     this->CalculateEpsilonRegionLoop(op_mode);
-    int32_t para_mode = GetValueFromMap(collector_.exist_isa_val_map_, "para_mode_idma");
-    int32_t pe_num = GetValueFromMap(collector_.exist_isa_val_map_, "cube_enable_idma") + 1;
+    int32_t para_mode = GetValueFromMap(exist_isa_val_map_, "para_mode_idma");
+    int32_t pe_num = GetValueFromMap(exist_isa_val_map_, "cube_enable_idma") + 1;
     // Calculate delta region loop value.
     this->CalculateDeltaRegionLoop(op_mode, para_mode, pe_num);
     // Calculate zeta region loop value.
@@ -580,10 +486,10 @@ class CalculatedIsaInjector : public StmtExprMutator {
 
   // Calculate the odma constraint value.
   void CalculateOdmaConstraintVal() {
-    int32_t data_type = GetValueFromMap(collector_.exist_isa_val_map_, "data_type_odma");
-    int32_t delta = GetValueFromMap(inject_isa_val_map_, "delta");
-    int32_t para_mode = GetValueFromMap(collector_.exist_isa_val_map_, "para_mode_idma");
-    int32_t cube_enable = GetValueFromMap(collector_.exist_isa_val_map_, "cube_enable_idma");
+    int32_t data_type = GetValueFromMap(exist_isa_val_map_, "data_type_odma");
+    int32_t delta = GetValueFromMap(evaluate_isa_val_map_, "delta");
+    int32_t para_mode = GetValueFromMap(exist_isa_val_map_, "para_mode_idma");
+    int32_t cube_enable = GetValueFromMap(exist_isa_val_map_, "cube_enable_idma");
     int32_t delta_times_transfer_co{0};
     // calculate the delta_times_transfer_co.
     if (data_type == NNPDataType::FLOAT32) {
@@ -597,10 +503,10 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else if (para_mode == CO_PARA && cube_enable == 2) {
       delta_times_transfer_co = delta * 48;
     }
-    inject_isa_val_map_.emplace("delta_times_transfer_co", delta_times_transfer_co);
+    evaluate_isa_val_map_.emplace("delta_times_transfer_co", delta_times_transfer_co);
     // calculate the last_xbar_cube_times.
-    int32_t last_zeta_width = GetValueFromMap(inject_isa_val_map_, "last_zeta_width");
-    int32_t last_delta_co = GetValueFromMap(inject_isa_val_map_, "last_delta_co");
+    int32_t last_zeta_width = GetValueFromMap(evaluate_isa_val_map_, "last_zeta_width");
+    int32_t last_delta_co = GetValueFromMap(evaluate_isa_val_map_, "last_delta_co");
     int32_t last_xbar_cube_times{0};
     if (para_mode == TILE_PARA && last_zeta_width > 32) {
       last_xbar_cube_times = 2;
@@ -611,10 +517,10 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else if (para_mode == CO_PARA && last_delta_co > 16) {
       last_xbar_cube_times = 1;
     }
-    inject_isa_val_map_.emplace("last_xbar_cube_times", last_xbar_cube_times);
+    evaluate_isa_val_map_.emplace("last_xbar_cube_times", last_xbar_cube_times);
     // calculate the last_xbar_wr_byte.
-    int32_t psum_out_en = GetValueFromMap(collector_.exist_isa_val_map_, "psum_out_en_odma");
-    int32_t extract_2to1 = GetValueFromMap(collector_.exist_isa_val_map_, "extract_2to1_odma");
+    int32_t psum_out_en = GetValueFromMap(exist_isa_val_map_, "psum_out_en_odma");
+    int32_t extract_2to1 = GetValueFromMap(exist_isa_val_map_, "extract_2to1_odma");
     int32_t last_xbar_wr_byte{0};
     if (psum_out_en == 1 && data_type == NNPDataType::FLOAT32 && extract_2to1 == 1 &&
         (last_zeta_width & 0x3) == 0) {
@@ -645,7 +551,7 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else if (psum_out_en == 0) {
       last_xbar_wr_byte = (last_zeta_width & 0x7) * 16 - 1;
     }
-    inject_isa_val_map_.emplace("last_xbar_wr_byte", last_xbar_wr_byte);
+    evaluate_isa_val_map_.emplace("last_xbar_wr_byte", last_xbar_wr_byte);
     // calculate the last_xbar_pixel_times.
     int32_t last_xbar_pixel_times{0};
     if (psum_out_en == 1 && data_type == NNPDataType::FLOAT32 &&
@@ -678,9 +584,9 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else if ((last_zeta_width & 0xf) > 8 || (last_zeta_width & 0xf) == 0) {
       last_xbar_pixel_times = 1;
     }
-    inject_isa_val_map_.emplace("last_xbar_pixel_times", last_xbar_pixel_times);
+    evaluate_isa_val_map_.emplace("last_xbar_pixel_times", last_xbar_pixel_times);
     // calculate the last_xbar_co_times.
-    int32_t int_type = GetValueFromMap(collector_.exist_isa_val_map_, "int_type_odma");
+    int32_t int_type = GetValueFromMap(exist_isa_val_map_, "int_type_odma");
     int32_t last_xbar_co_times{0};
     if (data_type == NNPDataType::FLOAT32 &&
         ((last_delta_co & 0xf) > 8 || (last_delta_co & 0xf) == 0)) {
@@ -689,10 +595,10 @@ class CalculatedIsaInjector : public StmtExprMutator {
                ((last_delta_co & 0xf) > 8 || (last_delta_co & 0xf) == 0)) {
       last_xbar_co_times = 1;
     }
-    inject_isa_val_map_.emplace("last_xbar_co_times", last_xbar_co_times);
+    evaluate_isa_val_map_.emplace("last_xbar_co_times", last_xbar_co_times);
     // calculate the init_xbar_wr_byte.
-    int32_t zeta_times = GetValueFromMap(inject_isa_val_map_, "zeta_times");
-    int32_t zeta = GetValueFromMap(inject_isa_val_map_, "zeta");
+    int32_t zeta_times = GetValueFromMap(evaluate_isa_val_map_, "zeta_times");
+    int32_t zeta = GetValueFromMap(evaluate_isa_val_map_, "zeta");
     int32_t init_xbar_wr_byte{0};
     if (psum_out_en == 1 && data_type == NNPDataType::FLOAT32 && last_zeta_width < 4 &&
         zeta_times == 1 && zeta == 1 && extract_2to1 == 1) {
@@ -715,10 +621,10 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else {
       init_xbar_wr_byte = 127;
     }
-    inject_isa_val_map_.emplace("init_xbar_wr_byte", init_xbar_wr_byte);
+    evaluate_isa_val_map_.emplace("init_xbar_wr_byte", init_xbar_wr_byte);
     // get the wino_zeta_add_en.
-    int32_t wino_en = GetValueFromMap(collector_.exist_isa_val_map_, "wino_en_idma");
-    int32_t co_w = GetValueFromMap(collector_.exist_isa_val_map_, "co_w_odma");
+    int32_t wino_en = GetValueFromMap(exist_isa_val_map_, "wino_en_idma");
+    int32_t co_w = GetValueFromMap(exist_isa_val_map_, "co_w_odma");
     int32_t wino_zeta_add_en{0};
     if (wino_en == 1 && (para_mode == CO_PARA || (para_mode == TILE_PARA && cube_enable == 0)) &&
         co_w == 8) {
@@ -732,7 +638,7 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else if (wino_en == 1) {
       wino_zeta_add_en = 1;
     }
-    inject_isa_val_map_.emplace("wino_zeta_add_en", wino_zeta_add_en);
+    evaluate_isa_val_map_.emplace("wino_zeta_add_en", wino_zeta_add_en);
     // calculate the zeta_offset.
     int32_t zeta_offset{0};
     if (wino_en == 1 && (para_mode == CO_PARA || (para_mode == TILE_PARA && cube_enable == 0))) {
@@ -781,9 +687,9 @@ class CalculatedIsaInjector : public StmtExprMutator {
                cube_enable == 2) {
       zeta_offset = 192;
     }
-    inject_isa_val_map_.emplace("zeta_offset", zeta_offset);
+    evaluate_isa_val_map_.emplace("zeta_offset", zeta_offset);
     // calculate the delta_ch_offset
-    int32_t co_ch_offset = GetValueFromMap(collector_.exist_isa_val_map_, "co_ch_offset_odma");
+    int32_t co_ch_offset = GetValueFromMap(exist_isa_val_map_, "co_ch_offset_odma");
     int32_t delta_ch_offset{0};
     if (((para_mode == CO_PARA && cube_enable == 0) || para_mode == TILE_PARA) &&
         data_type == NNPDataType::FLOAT32) {
@@ -802,20 +708,20 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else {
       delta_ch_offset = co_ch_offset * 3;
     }
-    inject_isa_val_map_.emplace("delta_ch_offset", delta_ch_offset);
+    evaluate_isa_val_map_.emplace("delta_ch_offset", delta_ch_offset);
   }
 
   // Calculate the wdma constraint value.
   void CalculateWdmaConstraintVal() {
-    int32_t a_transpose = GetValueFromMap(collector_.exist_isa_val_map_, "A_transpose_wdma");
-    int32_t para_mode = GetValueFromMap(collector_.exist_isa_val_map_, "para_mode_idma");
-    int32_t data_type = GetValueFromMap(collector_.exist_isa_val_map_, "data_type_wdma");
-    int32_t a_dim2 = GetValueFromMap(collector_.exist_isa_val_map_, "A_dim2_wdma");
-    int32_t cube_enable = GetValueFromMap(collector_.exist_isa_val_map_, "cube_enable_idma");
+    int32_t a_transpose = GetValueFromMap(exist_isa_val_map_, "A_transpose_wdma");
+    int32_t para_mode = GetValueFromMap(exist_isa_val_map_, "para_mode_idma");
+    int32_t data_type = GetValueFromMap(exist_isa_val_map_, "data_type_wdma");
+    int32_t a_dim2 = GetValueFromMap(exist_isa_val_map_, "A_dim2_wdma");
+    int32_t cube_enable = GetValueFromMap(exist_isa_val_map_, "cube_enable_idma");
     // calculate the mat_row_offset >= 16*a_dim2
     // matrix A address offset by line
     int32_t mat_row_offset = 16 * a_dim2;
-    inject_isa_val_map_.emplace("mat_row_offset", mat_row_offset);
+    evaluate_isa_val_map_.emplace("mat_row_offset", mat_row_offset);
     // calculate the delta_inc_addr
     // delta cyclic increasing address, used for matrix handling
     int32_t delta_inc_addr{0};
@@ -841,11 +747,10 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else if (a_transpose == 1 && para_mode == CO_PARA && cube_enable == 2) {
       delta_inc_addr = 768;
     }
-    inject_isa_val_map_.emplace("delta_inc_addr", delta_inc_addr);
+    evaluate_isa_val_map_.emplace("delta_inc_addr", delta_inc_addr);
     // calculate the ksize_inc_addr
-    int32_t bubble_insert_en =
-        GetValueFromMap(collector_.exist_isa_val_map_, "bubble_insert_en_wdma");
-    int32_t k_size = GetValueFromMap(collector_.exist_isa_val_map_, "k_size_wdma");
+    int32_t bubble_insert_en = GetValueFromMap(exist_isa_val_map_, "bubble_insert_en_wdma");
+    int32_t k_size = GetValueFromMap(exist_isa_val_map_, "k_size_wdma");
     int32_t ksize_inc_addr{0};
     if (bubble_insert_en && para_mode == TILE_PARA) {
       ksize_inc_addr = (k_size * 2 - 1) * 128;
@@ -864,9 +769,9 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else if (para_mode == CO_PARA && cube_enable == 2) {
       ksize_inc_addr = (k_size * 2 - 1) * 768;
     }
-    inject_isa_val_map_.emplace("ksize_inc_addr", ksize_inc_addr);
+    evaluate_isa_val_map_.emplace("ksize_inc_addr", ksize_inc_addr);
     // calculate the epstimes_inc_addr
-    int32_t epsilon = GetValueFromMap(inject_isa_val_map_, "epsilon");
+    int32_t epsilon = GetValueFromMap(evaluate_isa_val_map_, "epsilon");
     int32_t epstimes_inc_addr{0};
     if (a_transpose == 1 && bubble_insert_en == 1) {
       epstimes_inc_addr = mat_row_offset * ((epsilon + 1) >> 1);
@@ -877,19 +782,19 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else {
       epstimes_inc_addr = 16 * epsilon * 16;
     }
-    inject_isa_val_map_.emplace("epstimes_inc_addr", epstimes_inc_addr);
+    evaluate_isa_val_map_.emplace("epstimes_inc_addr", epstimes_inc_addr);
     // calculate the delta_times_inc_addr
-    int32_t delta = GetValueFromMap(inject_isa_val_map_, "delta");
+    int32_t delta = GetValueFromMap(evaluate_isa_val_map_, "delta");
     int32_t delta_times_inc_addr = delta_inc_addr * delta;
-    inject_isa_val_map_.emplace("delta_times_inc_addr", delta_times_inc_addr);
+    evaluate_isa_val_map_.emplace("delta_times_inc_addr", delta_times_inc_addr);
     // calculate the epsilon_times_rewrite_dm
-    int32_t wt_st_addr1 = GetValueFromMap(collector_.exist_isa_val_map_, "wt_st_addr1_wdma");
-    int32_t wt_end_addr1 = GetValueFromMap(collector_.exist_isa_val_map_, "wt_end_addr1_wdma");
-    int32_t epsilon_times = GetValueFromMap(inject_isa_val_map_, "epsilon_times");
-    int32_t last_epsilon = GetValueFromMap(inject_isa_val_map_, "last_epsilon");
+    int32_t wt_st_addr1 = GetValueFromMap(exist_isa_val_map_, "wt_st_addr1_wdma");
+    int32_t wt_end_addr1 = GetValueFromMap(exist_isa_val_map_, "wt_end_addr1_wdma");
+    int32_t epsilon_times = GetValueFromMap(evaluate_isa_val_map_, "epsilon_times");
+    int32_t last_epsilon = GetValueFromMap(evaluate_isa_val_map_, "last_epsilon");
     int32_t epsilon_times_rewrite_dm{0};
     if ((epsilon * (epsilon_times - 1) + last_epsilon) * delta > (wt_end_addr1 - wt_st_addr1 + 1)) {
-      if (GetValueFromMap(collector_.exist_isa_val_map_, "op_idma") == MATMUL) {
+      if (GetValueFromMap(exist_isa_val_map_, "op_idma") == MATMUL) {
         epsilon_times_rewrite_dm = 0;
       } else {
         epsilon_times_rewrite_dm = 1;
@@ -897,25 +802,25 @@ class CalculatedIsaInjector : public StmtExprMutator {
     } else {
       epsilon_times_rewrite_dm = 0;
     }
-    inject_isa_val_map_.emplace("epsilon_times_rewrite_dm", epsilon_times_rewrite_dm);
+    evaluate_isa_val_map_.emplace("epsilon_times_rewrite_dm", epsilon_times_rewrite_dm);
   }
 
   // Calculate burst_size_pipe_num_cube.
   void CalculateCubeBurstSize() {
     // assume num_group_cube == num_group_odma
-    int32_t num_group = GetValueFromMap(collector_.exist_isa_val_map_, "num_group_odma");
-    int32_t delta_times = GetValueFromMap(inject_isa_val_map_, "delta_times");
-    int32_t delta = GetValueFromMap(inject_isa_val_map_, "delta");
-    int32_t last_delta = GetValueFromMap(inject_isa_val_map_, "last_delta");
-    int32_t dense_times = GetValueFromMap(inject_isa_val_map_, "dense_times");
-    int32_t dense = GetValueFromMap(inject_isa_val_map_, "dense");
-    int32_t last_dense = GetValueFromMap(inject_isa_val_map_, "last_dense");
-    int32_t zeta_times = GetValueFromMap(inject_isa_val_map_, "zeta_times");
-    int32_t zeta = GetValueFromMap(inject_isa_val_map_, "zeta");
-    int32_t last_zeta = GetValueFromMap(inject_isa_val_map_, "last_zeta");
-    int32_t epsilon_times = GetValueFromMap(inject_isa_val_map_, "epsilon_times");
-    int32_t epsilon = GetValueFromMap(inject_isa_val_map_, "epsilon");
-    int32_t last_epsilon = GetValueFromMap(inject_isa_val_map_, "last_epsilon");
+    int32_t num_group = GetValueFromMap(exist_isa_val_map_, "num_group_odma");
+    int32_t delta_times = GetValueFromMap(evaluate_isa_val_map_, "delta_times");
+    int32_t delta = GetValueFromMap(evaluate_isa_val_map_, "delta");
+    int32_t last_delta = GetValueFromMap(evaluate_isa_val_map_, "last_delta");
+    int32_t dense_times = GetValueFromMap(evaluate_isa_val_map_, "dense_times");
+    int32_t dense = GetValueFromMap(evaluate_isa_val_map_, "dense");
+    int32_t last_dense = GetValueFromMap(evaluate_isa_val_map_, "last_dense");
+    int32_t zeta_times = GetValueFromMap(evaluate_isa_val_map_, "zeta_times");
+    int32_t zeta = GetValueFromMap(evaluate_isa_val_map_, "zeta");
+    int32_t last_zeta = GetValueFromMap(evaluate_isa_val_map_, "last_zeta");
+    int32_t epsilon_times = GetValueFromMap(evaluate_isa_val_map_, "epsilon_times");
+    int32_t epsilon = GetValueFromMap(evaluate_isa_val_map_, "epsilon");
+    int32_t last_epsilon = GetValueFromMap(evaluate_isa_val_map_, "last_epsilon");
     int32_t normal_epsilon_burst_size = num_group * ((delta_times - 1) * delta + last_delta) *
                                         ((dense_times - 1) * dense + last_dense) *
                                         ((zeta_times - 1) * zeta + last_zeta) *
@@ -924,25 +829,145 @@ class CalculatedIsaInjector : public StmtExprMutator {
                                       ((dense_times - 1) * dense + last_dense) *
                                       ((zeta_times - 1) * zeta + last_zeta) * last_epsilon;
     int32_t burst_size_pipe_num = normal_epsilon_burst_size + last_epsilon_burst_size;
-    inject_isa_val_map_.emplace("burst_size_pipe_num", burst_size_pipe_num);
+    evaluate_isa_val_map_.emplace("burst_size_pipe_num", burst_size_pipe_num);
   }
 
   // Get assisted value from map by specified key.
   int32_t GetValueFromMap(const std::unordered_map<std::string, int32_t>& isa_val_map,
                           const std::string& key) {
     auto it = isa_val_map.find(key);
-    if (it != isa_val_map.end()) {
-      return it->second;
+    ICHECK(it != isa_val_map.end()) << "Not find key: " << key;
+    return it->second;
+  }
+
+  /*! \brief Record whether need inject isa. */
+  bool inject_isa_{false};
+  /*! \brief The assisted isa key-value map. */
+  std::unordered_map<std::string, int32_t> exist_isa_val_map_;
+  /*! \brief The blacklist isa key-value map. */
+  std::unordered_map<std::string, int32_t> blacklist_isa_val_map_;
+  /*! \brief Record the resident idma intrinsic call as the key. */
+  const CallNode* resident_idma_{nullptr};
+  /*! \brief Record whether need start evaluate isa value. */
+  bool start_evaluate_{false};
+  /*! \brief temporary storage isa & value. */
+  std::unordered_map<std::string, int32_t> evaluate_isa_val_map_;
+};
+
+class CalculatedIsaInjector : public StmtExprMutator {
+ public:
+  Stmt Injector(Stmt stmt) {
+    // evaluate isa's value.
+    evaluator_(stmt);
+    if (evaluator_.NeedInjectIsa()) {
+      // start inject the calculated isa.
+      return operator()(std::move(stmt));
     } else {
-      LOG(ERROR) << "Not find key: " << key;
-      return -1;
+      return stmt;
     }
   }
 
-  /*! \brief The AssistedIsaCollector. */
-  AssistedIsaCollector collector_;
-  /*! \brief Assign loop key & value. */
-  std::unordered_map<std::string, int32_t> inject_isa_val_map_;
+  PrimExpr VisitExpr_(const CallNode* call) final {
+    if (edgex::IsNNPNUIntrinsic(call->op)) {
+      auto updated = StmtExprMutator::VisitExpr_(call);
+      return this->VisitNNPIntrinsic(updated.as<CallNode>());
+    } else {
+      return StmtExprMutator::VisitExpr_(call);
+    }
+  }
+
+  Stmt VisitStmt_(const AttrStmtNode* attr) final {
+    if (attr->attr_key == attr::nnp_num_co_scope) {
+      return VisitStmt(attr->body);
+    } else {
+      return StmtExprMutator::VisitStmt_(attr);
+    }
+  }
+
+ private:
+  // Visit NNP intrinsic and inject the calculated isa.
+  PrimExpr VisitNNPIntrinsic(const CallNode* call) {
+    ICHECK(evaluator_.dma_idma_map.count(call))
+        << "Not find the call, call: " << GetRef<Call>(call);
+    const CallNode* ptr = evaluator_.dma_idma_map[call];
+    ICHECK(ptr) << "invalid idma callnode ptr.";
+    ICHECK(evaluator_.idma_isa_val_map.count(ptr)) << "Not find the idma key in idma_isa_val_map.";
+    std::unordered_map<std::string, int32_t> isa_val_map = evaluator_.idma_isa_val_map[ptr];
+    auto op = call->op;
+    auto n = make_object<CallNode>(*call);
+    if (op.same_as(edgex::builtin::nnp_bdma_load())) {
+      InjectCalculatedIsa({"delta", "zeta", "dense", "epsilon_times", "delta_times", "zeta_times",
+                           "dense_times", "last_delta", "last_zeta", "last_dense"},
+                          n.get(), "bdma", isa_val_map);
+    } else if (op.same_as(edgex::builtin::nnp_cube_compute())) {
+      InjectCalculatedIsa({"epsilon", "delta", "zeta", "dense", "epsilon_times", "delta_times",
+                           "zeta_times", "dense_times", "last_epsilon", "last_delta", "last_zeta",
+                           "last_dense", "last_beta_remind", "burst_size_pipe_num"},
+                          n.get(), "cube", isa_val_map);
+    } else if (op.same_as(edgex::builtin::nnp_idma_load())) {
+      InjectCalculatedIsa({"epsilon", "delta", "zeta", "dense", "epsilon_times", "delta_times",
+                           "zeta_times", "dense_times", "last_epsilon", "last_delta", "last_zeta",
+                           "last_dense", "last_zeta_width", "eps_ci_times", "last_eps_ci_times",
+                           "ub_ci_num", "wo_ci_num", "wo_d_num", "wo_h_num"},
+                          n.get(), "idma", isa_val_map);
+    } else if (op.same_as(edgex::builtin::nnp_odma_store())) {
+      InjectCalculatedIsa({"delta",
+                           "zeta",
+                           "dense",
+                           "delta_times",
+                           "zeta_times",
+                           "dense_times",
+                           "last_delta",
+                           "last_zeta",
+                           "last_dense",
+                           "last_zeta_width",
+                           "last_delta_co",
+                           "zeta_offset",
+                           "wino_zeta_add_en",
+                           "init_xbar_wr_byte",
+                           "last_xbar_co_times",
+                           "last_xbar_pixel_times",
+                           "last_xbar_wr_byte",
+                           "last_xbar_cube_times",
+                           "delta_times_transfer_co",
+                           "delta_ch_offset"},
+                          n.get(), "odma", isa_val_map);
+    } else if (op.same_as(edgex::builtin::nnp_wdma_load())) {
+      InjectCalculatedIsa(
+          {"epsilon", "delta", "zeta", "dense", "epsilon_times", "delta_times", "zeta_times",
+           "dense_times", "last_epsilon", "last_delta", "last_zeta", "last_dense",
+           "epsilon_times_rewrite_dm", "delta_inc_addr", "ksize_inc_addr", "epstimes_inc_addr",
+           "delta_times_inc_addr", "mat_row_offset"},
+          n.get(), "wdma", isa_val_map);
+    }
+    return std::move(Call(n));
+  }
+
+  // Inject isa.
+  void InjectCalculatedIsa(const std::vector<std::string>& isa_set, CallNode* call,
+                           const std::string& dma_name,
+                           const std::unordered_map<std::string, int32_t>& isa_val_map) {
+    if (isa_set.empty()) {
+      LOG(INFO) << "The inject isa set is empty.";
+      return;
+    }
+    for (auto it = isa_set.begin(); it != isa_set.end(); it++) {
+      auto map_it = isa_val_map.find(*it);
+      if ((map_it != isa_val_map.end()) && (!evaluator_.isa_inject_blacklist.count(*it))) {
+        int32_t val = map_it->second;
+        std::stringstream key;
+        key << *it << "_" << dma_name;
+        edgex::NNPAddArg(call, key.str(), val);
+      } else {
+        ICHECK(evaluator_.isa_inject_blacklist.count(*it))
+            << "Not find key: " << *it << evaluator_.isa_inject_blacklist.size();
+      }
+    }
+    return;
+  }
+
+  /*! \brief The InjectedIsaEvaluator. */
+  InjectedIsaEvaluator evaluator_;
 };
 
 Stmt InjectCalculatedIsa(Stmt stmt) { return CalculatedIsaInjector().Injector(std::move(stmt)); }

@@ -122,7 +122,7 @@ def multiple_dm_buffer_with_alignment(a: T.handle) -> None:
         dtype="handle"))
     # simulate use buffer
     DM3[0] = DM1[0] + DM2[0]
-    
+
 
 @T.prim_func
 def multiple_dm_buffer_with_alignment_expect(a: T.handle) -> None:
@@ -144,7 +144,7 @@ def multiple_dm_buffer_with_alignment_expect(a: T.handle) -> None:
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), A.data, 0, 256, 1, dtype="handle"),
         "ei_start_addr1=0x1000", "ei_end_addr1=0x13ff", "ei_start_addr2=0x1000", "ei_end_addr2=0x13ff", dtype="handle"))
     # simulate use buffer
-    DM3[0] = DM1_1[0] + DM2[0]  
+    DM3[0] = DM1_1[0] + DM2[0]
 
 
 @T.prim_func
@@ -166,7 +166,7 @@ def simple_cube_dma() -> None:
     T.evaluate(T.nnp_bdma_load(T.type_annotation(dtype="int32"),
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), bias_buf.data, 0, 64, 2, dtype="handle"),
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), bias_dm.data, 0, 64, 1, dtype="handle"), dtype=""))
-    T.evaluate(T.nnp_cube(dtype=""))
+    T.evaluate(T.nnp_cube_compute(dtype=""))
     T.evaluate(T.nnp_odma_store(T.type_annotation(dtype="int32"),
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), out_dm.data, 0, 64*112*112, 2, dtype="handle"),
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), out_buf.data, 0, 64*112*112, 1, dtype="handle"), dtype=""))
@@ -194,7 +194,7 @@ def simple_cube_dma_expect() -> None:
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), in_dm.data, 213248, 64, 1, dtype="handle"),
         "st_addr1_bdma=0xd0400", "end_addr1_bdma=0xd04ff",
         "st_addr2_bdma=0xd0400", "end_addr2_bdma=0xd04ff", dtype=""))
-    T.evaluate(T.nnp_cube(dtype=""))
+    T.evaluate(T.nnp_cube_compute(dtype=""))
     T.evaluate(T.nnp_odma_store(T.type_annotation(dtype="int32"),
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), in_dm.data, 213312, 64*112*112, 2, dtype="handle"),
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), out_buf.data, 0, 64*112*112, 1, dtype="handle"),

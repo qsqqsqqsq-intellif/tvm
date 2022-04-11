@@ -109,7 +109,7 @@ TVM_DLL const Op& nnp_sync();
 /*!
  * \brief tvm intrinsic for nnp cube configuration.
  */
-TVM_DLL const Op& nnp_cube();
+TVM_DLL const Op& nnp_cube_compute();
 
 /*!
  * \brief tvm intrinsic for nnp cuid register read.

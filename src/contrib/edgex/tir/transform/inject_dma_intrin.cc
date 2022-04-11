@@ -152,6 +152,8 @@ class DMAIntrinRewriter : public StmtExprMutator {
                        const PrimExpr& src_offset, const Var& dst_buffer, const DataType& dst_dtype,
                        const PrimExpr& dst_base, const PrimExpr& dst_offset);
 
+  Stmt CreateCubeCompute(const BufferStoreNode* store);
+
   // set extra attrs specified by nnp_dma_attrs annotation
   void SetExtraDmaAttrs(CallNode* call) {
     for (const auto& p : extra_dma_attrs_) {
@@ -783,6 +785,8 @@ Stmt DMAIntrinRewriter::RewriteDMA(const Stmt& body, const std::string& intrin_h
           }
         }
       });
+    } else if (intrin_hint_name == "cube") {
+      return CreateCubeCompute(store);
     }
   }
   ICHECK(load) << "Unsupported dma stmt, fail to fetch load pattern: \n" << target_stmt;
@@ -1173,6 +1177,66 @@ Stmt DMAIntrinRewriter::CreateOdmaStore(const Var& src_buffer, const DataType& s
   return Evaluate(std::move(intrin));
 }
 
+Stmt DMAIntrinRewriter::CreateCubeCompute(const BufferStoreNode* store) {
+  ICHECK(store) << "Invalid buffer store node: " << GetRef<Stmt>(store);
+  if (store->value.as<IntImmNode>()) {
+    // return no op
+    return Evaluate(0);
+  } else {
+    const BufferLoadNode* src_load{nullptr};
+    const BufferLoadNode* weight_load{nullptr};
+    PostOrderVisit(store->value, [&src_load, &weight_load, this](const ObjectRef& obj) {
+      if (const BufferLoadNode* cur_load = obj.as<BufferLoadNode>()) {
+        StorageScope scope = GetStorageScope(cur_load->buffer->data);
+        if (scope.rank == StorageRank::kIOBUF) {
+          src_load = cur_load;
+        } else if (scope.rank == StorageRank::kWBUF) {
+          weight_load = cur_load;
+        }
+      }
+    });
+    StorageScope dst_scope = GetStorageScope(store->buffer->data);
+    ICHECK(src_load && weight_load && dst_scope.rank == StorageRank::kCUBE)
+        << "Unsupported cube stmt " << GetRef<Stmt>(store);
+    // get base + offset division for src
+    auto p_src = GetIndiceDivision(dom_analyzer_.Simplify(src_load->indices[0]), loop_vars_);
+    PrimExpr src_base = dom_analyzer_.Simplify(p_src.first);
+    PrimExpr src_offset = dom_analyzer_.Simplify(p_src.second);
+    // get base + offset division for weight
+    auto p_weight = GetIndiceDivision(dom_analyzer_.Simplify(weight_load->indices[0]), loop_vars_);
+    PrimExpr weight_base = dom_analyzer_.Simplify(p_weight.first);
+    PrimExpr weight_offset = dom_analyzer_.Simplify(p_weight.second);
+    // get base + offset division for dst
+    auto p_dst = GetIndiceDivision(dom_analyzer_.Simplify(store->indices[0]), loop_vars_);
+    PrimExpr dst_base = dom_analyzer_.Simplify(p_dst.first);
+    PrimExpr dst_offset = dom_analyzer_.Simplify(p_dst.second);
+    // get dma dtype
+    DataType src_dtype = GetBufferElementType(src_load->buffer->data);
+    DataType weight_dtype = GetBufferElementType(weight_load->buffer->data);
+    DataType dst_dtype = GetBufferElementType(store->buffer->data);
+
+    // create cube intrins
+    PrimExpr src_access =
+        CreateAccessPtr(src_load->buffer->data, src_dtype, src_offset, src_base, "r");
+    PrimExpr weight_access =
+        CreateAccessPtr(weight_load->buffer->data, weight_dtype, weight_offset, weight_base, "r");
+    PrimExpr dst_access =
+        CreateAccessPtr(store->buffer->data, dst_dtype, dst_offset, dst_base, "w");
+    Call intrin = Call(DataType::Void(), edgex::builtin::nnp_cube_compute(),
+                       {
+                           StringImm(DLDataType2String(dst_dtype)),
+                           dst_access,
+                           StringImm(DLDataType2String(src_dtype)),
+                           src_access,
+                           StringImm(DLDataType2String(weight_dtype)),
+                           weight_access,
+                       });
+    auto intrin_ptr = const_cast<CallNode*>(intrin.get());
+    SetExtraDmaAttrs(intrin_ptr);
+    return Evaluate(std::move(intrin));
+  }
+}
+
 Stmt InjectDmaIntrin(Stmt stmt, bool verbose) {
   return DMAIntrinScopeRewriter({}, verbose)(std::move(stmt));
 }
@@ -1191,7 +1255,8 @@ Pass InjectDmaIntrin() {
     n->body = InjectDmaIntrin(f, verbose);
     return f;
   };
-  return CreatePrimFuncPass(pass_func, 0, "tir.edgex.InjectDmaIntrin", {});
+  Pass inject_dma_pass = CreatePrimFuncPass(pass_func, 0, "tir.edgex.InjectDmaIntrin", {});
+  return Sequential({inject_dma_pass, RemoveNoOp()});
 }
 
 TVM_REGISTER_PASS_CONFIG_OPTION("tir.edgex.InjectDmaIntrin.verbose", Bool);

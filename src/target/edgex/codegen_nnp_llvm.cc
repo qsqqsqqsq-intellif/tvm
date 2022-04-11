@@ -343,7 +343,7 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     return call->args[2]->IsInstance<IntImmNode>();
   }
 
-  llvm::Value* CreateCube(const CallNode* op) {
+  llvm::Value* CreateCubeCompute(const CallNode* op) {
     std::map<std::string, llvm::Value*> bind_keys;
     return CreateDMAOp(
         {llvm::Intrinsic::nnp_cube_loop_times, llvm::Intrinsic::nnp_cube_loop0,
@@ -883,7 +883,7 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
                          &CodeGenNNP400LLVM::VisitISSBindInputBuffer);
 
     // dma intrinsics
-    RegisterNNPIntrinsic(edgex::builtin::nnp_cube(), &CodeGenNNP400LLVM::CreateCube);
+    RegisterNNPIntrinsic(edgex::builtin::nnp_cube_compute(), &CodeGenNNP400LLVM::CreateCubeCompute);
     RegisterNNPIntrinsic(edgex::builtin::nnp_eidma_load(), &CodeGenNNP400LLVM::CreateEidmaLoad);
     RegisterNNPIntrinsic(edgex::builtin::nnp_eodma_store(), &CodeGenNNP400LLVM::CreateEodmaStore);
     RegisterNNPIntrinsic(edgex::builtin::nnp_ewdma_load(), &CodeGenNNP400LLVM::CreateEwdmaLoad);

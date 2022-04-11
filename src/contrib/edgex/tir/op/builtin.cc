@@ -97,7 +97,7 @@ TIR_DEFINE_BUILTIN_FUNC(nnp_wdma_load)
 TIR_DEFINE_BUILTIN_FUNC(nnp_sync).set_attr<TCallEffectKind>("TCallEffectKind",
                                                             Integer(CallEffectKind::kOpaque));
 
-TIR_DEFINE_BUILTIN_FUNC(nnp_cube)
+TIR_DEFINE_BUILTIN_FUNC(nnp_cube_compute)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
     .set_attr<Integer>("TNNPUnitKind", Integer(NNPUnitKind::CU));
 

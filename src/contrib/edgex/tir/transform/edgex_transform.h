@@ -132,6 +132,13 @@ TVM_DLL Pass SplitVcuControlFlow();
  */
 TVM_DLL Pass StorageRewriteNNP400();
 
+/*!
+ * \brief Inject isa(instruction domain) of micro op(such as tiling),
+ * such as ci_h_idma, ci_w_idma etc.
+ * \return The pass
+ */
+TVM_DLL Pass InjectMicrOpIsa();
+
 }  // namespace transform
 }  // namespace tir
 }  // namespace tvm

@@ -42,6 +42,11 @@ EDGEX_DTYPE_INFO = {
 }
 
 
+def get_element_bytes(dtype: str):
+    """Get the element bytes by specific dtype."""
+    return tvm.DataType(dtype).bits // 8
+
+
 def get_line_num(dtype: str):
     """Get the lines according the dtype"""
     if dtype in ["int8", "uint8"]:

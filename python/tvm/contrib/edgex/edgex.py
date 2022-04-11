@@ -43,17 +43,21 @@ def build_config_nnp(extra_config=None, extra_disabled_pass=None, opt_level=2, i
 
     # rationale: must be before any simplify
     pass_list.append((0, IsolateVcuI64Ops()))
-
     # rationale: must be before vectorization
     pass_list.append((1, EliminateDynamicAllocation()))
+    # TODO(someone): the InjectMicrOpIsa before any simplify can match the layout
+    pass_list.append((2, InjectMicrOpIsa()))
     pass_list.append((2, tvm.tir.transform.Simplify()))
     pass_list.append((2, tvm.tir.transform.RemoveNoOp()))
     pass_list.append((2, RewriteVcuOps()))
     pass_list.append((2, RewriteNlfc()))
     pass_list.append((2, InjectDmaIntrin()))
+    # TODO(fred): move InjectHandShakeIntrin after all the other inject done.
     pass_list.append((2, InjectHandShakeIntrin()))
     pass_list.append((2, FlatStorageConstraintHandler()))
     pass_list.append((2, StorageRewriteNNP400()))
+    # rationale: InjectCalculatedIsa need use wt_st_addr1_wdma/wt_end_addr1_wdma,
+    # produced by StorageRewriteNNP400 pass.
     pass_list.append((2, InjectCalculatedIsa()))
     pass_list.append((2, SplitVcuControlFlow()))
     pass_list.append((3, tvm.tir.transform.DecorateDeviceScope()))

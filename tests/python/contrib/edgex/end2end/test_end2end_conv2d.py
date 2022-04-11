@@ -228,6 +228,20 @@ def test_conv2d_nchwc_end2end():
     )
 
 
+def test_quantized_conv2d_tiling_end2end():
+    do_test_quantized_conv2d(
+        input_shape=[1, 17, 1024, 1024],
+        input_dtype="uint8",
+        weight_shape=[64, 17, 3, 3],
+        weight_dtype="int8",
+        strides=[2, 2],
+        kernel_size=[3, 3],
+        padding=[3, 0, 3, 0],
+        dilation=[1, 1],
+        out_dtype="int32",
+    )
+
+
 if __name__ == "__main__":
     test_single_conv2d_end2end()
     test_single_depthwise_conv2d_end2end()
@@ -238,3 +252,4 @@ if __name__ == "__main__":
     test_quantized_conv2d_finetuning_delta_end2end()
     test_single_conv2d_tile_co_end2end()
     test_conv2d_nchwc_end2end()
+    test_quantized_conv2d_tiling_end2end()

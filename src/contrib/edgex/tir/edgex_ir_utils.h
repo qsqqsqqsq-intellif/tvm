@@ -29,6 +29,7 @@
 #include <tvm/tir/op.h>
 
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -90,6 +91,23 @@ inline bool IsNNPDMAIntrinsic(RelayExpr op) {
   std::string name = op_node->name;
   return name.find("nnp_") != std::string::npos && (name.find("dma_load") != std::string::npos ||
                                                     name.find("dma_store") != std::string::npos);
+}
+
+/*!
+ * \brief utility to determine whether a call node's
+ *   op is a nnp nu intrinsic operator.
+ */
+inline bool IsNNPNUIntrinsic(RelayExpr op) {
+  auto op_node = op.as<OpNode>();
+  if (!op_node) {
+    return false;
+  }
+  std::string name = op_node->name;
+  size_t pos = name.find_last_of(".");
+  name = name.substr(pos + 1);
+  static const std::unordered_set<std::string> nu_intrin_set{
+      "nnp_idma_load", "nnp_wdma_load", "nnp_bdma_load", "nnp_cube_compute", "nnp_odma_store"};
+  return nu_intrin_set.find(name) != nu_intrin_set.end();
 }
 
 /*!

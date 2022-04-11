@@ -207,3 +207,14 @@ def DumpOrReuseLoweredTIR(working_dir, reuse_existing_tir=False):
         return mod
 
     return tvm.transform.module_pass(_func, opt_level=2)
+
+
+def InjectMicrOpIsa():
+    """Inject isa(instruction domain) of micro op(such as tiling)..
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.InjectMicrOpIsa()

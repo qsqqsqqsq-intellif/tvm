@@ -16,7 +16,6 @@
 # under the License.
 # pylint: disable=invalid-name, missing-function-docstring, unused-argument, unexpected-keyword-arg
 """Conv3D schedule on edgex"""
-import functools
 import re
 import tvm
 from tvm import tir, relay
@@ -325,52 +324,41 @@ class ScheduleConv3d:
             tir.Call("", "tir.%s" % intrin_name, dummy_args + attr_args),
         )
 
-    def __tensorize_cube(self, cube_block, attrs):
+    def tensorize_cube(self, cube_block, kernel_size):
         """Tensorize cube helper"""
-        root_loop_sref = self._sch.get_loops(cube_block)[1]
-        block_stmt = self._sch.get_sref(cube_block).stmt
-
-        dtype = block_stmt.reads[0].buffer.dtype
-        src_buffer = block_stmt.reads[1].buffer
-        weight_buffer = block_stmt.reads[2].buffer
-        dst_buffer = block_stmt.writes[0].buffer
-        src_region = tir.BufferRegion(
-            src_buffer, [tvm.ir.Range.from_min_extent(0, x) for x in src_buffer.shape]
+        input_dtype_id, _ = EDGEX_DTYPE_INFO[self._input_dtype]
+        weight_dtype_id, _ = EDGEX_DTYPE_INFO[self._weight_dtype]
+        self.tensorize_dma(
+            cube_block,
+            "nnp_cube_compute",
+            attrs={
+                "num_group_cube": self._groups,
+                "epsilon_cube": self._epsilon,
+                "delta_cube": self._delta,
+                "epsilon_times_cube": self._epsilon_times,
+                "delta_times_cube": self._delta_times,
+                "last_epsilon_cube": self._last_epsilon,
+                "last_delta_cube": self._last_delta,
+                # must set 16, when enable winograd
+                "k_size_cube": kernel_size[0] * kernel_size[1] * kernel_size[2],
+                "bias_value_cube": 0,  # valid when bias_mode=1
+                "cube_work_num_cube": self._cube_enable,  # 0:enable cube0; 1:enable cube0/1;
+                # 2:enable cube0/1/2
+                "winograd_cube": 0,  # 0:disable winograd; 1:enable
+                "sparsity_en_cube": self._sparsity_en,  # 0:disable sparsity; 1:enable
+                "bias_en_cube": int(self._has_bias),  # 0:bias disable; 1:enable
+                "data_type_cube": input_dtype_id,
+                "weight_type_cube": weight_dtype_id,
+                # 0:each co bias independent; 1:each co share bias
+                "bias_mode_cube": self._bias_mode,
+                "round_mode_cube": 4,  # 0:ceiling; 1:floor; 2:truncate; 3:rounding off; 4:rounding
+                "delta_rewrite_nbbuf_cube": 1,  # NOTE: All rewrite flag need set 1, maybe iss bug.
+                "dense_times_rewrite_ibuf_cube": 1,
+                "epsilon_rewrite_ibuf_cube": 1,
+                "epsilon_times_rewrite_wbuf_cube": 1,
+                "delta_rewrite_wbuf_cube": 1,
+            },
         )
-        weight_region = tir.BufferRegion(
-            weight_buffer, [tvm.ir.Range.from_min_extent(0, x) for x in weight_buffer.shape]
-        )
-        dst_region = tir.BufferRegion(
-            dst_buffer, [tvm.ir.Range.from_min_extent(0, x) for x in dst_buffer.shape]
-        )
-
-        src_elems = functools.reduce(lambda x, y: x * y, src_buffer.shape)
-        weight_elems = functools.reduce(lambda x, y: x * y, weight_buffer.shape)
-        dst_elems = functools.reduce(lambda x, y: x * y, dst_buffer.shape)
-        type_anno = tir.call_intrin(dtype, "tir.type_annotation")
-        dma_args = [
-            dtype,
-            tir.call_intrin(
-                "handle", "tir.tvm_access_ptr", *[type_anno, dst_buffer.data, 0, dst_elems, "w"]
-            ),
-            tir.call_intrin(
-                "handle", "tir.tvm_access_ptr", *[type_anno, src_buffer.data, 0, src_elems, "r"]
-            ),
-            tir.call_intrin(
-                "handle",
-                "tir.tvm_access_ptr",
-                *[type_anno, weight_buffer.data, 0, weight_elems, "r"],
-            ),
-        ]
-        if attrs is not None:
-            for k in attrs:
-                dma_args.append("%s=%s" % (k, str(attrs[k])))
-        intrin = tir.Evaluate(tir.call_intrin("", "tir.nnp_cube", *dma_args))
-        repl_block = tir.Block(
-            [], [dst_region, src_region, weight_region], [dst_region], "compute", intrin
-        )
-        repl_realize = tir.BlockRealize([], tir.const(1, "bool"), repl_block)
-        self._sch.state.replace(self._sch.get_sref(root_loop_sref), repl_realize)
 
     def tensorize_eidma(
         self,
@@ -417,7 +405,6 @@ class ScheduleConv3d:
         idma,
         kernel_size,
         strides,
-        padding,
         dilation,
     ):
         """Tensorize idma block"""
@@ -431,22 +418,33 @@ class ScheduleConv3d:
         if self._cfg.tile_co:
             loops = self._sch.get_loops(idma)
             n, c, d, h, w = loops[1:6]
+            loop_len = 2  # c_o, n
         else:
             loops = self._sch.get_loops(idma)
             n, c, d, h, w = loops
+            loop_len = 1  # n
         group, ci_group = self._sch.split(c, factors=[self._groups, None])
+        root_loop_sref = self._sch.get_loops(idma)[loop_len]
+        if self._interleaved_data:
+            # idma data layout [group, ic_group, depth, height, width, c0]
+            if self._groups > 1:
+                self._sch.pragma(root_loop_sref, "nnp_data_layout", "GCDHWc")
+            else:
+                # need double check
+                self._sch.pragma(root_loop_sref, "nnp_data_layout", "CDHWc")
+        else:
+            # idma write dm buffer should align last dimension with 16/8
+            self._sch.storage_align(
+                idma,
+                0,
+                len(self._sch.get_sref(idma).stmt.writes[0].buffer.shape) - 2,
+                self._ci_para_lines,
+                0,
+            )
+            # idma data layout [group, ic_group, depth, height, width]
+            self._sch.pragma(root_loop_sref, "nnp_data_layout", "GCDHW")
 
-        # idma write dm buffer should align last dimension with 16/8
-        self._sch.storage_align(
-            idma,
-            0,
-            len(self._sch.get_sref(idma).stmt.writes[0].buffer.shape) - 2,
-            self._ci_para_lines,
-            0,
-        )
-
-        dtype_id, elem_bytes = EDGEX_DTYPE_INFO[self._input_dtype]
-        ci_row_offset = self._ci_para_lines * self._input_shape[4] * elem_bytes
+        dtype_id, _ = EDGEX_DTYPE_INFO[self._input_dtype]
         self.tensorize_dma(
             idma,
             "nnp_idma_load",
@@ -475,52 +473,19 @@ class ScheduleConv3d:
                 "k_w_idma": kernel_size[2],
                 "epsilon_rewrite_ibuf_idma": 1,  # NOTE: All rewrite flag need set 1, maybe iss bug.
                 "dense_times_rewrite_ibuf_idma": 1,
-                "ci_d_idma": self._input_shape[2],
-                "ci_h_idma": self._input_shape[3],
-                "ci_w_idma": self._input_shape[4],
                 "cube_enable_idma": self._cube_enable,  # 0:enable cube0; 1:enable cube0/1;
                 # 2:enable cube0/1/2
                 "data_type_idma": dtype_id,
-                "co_d_idma": self._output_shape[2],
-                "co_h_idma": self._output_shape[3],
-                "co_w_idma": self._output_shape[4],
                 "pad_v_idma": 0,  # padding value
                 "num_group_idma": self._groups,
                 "num_ci_group_idma": self._input_C // self._groups,
                 "pad_mode_idma": 0,  # padding mode, 0:constant padding(pad_v); 1:edge padding
-                "pad_bh_idma": padding[3],
-                "pad_f_idma": padding[0],
-                "pad_b_idma": padding[4],
-                "pad_t_idma": padding[1],
-                "pad_r_idma": padding[5],
-                "pad_l_idma": padding[2],
                 "insert_d0_idma": 0,  # deconv dense insert 0 num
                 "insert_h0_idma": 0,
                 "insert_w0_idma": 0,
                 "B_T_idma": 0,  # need config when enable matmul
                 "B_dim2_idma": 0,
                 "B_dim1_idma": 0,
-                # ci_row_offset:
-                # fp16 >= 8*ci_w*2
-                # int8 >= 16*ci_w*1
-                "ci_row_offset_idma": ci_row_offset,
-                # ci_ch_offset >= ci_d*ci_dense_offset
-                "ci_ch_offset_idma": 1 * self._input_shape[3] * ci_row_offset,
-                # ci_dense_offset >= ci_h*ci_row_offset
-                "ci_dense_offset_idma": self._input_shape[3] * ci_row_offset,
-                # group_offset:
-                # fp16 >= ceil(num_ci_group/8)*ci_ch_offset
-                # int8 >= ceil(num_ci_group/16)*ci_ch_offset
-                "group_offset_idma": int(
-                    tvm.tir.ceil(
-                        tvm.tir.div(
-                            float(self._input_C // self._groups), float(self._ci_para_lines)
-                        )
-                    ).value
-                )
-                * 1
-                * self._input_shape[3]
-                * ci_row_offset,
             },
         )
 
@@ -661,25 +626,25 @@ class ScheduleConv3d:
         self._sch.storage_align(
             odma, 0, len(self._sch.get_sref(odma).stmt.writes[0].buffer.shape) - 2, 16, 0
         )
+        if self._cfg.tile_co:
+            loop_len = 2  # c_o, n
+        else:
+            loop_len = 1  # n
+        # data_layout format contain "NCHW", "NCHWc", "NCDHW", "NCDHWc"
+        root_loop_sref = self._sch.get_loops(odma)[loop_len]
+        if self._interleaved_data:
+            # need double check, the loop will be simplify if extent 1.
+            if self._output_shape[2] > 1:
+                self._sch.pragma(root_loop_sref, "nnp_data_layout", "CDHWc")
+            else:
+                self._sch.pragma(root_loop_sref, "nnp_data_layout", "CHWc")
+        else:
+            if self._output_shape[2] > 1:
+                self._sch.pragma(root_loop_sref, "nnp_data_layout", "CDHW")
+            else:
+                self._sch.pragma(root_loop_sref, "nnp_data_layout", "CHW")
 
         dtype_id, _ = EDGEX_DTYPE_INFO[self._output_dtype]
-        if self._output_dtype == "int32":
-            lines = 16
-        elif self._output_dtype == "float32":
-            lines = 8
-        else:
-            el.e("Not support dtype: %s" % self._output_dtype)
-        co_dense_offset = (
-            lines
-            * self._output_shape[4]
-            * self._output_shape[3]
-            * self._output_shape[2]
-            * self._odma_out_elem_bytes
-        )
-        if self._cfg.tile_co:
-            num_co_group = self._output_C // self._groups // self._cfg.tile_co_num
-        else:
-            num_co_group = self._output_C // self._groups
         self.tensorize_dma(
             odma,
             "nnp_odma_store",
@@ -688,9 +653,6 @@ class ScheduleConv3d:
                 "delta_times_odma": self._delta_times,
                 "last_delta_odma": self._last_delta,
                 "num_group_odma": self._groups,
-                "co_d_odma": self._output_shape[2],
-                "co_h_odma": self._output_shape[3],
-                "co_w_odma": self._output_shape[4],
                 "addr_wrap_sel2_odma": 0,
                 "addr_wrap_sel1_odma": 1,
                 "extract_2to1_odma": 1 if strides[2] == 4 else 0,
@@ -719,23 +681,6 @@ class ScheduleConv3d:
                 "relu_round_mode_odma": self._relu_round_mode,  # same as round_mode
                 "relu_sftcoeff_odma": 0,  # relu quantize shift coefficient.
                 "relu_mulcoeff_odma": 0x1,  # relu quantize mul coefficient.
-                # co_ch_offset >= co_d * co_dense_offset
-                "co_ch_offset_odma": 1 * co_dense_offset,
-                # co_dense_offset:
-                # fp32 + psum_out_en >= 8*co_w*co_h*4
-                # int32 + psum_out_en >= 16*co_w*co_h*4
-                # fp32 + !psum_out_en >= 8*co_w*co_h*2
-                # int32 + !psum_out_en + int_type >= 16*co_w*co_h*2
-                # int32 + !psum_out_en + !int_type >= 16*co_w*co_h*1
-                "co_dense_offset_odma": co_dense_offset,
-                # co_group_offset:
-                # int8/int32: >= ceil(num_co_group/16)*co_ch_offset
-                # fp16/fp32: >= ceil(num_co_group/8)*co_ch_offset
-                "co_group_offset_odma": int(
-                    tvm.tir.ceil(tvm.tir.div(float(num_co_group), float(lines))).value
-                )
-                * 1
-                * co_dense_offset,
                 "start_state_mode_odma": 1,
                 "ub_channel_odma": 0x10,
                 "end_state_odma": 1,
@@ -789,48 +734,16 @@ class ScheduleConv3d:
         """Conv3d tensorize helper"""
         kernel_size = self._kernel_size
         strides = self._strides
-        padding = self._padding
         dilation = self._dilation
         if Xdm is not None:
             self.tensorize_eidma(Xdm)
-        self.tensorize_idma(Xbuf, kernel_size, strides, padding, dilation)
+        self.tensorize_idma(Xbuf, kernel_size, strides, dilation)
         self.tensorize_ewdma_wdma(Wdm, Wbuf, kernel_size)
         self.tensorize_ebdma_bdma(Bdm, Bbuf)
+        self.tensorize_cube(Compute, kernel_size)
         self.tensorize_odma(Ydm, strides)
         if Yddr is not None:
             self.tensorize_eodma(Yddr)
-        input_dtype_id, _ = EDGEX_DTYPE_INFO[self._input_dtype]
-        weight_dtype_id, _ = EDGEX_DTYPE_INFO[self._weight_dtype]
-        self.__tensorize_cube(
-            Compute,
-            attrs={
-                "num_group_cube": self._groups,
-                "epsilon_cube": self._epsilon,
-                "delta_cube": self._delta,
-                "epsilon_times_cube": self._epsilon_times,
-                "delta_times_cube": self._delta_times,
-                "last_epsilon_cube": self._last_epsilon,
-                "last_delta_cube": self._last_delta,
-                # must set 16, when enable winograd
-                "k_size_cube": kernel_size[0] * kernel_size[1] * kernel_size[2],
-                "bias_value_cube": 0,  # valid when bias_mode=1
-                "cube_work_num_cube": self._cube_enable,  # 0:enable cube0; 1:enable cube0/1;
-                # 2:enable cube0/1/2
-                "winograd_cube": 0,  # 0:disable winograd; 1:enable
-                "sparsity_en_cube": self._sparsity_en,  # 0:disable sparsity; 1:enable
-                "bias_en_cube": int(self._has_bias),  # 0:bias disable; 1:enable
-                "data_type_cube": input_dtype_id,
-                "weight_type_cube": weight_dtype_id,
-                # 0:each co bias independent; 1:each co share bias
-                "bias_mode_cube": self._bias_mode,
-                "round_mode_cube": 4,  # 0:ceiling; 1:floor; 2:truncate; 3:rounding off; 4:rounding
-                "delta_rewrite_nbbuf_cube": 1,  # NOTE: All rewrite flag need set 1, maybe iss bug.
-                "dense_times_rewrite_ibuf_cube": 1,
-                "epsilon_rewrite_ibuf_cube": 1,
-                "epsilon_times_rewrite_wbuf_cube": 1,
-                "delta_rewrite_wbuf_cube": 1,
-            },
-        )
 
     # todo(someone): process all conditions
     def __create_bdma_block(
