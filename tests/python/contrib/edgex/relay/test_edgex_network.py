@@ -96,7 +96,15 @@ def test_networks(net):
 
 @pytest.mark.edgex_slow
 @pytest.mark.parametrize(
-    "net", ["mobilenet_v1", "mobilenet_v3", "inception_v1", "inception_v4", "densenet"]
+    "net",
+    [
+        "densenet",
+        "inception_v1",
+        "inception_v4",
+        "mobilenet_v1",
+        "mobilenet_v3",
+        "superpoint",
+    ],
 )
 def test_more_networks(net):
     test_networks(net)

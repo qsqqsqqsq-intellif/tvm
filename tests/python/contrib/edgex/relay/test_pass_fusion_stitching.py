@@ -52,12 +52,13 @@ def test_fusion_stitching(net):
 @pytest.mark.parametrize(
     "net",
     [
+        "densenet",
+        "inception_v4",
         "mobilenet_v1",
         "mobilenet_v2",
         "mobilenet_v3",
         "mobilenet_v2_qat",
-        "inception_v4",
-        "densenet",
+        "superpoint",
     ],
 )
 def test_more_fusion_stitching(net):

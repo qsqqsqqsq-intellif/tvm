@@ -445,6 +445,19 @@ class AtomicGraph {
     // QAT: [cast-sum_pool2d-multiply]
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_POOL,
                         {{"cast"}, {"sum", ""}, {"nn.sum_pool2d"}, {"multiply"}});
+    // for superpoint
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_POOL,
+                        {{"cast", ""},
+                         {"expand_dims"},
+                         {"multiply"},
+                         {"round"},
+                         {"clip"},
+                         {"cast"},
+                         {"nn.max_pool2d"},
+                         {"squeeze"},
+                         {"cast"},
+                         {"multiply"},
+                         {"greater", ""}});
     // ATOMIC_POOL + ATOMIC_ELTWISE
     // and for mobilenet_v3
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_POOL,
@@ -517,10 +530,12 @@ class AtomicGraph {
           "split", "take", "tile", "vision.yolo_reorg", "zeros_like"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_CAST, {{"broadcast_to_like"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_DEVICECOPY, {{"copy"}});
-    add_atomic_op_specs(&atomic_op_specs, ATOMIC_ELTWISE,
-                        {{"divide", "erf", "exp", "floor_mod", "log", "max", "maximum", "mean",
-                          "minimum", "multiply", "mod", "negative", "nn.lrn", "power", "round",
-                          "sqrt", "sum", "tanh", "variance"}});
+    add_atomic_op_specs(
+        &atomic_op_specs, ATOMIC_ELTWISE,
+        {{"divide",      "equal",      "erf",      "exp",     "floor_mod", "log",     "logical_not",
+          "logical_and", "logical_or", "max",      "maximum", "mean",      "minimum", "multiply",
+          "mod",         "negative",   "nn.lrn",   "power",   "round",     "sqrt",    "sum",
+          "tanh",        "topk",       "variance", "where"}});
 
     return std::move(atomic_op_specs);
   }
