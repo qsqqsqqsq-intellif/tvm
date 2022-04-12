@@ -188,12 +188,6 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
         "operate": "none",
     }
 
-    if isinstance(node, relay.Var) and vertex_config[node].output_config["net_in_dtype"] in [
-        "uint8",
-        "int16",
-    ]:
-        input_config.update({"dtype": vertex_config[node].output_config["net_in_dtype"]})
-
     # three coditions do quantize
     # ----1, int32 input and quantized. some int32 case no need to do, ex cast.
     # ----2, fp16 to int8(as int8 to fp16, int8 must have his own scale)
@@ -342,7 +336,7 @@ class Common:
 
 
 class Var:
-    def __init__(self, node, net_in_dtype="uint8"):
+    def __init__(self, node):
         self.quantized = False
 
         self.output_config = {
@@ -350,9 +344,6 @@ class Var:
             "axis": -1,
             "quantized_axis": "none",
             "ref_count": 0,
-            "net_in_dtype": net_in_dtype
-            if len(node.checked_type.shape) >= 4
-            else node.checked_type.dtype,
         }
 
 
@@ -535,7 +526,7 @@ class AnalyzeGraph(ExprVisitor):
         self.collect_node.update(tmp)
 
     def visit_var(self, var):
-        self.vertex_config[var] = Var(var, self.net_in_dtype)
+        self.vertex_config[var] = Var(var)
 
     def visit_constant(self, const):
         self.vertex_config[const] = Constant(const)
