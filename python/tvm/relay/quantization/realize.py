@@ -101,6 +101,20 @@ def eliminate_dequantize_quantize(node):
             cond2 = pre_arg.args[1].data.asnumpy() == node.args[1].data.asnumpy()
             cond3 = pre_arg.args[2].data.asnumpy() == node.args[2].data.asnumpy()
             if cond2.all() and cond3.all():
+                ori_call = node.args[0].args[0]
+                ori_call_dtype = relay.frontend.common.infer_type(ori_call)._checked_type_.dtype
+                r_datatype = node.attrs.out_dtype
+                if r_datatype.startswith("int"):
+                    bits = r_datatype[3:]
+                    if int(bits) <= 8:
+                        r_datatype = "int8"
+                    elif int(bits) <= 16:
+                        r_datatype = "int16"
+                    elif int(bits) <= 32:
+                        r_datatype = "int32"
+
+                if ori_call_dtype != r_datatype:
+                    return relay.cast(pre_arg.args[0], r_datatype)
                 return pre_arg.args[0]
     else:
         # 300 need clip after op
@@ -116,6 +130,17 @@ def eliminate_dequantize_quantize(node):
             cond3 = pre_arg.args[2].data.asnumpy() == node.args[2].data.asnumpy()
             if cond2.all() and cond3.all():
                 ori_call = node.args[0].args[0]
+
+                ori_call_dtype = relay.frontend.common.infer_type(ori_call)._checked_type_.dtype
+                r_datatype = node.attrs.out_dtype
+                if r_datatype.startswith("int"):
+                    bits = r_datatype[3:]
+                    if int(bits) <= 8:
+                        r_datatype = "int8"
+                    elif int(bits) <= 16:
+                        r_datatype = "int16"
+                    elif int(bits) <= 32:
+                        r_datatype = "int32"
 
                 name = "Constant"
                 if isinstance(ori_call, relay.Call) and isinstance(ori_call.op, relay.Function):
@@ -137,6 +162,9 @@ def eliminate_dequantize_quantize(node):
                     return relay.clip(
                         pre_arg.args[0], q_max_min["qmin"], q_max_min["qmax"], out_dtype=r_datatype
                     )
+
+                if ori_call_dtype != r_datatype:
+                    return relay.cast(pre_arg.args[0], r_datatype)
 
                 return pre_arg.args[0]
 

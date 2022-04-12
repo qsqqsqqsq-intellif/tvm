@@ -86,6 +86,10 @@ class FixedOpTwoArgs:
         input0_axis = vertex_config[node.args[0]].output_config["axis"]
         input1_axis = vertex_config[node.args[1]].output_config["axis"]
 
+        if node.op.name == "nn.bias_add":
+            input0_axis = node.attrs.axis
+            input1_axis = 0
+
         # add arg1 is constant, 3-dims/4-dims support perch
         if (
             isinstance(node.args[1], relay.Constant)
@@ -97,9 +101,6 @@ class FixedOpTwoArgs:
             input1_axis = input0_axis
         elif isinstance(node.args[1], relay.Constant) and node.args[1].data.asnumpy().size == 1:
             input0_axis, input1_axis = -1, -1
-
-        if node.op.name == "nn.bias_add" and node.attrs.axis == 1 and input0_axis > -1:
-            input1_axis = 0
 
         # set input config
         input0_config = _quantized_judge(
@@ -314,20 +315,20 @@ class FixedOpTwoArgs:
         # numpy.set_printoptions(precision=9, suppress=False)
         # print(scale_right)
 
-        # get the final adjust scale
-        adjust_input_config = {
-            "zero_point": zero_point,
-            "axis": self.axis,
-            "scale": scale_max,
-            "dtype": self.input_config[old_node.args[0]]["dtype"],
-            "operate": "requantize",
-        }
-
         adjust_realized_args = []
         for old_arg, new_arg in zip(old_node.args, realized_args):
+
+            adjust_input_config = {
+                "zero_point": zero_point,
+                "axis": self.axis,
+                "scale": scale_max,
+                "dtype": self.input_config[old_arg]["dtype"],
+                "operate": "requantize",
+            }
             # constant 3-dims axis = 0
             if isinstance(old_arg, relay.Constant) and self.input_config[old_arg]["axis"] > -1:
                 adjust_input_config["axis"] = self.input_config[old_arg]["axis"]
+
             new_arg = operate(
                 "requantize",
                 new_arg,
