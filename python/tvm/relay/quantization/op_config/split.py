@@ -72,8 +72,13 @@ class Split:
 
         new_arg = _realize_core(self, old_arg, new_arg, vertex_config, n2o)
 
-        new_node = relay.Call(
-            old_node.op, [new_arg], new_node.attrs, new_node.type_args, new_node.span
-        )
+        if "ir_pass" not in relay.__dict__:
+            new_node = relay.Call(
+                old_node.op, [new_arg], new_node.attrs, new_node.type_args, new_node.span
+            )
+        else:
+            new_node = relay.Call(
+                old_node.op, [new_arg], new_node.attrs, new_node.type_args
+            )
 
         return new_node
