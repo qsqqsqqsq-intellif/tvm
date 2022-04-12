@@ -77,8 +77,6 @@ class Split:
                 old_node.op, [new_arg], new_node.attrs, new_node.type_args, new_node.span
             )
         else:
-            new_node = relay.Call(
-                old_node.op, [new_arg], new_node.attrs, new_node.type_args
-            )
+            new_node = relay.Call(old_node.op, [new_arg], new_node.attrs, new_node.type_args)
 
         return new_node
