@@ -418,20 +418,16 @@ class ScheduleConv3d:
         if self._cfg.tile_co:
             loops = self._sch.get_loops(idma)
             n, c, d, h, w = loops[1:6]
-            loop_len = 2  # c_o, n
+            root_loop_len = 2  # c_o, n
         else:
             loops = self._sch.get_loops(idma)
             n, c, d, h, w = loops
-            loop_len = 1  # n
+            root_loop_len = 1  # n
         group, ci_group = self._sch.split(c, factors=[self._groups, None])
-        root_loop_sref = self._sch.get_loops(idma)[loop_len]
+        loop_axes = self._sch.get_loops(idma)
         if self._interleaved_data:
             # idma data layout [group, ic_group, depth, height, width, c0]
-            if self._groups > 1:
-                self._sch.pragma(root_loop_sref, "nnp_data_layout", "GCDHWc")
-            else:
-                # need double check
-                self._sch.pragma(root_loop_sref, "nnp_data_layout", "CDHWc")
+            self._sch.pragma(loop_axes[root_loop_len], "nnp_data_layout", "GCDHWc")
         else:
             # idma write dm buffer should align last dimension with 16/8
             self._sch.storage_align(
@@ -442,7 +438,14 @@ class ScheduleConv3d:
                 0,
             )
             # idma data layout [group, ic_group, depth, height, width]
-            self._sch.pragma(root_loop_sref, "nnp_data_layout", "GCDHW")
+            self._sch.pragma(loop_axes[root_loop_len], "nnp_data_layout", "GCDHW")
+        # add annotate to prevent optimized if the loop extent is 1 in flatten buffer pass,
+        # c must be 16
+        self._sch.annotate(loop_axes[root_loop_len], "preserve_unit_loop", 1)
+        self._sch.annotate(loop_axes[root_loop_len + 1], "preserve_unit_loop", 1)
+        self._sch.annotate(loop_axes[root_loop_len + 2], "preserve_unit_loop", 1)
+        self._sch.annotate(loop_axes[root_loop_len + 3], "preserve_unit_loop", 1)
+        self._sch.annotate(loop_axes[root_loop_len + 4], "preserve_unit_loop", 1)
 
         dtype_id, _ = EDGEX_DTYPE_INFO[self._input_dtype]
         self.tensorize_dma(
@@ -627,22 +630,21 @@ class ScheduleConv3d:
             odma, 0, len(self._sch.get_sref(odma).stmt.writes[0].buffer.shape) - 2, 16, 0
         )
         if self._cfg.tile_co:
-            loop_len = 2  # c_o, n
+            root_loop_len = 2  # c_o, n
         else:
-            loop_len = 1  # n
+            root_loop_len = 1  # n
         # data_layout format contain "NCHW", "NCHWc", "NCDHW", "NCDHWc"
-        root_loop_sref = self._sch.get_loops(odma)[loop_len]
+        loop_axes = self._sch.get_loops(odma)
         if self._interleaved_data:
-            # need double check, the loop will be simplify if extent 1.
-            if self._output_shape[2] > 1:
-                self._sch.pragma(root_loop_sref, "nnp_data_layout", "CDHWc")
-            else:
-                self._sch.pragma(root_loop_sref, "nnp_data_layout", "CHWc")
+            self._sch.pragma(loop_axes[root_loop_len], "nnp_data_layout", "CDHWc")
         else:
-            if self._output_shape[2] > 1:
-                self._sch.pragma(root_loop_sref, "nnp_data_layout", "CDHW")
-            else:
-                self._sch.pragma(root_loop_sref, "nnp_data_layout", "CHW")
+            self._sch.pragma(loop_axes[root_loop_len], "nnp_data_layout", "CDHW")
+        # add annotate to prevent optimized if the loop extent is 1 in flatten buffer pass,
+        # c must be 16
+        self._sch.annotate(loop_axes[root_loop_len], "preserve_unit_loop", 1)
+        self._sch.annotate(loop_axes[root_loop_len + 1], "preserve_unit_loop", 1)
+        self._sch.annotate(loop_axes[root_loop_len + 2], "preserve_unit_loop", 1)
+        self._sch.annotate(loop_axes[root_loop_len + 3], "preserve_unit_loop", 1)
 
         dtype_id, _ = EDGEX_DTYPE_INFO[self._output_dtype]
         self.tensorize_dma(

@@ -394,14 +394,10 @@ class Conv2dScheduler:
         loop_axes = s.get_loops(idma_block)
         # C -> group, ic_group
         group, ic_group = s.split(loop_axes[5], factors=[self._groups, None])
-        root_loop_sref = s.get_loops(idma_block)[num_outer_loops + 1]
+        loop_axes = s.get_loops(idma_block)
         if self._interleaved_data:
             # idma data layout [group, ic_group, height, width, c0]
-            if self._groups > 1:
-                s.pragma(root_loop_sref, "nnp_data_layout", "GCHWc")
-            else:
-                # need double check, the loop will be simplify if extent 1.
-                s.pragma(root_loop_sref, "nnp_data_layout", "CHWc")
+            s.pragma(loop_axes[num_outer_loops + 1], "nnp_data_layout", "GCHWc")
         else:
             # idma_block write dm buffer should align last dimension with 16/8
             s.storage_align(
@@ -412,7 +408,13 @@ class Conv2dScheduler:
                 0,
             )
             # idma data layout [group, ic_group, height, width]
-            s.pragma(root_loop_sref, "nnp_data_layout", "GCHW")
+            s.pragma(loop_axes[num_outer_loops + 1], "nnp_data_layout", "GCHW")
+        # add annotate to prevent optimized if the loop extent is 1 in flatten buffer pass,
+        # c must be 16
+        s.annotate(loop_axes[num_outer_loops + 1], "preserve_unit_loop", 1)
+        s.annotate(loop_axes[num_outer_loops + 2], "preserve_unit_loop", 1)
+        s.annotate(loop_axes[num_outer_loops + 3], "preserve_unit_loop", 1)
+        s.annotate(loop_axes[num_outer_loops + 4], "preserve_unit_loop", 1)
 
         dtype_id, _ = EDGEX_DTYPE_INFO[self._input_dtype]
         self.tensorize_dma(
@@ -646,11 +648,17 @@ class Conv2dScheduler:
                 odma_block, 0, len(s.get_sref(odma_block).stmt.writes[0].buffer.shape) - 2, 16, 0
             )
         # data_layout format contain "NCHW", "NCHWc", "NCDHW", "NCDHWc"
-        root_loop_sref = s.get_loops(odma_block)[num_outer_loops + 1]
+        loop_axes = s.get_loops(odma_block)
         if self._interleaved_data:
-            s.pragma(root_loop_sref, "nnp_data_layout", "CHWc")
+            s.pragma(loop_axes[num_outer_loops + 1], "nnp_data_layout", "CHWc")
         else:
-            s.pragma(root_loop_sref, "nnp_data_layout", "CHW")
+            s.pragma(loop_axes[num_outer_loops + 1], "nnp_data_layout", "CHW")
+        # add annotate to prevent optimized if the loop extent is 1 in flatten buffer pass,
+        # c must be 16
+        s.annotate(loop_axes[num_outer_loops + 1], "preserve_unit_loop", 1)
+        s.annotate(loop_axes[num_outer_loops + 2], "preserve_unit_loop", 1)
+        s.annotate(loop_axes[num_outer_loops + 3], "preserve_unit_loop", 1)
+
         dtype_id, _ = EDGEX_DTYPE_INFO[self._output_dtype]
         self.tensorize_dma(
             num_outer_loops,
@@ -783,18 +791,18 @@ class Conv2dScheduler:
             # estimate the weight size
             weight_shape = deepcopy(self._weight_shape)
             # weight oc align factor can be refined by para mode if need
+            weight_shape[0] = weight_shape[0] // oc_factor
             if not self._interleaved_weight:
                 weight_shape[0] = ceiling_align(weight_shape[0], 48)
                 weight_shape[1] = ceiling_align(weight_shape[1], cfg.ci_para_lines)
-            weight_shape[0] = weight_shape[0] // oc_factor
             elems = reduce(lambda x, y: x * y, weight_shape)
             weight_sizes = elems * get_element_bytes(self._weight_dtype)
             # estimate the output size
             output_shape = deepcopy(self._output_shape)
             # oc need align by 16
+            output_shape[1] = output_shape[1] // oc_factor
             if not self._interleaved_data:
                 output_shape[1] = ceiling_align(output_shape[1], 16)
-            output_shape[1] = output_shape[1] // oc_factor
             output_shape[2] = output_shape[2] // h_factor
             output_shape[3] = output_shape[3] // w_factor
             elems = reduce(lambda x, y: x * y, output_shape)
@@ -818,9 +826,12 @@ class Conv2dScheduler:
             w_factor_list = list()
             total_sizes = get_total_sizes(oc_factor=oc_factor, h_factor=h_factor, w_factor=w_factor)
             while total_sizes > dm_size:
-                if self._output_shape[1] // oc_factor > 1:
+                if self._output_shape[1] // oc_factor > 15:
                     oc_factor += 1
-                    if self._output_shape[1] % oc_factor == 0:
+                    if (
+                        self._output_shape[1] % oc_factor == 0
+                        and self._output_shape[1] // oc_factor > 15
+                    ):
                         oc_factor_list.append(oc_factor)
                         total_sizes = get_total_sizes(
                             oc_factor=oc_factor, h_factor=h_factor, w_factor=w_factor

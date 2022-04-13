@@ -78,13 +78,13 @@ def verify_network_end2end(net):
 
 
 @pytest.mark.edgex_slow
-@pytest.mark.parametrize("net", ["mobilenet_v2", "resnet50"])
+@pytest.mark.parametrize("net", ["mobilenet_v2", "mobilenet_v3", "resnet50"])
 def test_network_per_op(net):
     verify_network_per_op(net)
 
 
 @pytest.mark.edgex_slow
-@pytest.mark.parametrize("net", ["mobilenet_v2", "resnet50"])
+@pytest.mark.parametrize("net", ["mobilenet_v2", "mobilenet_v3", "resnet50"])
 def test_network_end2end(net):
     verify_network_end2end(net)
 

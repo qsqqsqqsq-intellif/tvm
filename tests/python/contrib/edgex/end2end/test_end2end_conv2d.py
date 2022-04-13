@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 import tvm
+import pytest
 from tvm import relay
 import numpy as np
 from tvm.ir.module import IRModule
@@ -242,6 +243,35 @@ def test_quantized_conv2d_tiling_end2end():
     )
 
 
+def test_quantized_conv2d_h1w1_end2end():
+    do_test_quantized_conv2d(
+        input_shape=[1, 16, 1, 1],
+        input_dtype="uint8",
+        weight_shape=[8, 16, 1, 1],
+        weight_dtype="int8",
+        strides=[1, 1],
+        kernel_size=[1, 1],
+        padding=[0, 0, 0, 0],
+        dilation=[1, 1],
+        out_dtype="int32",
+    )
+
+
+@pytest.mark.skip("not done")
+def test_superpoint_conv2d_bias_relu_3():
+    do_test_quantized_conv2d(
+        input_shape=[1, 128, 120, 160],
+        input_dtype="int8",
+        weight_shape=[128, 128, 3, 3],
+        weight_dtype="int8",
+        strides=[1, 1],
+        kernel_size=[3, 3],
+        padding=[1, 1, 1, 1],
+        dilation=[1, 1],
+        out_dtype="int32",
+    )
+
+
 if __name__ == "__main__":
     test_single_conv2d_end2end()
     test_single_depthwise_conv2d_end2end()
@@ -253,3 +283,5 @@ if __name__ == "__main__":
     test_single_conv2d_tile_co_end2end()
     test_conv2d_nchwc_end2end()
     test_quantized_conv2d_tiling_end2end()
+    test_quantized_conv2d_h1w1_end2end()
+    test_superpoint_conv2d_bias_relu_3()

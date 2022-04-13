@@ -522,7 +522,6 @@ def elementwise_non_single_branch(a: T.handle, b: T.handle) -> None:
                 B[vi, vj, vk] = C[vi, vj, vk] * 2.0
 
 
-@pytest.mark.skip("need xinqi merge PR#10887")
 def test_reorder_fail_block():
     sch = tir.Schedule(elementwise_not_affine, debug_mask="all")
     block_b = sch.get_block("B")
