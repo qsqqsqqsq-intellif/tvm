@@ -137,7 +137,7 @@ class HardSwish(ExprMutator):
     x = wildcard()
     add = is_op("add")(x, is_constant())
     clip = is_op("clip")(add)
-    divide = is_op("divide")(clip, is_constant())
+    divide = is_op("multiply")(clip, is_constant())
     multiply = is_op("multiply")(x, divide)
 
     def __init__(self, mod):
@@ -155,7 +155,7 @@ class HardSwish(ExprMutator):
             add_node = clip_node.args[0]
             cond1 = add_node.args[1].data.asnumpy() == 3
             cond2 = clip_node.attrs.a_min == 0 and clip_node.attrs.a_max == 6
-            cond3 = divide_node.args[1].data.asnumpy() == 6
+            cond3 = divide_node.args[1].data.asnumpy() == 1 / 6
             if cond1 and cond2 and cond3:
                 a0 = relay.var("arg0_")
 
@@ -180,7 +180,7 @@ class HardSigmoid(ExprMutator):
     x = wildcard()
     add = is_op("add")(x, is_constant())
     clip = is_op("clip")(add)
-    divide = is_op("divide")(clip, is_constant())
+    divide = is_op("multiply")(clip, is_constant())
 
     def __init__(self, mod):
         super().__init__()
@@ -196,7 +196,7 @@ class HardSigmoid(ExprMutator):
             add_node = clip_node.args[0]
             cond1 = add_node.args[1].data.asnumpy() == 3
             cond2 = clip_node.attrs.a_min == 0 and clip_node.attrs.a_max == 6
-            cond3 = new_call.args[1].data.asnumpy() == 6
+            cond3 = new_call.args[1].data.asnumpy() == 1 / 6
             if cond1 and cond2 and cond3:
                 a0 = relay.var("arg0_")
 
@@ -278,10 +278,10 @@ class GELU(ExprMutator):
     """GELU"""
 
     x = wildcard()
-    multiply1 = is_op("multiply")(x, wildcard())
+    multiply1 = is_op("multiply")(x, is_constant())
     erf = is_op("erf")(multiply1)
     multiply2 = is_op("multiply")(erf, wildcard())
-    add = is_op("add")(wildcard(), multiply2)
+    add = is_op("add")(is_constant(), multiply2)
     multiply3 = is_op("multiply")(x, add)
 
     def __init__(self, mod):

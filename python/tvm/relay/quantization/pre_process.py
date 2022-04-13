@@ -30,7 +30,7 @@ def pre_process(cls, norm):
     mod = cls.origin_mod
     mod = leaky_relu(mod)
     mod = origin_pass(mod, norm)
-    mod = pattern_match(mod)
     mod = divide_to_multiply(mod)
+    mod = pattern_match(mod)
     mod = ExpandAddParam()(mod)
     cls.pre_processed_mod = mod
