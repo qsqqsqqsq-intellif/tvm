@@ -19,6 +19,7 @@
 import os
 import sys
 import json
+import tvm
 from tvm.contrib.edgex.base.edgexlog import EdgexLog as el
 
 
@@ -54,6 +55,7 @@ class EdgexConfig(object):
             with open(get_cfg_file(cfg)) as f:
                 cfg = json.load(f)
         # config attrs
+        self._cfg = cfg
         self.__dict__.update(cfg)
         # cls attrs
         self._last_cfg = None
@@ -89,8 +91,9 @@ class EdgexConfig(object):
         cls._current = curr
 
 
-def get_cfg():
-    return EdgexConfig.get_current()
+@tvm.register_func("tvm.edgex.get_current_hw_config")
+def get_current_hw_config():
+    return EdgexConfig.get_current()._cfg
 
 
 cfg = EdgexConfig.make_default_config()

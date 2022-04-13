@@ -27,10 +27,9 @@
 
 #include "../attrs.h"
 #include "../edgex_ir_utils.h"
+#include "../hardware_info.h"
 #include "../op/builtin.h"
 #include "./edgex_transform.h"
-
-#define VCU_NUM 4
 
 namespace tvm {
 namespace tir {
@@ -448,7 +447,29 @@ class VcuControlFlowSplitter : public StmtExprMutator {
     }
     vcu_block = SeqStmt::Flatten(vcu_block, unlock_vcu);
 
+    // wrap block into local func scope
+    cu_block = AttrStmt(ObjectRef(), attr::nnp_local_func_scope, Integer(0), cu_block);
+    vcu_block = AttrStmt(ObjectRef(), attr::nnp_local_func_scope, Integer(1), vcu_block);
+
+    // current cuid
     PrimExpr cuid = Call(DataType::Int(32), edgex::builtin::nnp_cuid(), {});
+
+    // set customized vcu stack pointer
+    Map<String, ObjectRef> hw_config = edgex::GetHardwareConfigDict();
+    Integer dm_size =
+        Downcast<Integer>(hw_config.Get(edgex::attr::kDMSize).value_or(Integer(DEFAULT_DM_SIZE)));
+    Integer vu_dm_stack_size = Downcast<Integer>(
+        hw_config.Get(edgex::attr::kDMStackPerVcu).value_or(Integer(DEFAULT_DM_STACK_PER_VCU)));
+    if (vu_dm_stack_size->value > 0) {
+      // todo(bxq): set for different vcu, once we use multiple vcus
+      PrimExpr new_sp_addr = DM_OFFSET_ADDR + dm_size - 1;
+      Stmt switch_stack =
+          Evaluate(Call(DataType::Void(), edgex::builtin::nnp_switch_stack(), {new_sp_addr}));
+      // todo(bxq): ensure whether we do not need reset at all
+      // Stmt reset_switch_stack = Evaluate(Call(DataType::Void(),
+      // edgex::builtin::nnp_switch_stack(), {}));
+      vcu_block = SeqStmt({switch_stack, vcu_block});
+    }
     PrimExpr cond = cuid >= VCU_NUM;
     Stmt new_body = IfThenElse(std::move(cond), cu_block, vcu_block);
     return ConvertSSA(new_body);

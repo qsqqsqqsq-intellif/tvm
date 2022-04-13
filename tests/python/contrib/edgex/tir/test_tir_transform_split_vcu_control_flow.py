@@ -52,9 +52,11 @@ def vcu_example(a: T.handle, b: T.handle, c: T.handle) -> None:
 @T.prim_func
 def vcu_splitted(a: T.handle, b: T.handle, c: T.handle) -> None:
     A = T.match_buffer(a, [256], dtype="int32")
+    T.attr(None, "vcore_resource", 1)
     A_dm = T.allocate([256], "int32", "dm")
     A_vm = T.allocate([128], "int32", "vm")
     if T.nnp_cuid(dtype="int32") >= 4:
+        T.attr(None, "pragma_nnp_local_func_scope", 0)
         T.evaluate(T.nnp_lock_vcu(dtype=""))
         T.evaluate(T.nnp_iss_bind_input_buffer(dtype=""))
         T.evaluate(T.nnp_eidma_load(dtype="handle"))
@@ -65,6 +67,8 @@ def vcu_splitted(a: T.handle, b: T.handle, c: T.handle) -> None:
         T.evaluate(T.nnp_sync("eodma", "wo", "vodma", dtype="handle"))
         T.evaluate(T.nnp_eodma_store(dtype="handle"))
     else:
+        T.evaluate(T.nnp_switch_stack(3145727, dtype=""))
+        T.attr(None, "pragma_nnp_local_func_scope", 1)
         for i_1 in T.serial(2, 1):
             T.evaluate(T.nnp_sync("vcu", "wo", "cu", dtype="handle"))
             if (i_1 == 0):
@@ -88,8 +92,7 @@ def vcu_splitted(a: T.handle, b: T.handle, c: T.handle) -> None:
 def test_split_vcu_control_flow():
     mod = tvm.IRModule.from_expr(vcu_example)
     mod = SplitVcuControlFlow()(mod)
-    assert mod["main"].body.attr_key == "vcore_resource"
-    tvm.ir.assert_structural_equal(mod["main"].body.body, vcu_splitted.body, True)
+    tvm.ir.assert_structural_equal(mod["main"], vcu_splitted, True)
 
 
 if __name__ == "__main__":

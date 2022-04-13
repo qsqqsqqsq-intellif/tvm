@@ -23,6 +23,7 @@
  */
 #include "edgex_ir_utils.h"
 
+#include "./attrs.h"
 #include "./op/builtin.h"
 
 namespace tvm {

@@ -210,6 +210,7 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
                                      DTypeToLLVMType(op->dtype)->getPointerTo());
         ICHECK(!var_map_.count(op->buffer_var.get()));
         var_map_[op->buffer_var.get()] = buf;
+        storage_space_var_map_[op->buffer_var.get()] = buf;
         VisitStmt(op->body);
         break;
       }
@@ -219,6 +220,20 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
             DTypeToLLVMType(op->dtype)->getPointerTo(NNP400_ADDRESS_SPACE_VM));
         ICHECK(!var_map_.count(op->buffer_var.get()));
         var_map_[op->buffer_var.get()] = buf;
+        storage_space_var_map_[op->buffer_var.get()] = buf;
+        VisitStmt(op->body);
+        break;
+      }
+      case runtime::StorageRank::kBBUF:
+      case runtime::StorageRank::kIOBUF:
+      case runtime::StorageRank::kWBUF:
+      case runtime::StorageRank::kCUBE:
+      case runtime::StorageRank::kNLFCMEM: {
+        ::llvm::Value* buf = builder_->CreateIntToPtr(builder_->getInt64(0),
+                                                      DTypeToLLVMType(op->dtype)->getPointerTo());
+        ICHECK(!var_map_.count(op->buffer_var.get()));
+        var_map_[op->buffer_var.get()] = buf;
+        storage_space_var_map_[op->buffer_var.get()] = buf;
         VisitStmt(op->body);
         break;
       }
@@ -226,15 +241,74 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
         LOG(FATAL) << "Do not support allocate ddr memory from device";
       }
       default:
-        CodeGenLLVM::VisitStmt_(op);
+        LOG(FATAL) << "Do not support allocatiton of storage scope " << storage_scope.to_string();
     }
   }
 
   void VisitStmt_(const AttrStmtNode* attr) {
     if (attr->attr_key == tvm::tir::attr::nnp_vcore_resource) {
       this->vcore_resource_ = attr->value;
+    } else if (attr->attr_key == tvm::tir::attr::nnp_local_func_scope) {
+      bool is_vcu = Downcast<Integer>(attr->value)->value > 0;
+      CreateComputeScope(attr->body, is_vcu);
+      return;
     }
     return CodeGenLLVM::VisitStmt_(attr);
+  }
+
+  /*! \brief wrap specified part as a standalone function, refer to implementation of cpu codegen.
+   */
+  void CreateComputeScope(Stmt body, bool is_vcu) {
+    /*! \brief maintain states that should be guarded when step into compute scope */
+    struct ComputeScopeStates {
+      explicit ComputeScopeStates(CodeGenNNP400LLVM* parent) : parent_(parent) {}
+
+      void EnterWithScope() {
+        std::swap(function_, parent_->function_);
+        std::swap(analyzer_, parent_->analyzer_);
+        std::swap(var_map_, parent_->var_map_);
+      }
+
+      void ExitWithScope() {
+        std::swap(function_, parent_->function_);
+        std::swap(analyzer_, parent_->analyzer_);
+        std::swap(var_map_, parent_->var_map_);
+      }
+
+      llvm::Function* function_{nullptr};
+      std::unordered_map<const VarNode*, llvm::Value*> var_map_;
+      std::unique_ptr<arith::Analyzer> analyzer_{std::make_unique<arith::Analyzer>()};
+      CodeGenNNP400LLVM* parent_;
+    };
+
+    llvm::Function* fcompute;
+    if (is_vcu) {
+      llvm::FunctionType* ftype = llvm::FunctionType::get(t_void_, {}, false);
+      fcompute = llvm::Function::Create(ftype, llvm::Function::InternalLinkage,
+                                        function_->getName() + "_vcu", module_.get());
+      fcompute->addFnAttr(llvm::Attribute::NoInline);
+      builder_->CreateCall(fcompute, {});
+    } else {
+      llvm::Function* cur_func = builder_->GetInsertBlock()->getParent();
+      fcompute =
+          llvm::Function::Create(cur_func->getFunctionType(), llvm::Function::InternalLinkage,
+                                 function_->getName() + "_cu", module_.get());
+      fcompute->addFnAttr(llvm::Attribute::NoInline);
+      builder_->CreateCall(fcompute, {cur_func->arg_begin(), cur_func->arg_begin() + 1});
+    }
+    auto restore_insert_point = builder_->GetInsertBlock();
+
+    // enter compute scope and setup compute function.
+    With<ComputeScopeStates> scope_states_guard(this);
+    for (const auto& kv : storage_space_var_map_) {
+      var_map_[kv.first] = kv.second;
+    }
+    function_ = fcompute;
+    llvm::BasicBlock* compute_entry = llvm::BasicBlock::Create(*ctx_, "entry", function_);
+    builder_->SetInsertPoint(compute_entry);
+    this->VisitStmt(body);
+    builder_->CreateRetVoid();
+    builder_->SetInsertPoint(restore_insert_point);
   }
 
   llvm::Value* CreateDMAOp(const std::vector<llvm::Intrinsic::ID> intrs, const CallNode* op) {
@@ -778,6 +852,41 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     return builder_->CreateCall(f_release_resource, {});
   }
 
+  llvm::Value* CreateSwitchStack(const CallNode* op) {
+    std::ostringstream os;
+    if (op->args.size() > 0) {
+      // sp address argument given, switch to new sp
+      const int64_t* opt_const_addr = as_const_int(op->args[0]);
+      std::vector<llvm::Value*> args;
+      llvm::InlineAsm* inline_asm_func;
+      if (opt_const_addr) {
+        int32_t addr = static_cast<int32_t>(*opt_const_addr);
+        os << "add r15 r14 0\n";
+        os << "mov r14 0x" << std::hex << ((addr - 4) & 0xffff) << "\n";
+        os << "mov r14.hi 0x" << std::hex << ((addr - 4) >> 16) << "\n";
+        os << "st r15 r14 0\n";
+        auto func_ty = llvm::FunctionType::get(t_void_, {}, false);
+        auto inline_asm_func = llvm::InlineAsm::get(func_ty, os.str(), "", true);
+        return builder_->CreateCall(inline_asm_func, {});
+      } else {
+        os << "nop.10\n";
+        os << "add r15 r14 0\n";
+        os << "add r14 $0 0\n";
+        os << "st r15 r14 0\n";
+        auto func_ty = llvm::FunctionType::get(t_void_, {t_int32_}, false);
+        inline_asm_func = llvm::InlineAsm::get(func_ty, os.str(), "r", true);
+        return builder_->CreateCall(inline_asm_func, {MakeValue(op->args[0])});
+      }
+    } else {
+      // switch to original sp
+      os << "ld r14 r14 0\n";
+      os << "nop.4\n";
+      auto func_ty = llvm::FunctionType::get(t_void_, {}, false);
+      auto inline_asm_func = llvm::InlineAsm::get(func_ty, os.str(), "", true);
+      return builder_->CreateCall(inline_asm_func, {});
+    }
+  }
+
   llvm::Value* VisitExpr_(const CallNode* op) {
     Op op_ref = Downcast<Op>(op->op);
     if (op_ref.defined()) {
@@ -906,6 +1015,7 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     RegisterNNPIntrinsic(edgex::builtin::nnp_cuid(), [this](auto op) {
       return CreateSimpleIntrinsic(llvm::Intrinsic::nnp_cuid, op);
     });
+    RegisterNNPIntrinsic(edgex::builtin::nnp_switch_stack(), &CodeGenNNP400LLVM::CreateSwitchStack);
 
     // vu intrinsics
     RegisterNNPIntrinsic(edgex::builtin::nnp_veltadd(), &CodeGenNNP400LLVM::CreateVeltadd);
@@ -916,6 +1026,9 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
 
   /*! \brief keep input buffer variables from tir function arguments. */
   std::vector<const VarNode*> input_buffer_vars_;
+
+  /*! \brief buffer var map for static storage allocation. */
+  std::unordered_map<const VarNode*, llvm::Value*> storage_space_var_map_;
 
   /*! \brief nnp intrinsic codegen router dict. */
   std::map<tvm::Op, IntrinGenF> intrinsic_dict_;
@@ -1038,7 +1151,7 @@ static std::once_flag init_llvm_cl_options_flag;
 void InitLLVMClOptions() {
   std::unordered_map<std::string, std::string> arg_dict;
   arg_dict["-enable-packets"] = "1";
-  arg_dict["-enable-pload"] = "0";
+  arg_dict["-enable-pload"] = "1";
   const std::string cmdline_arg_str = dmlc::GetEnv<std::string>("EDGEX_LLVM_CMDLINE_OPTIONS", "");
   if (!cmdline_arg_str.empty()) {
     std::string str;

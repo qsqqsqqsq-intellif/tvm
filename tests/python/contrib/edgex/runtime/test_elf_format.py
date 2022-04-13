@@ -24,6 +24,7 @@ from tvm.contrib.edgex.runtime import create_relocatable_object
 from tvm.contrib.edgex.runtime.elf_utils import merge_relocatable_object, wrap_obj_as_single_kernel
 from tvm.contrib.edgex.runtime.edgex_runtime import create_llvm_module, edgex_invoke_assembler
 from tvm.contrib.edgex.testing import check_edgex_tir_build
+from tvm.contrib.edgex.config import EdgexConfig, get_current_hw_config
 
 
 def get_simple_lowered_add(funcname, rhs) -> tvm.IRModule:
@@ -44,8 +45,12 @@ def get_simple_lowered_add(funcname, rhs) -> tvm.IRModule:
     s.pragma(s.get_loops(x_vm)[-1], "nnp_dma_scope", "vidma")
     s.pragma(s.get_loops(y_vm)[-1], "nnp_dma_scope", "vodma")
     s.pragma(s.get_loops(y_dm)[-1], "nnp_dma_scope", "eodma")
-    with tvm.contrib.edgex.build_config_nnp():
-        return tvm.lower(s.mod, name=funcname)
+
+    hw_config = dict(get_current_hw_config())
+    hw_config["DM_STACK_PER_VCU"] = 0
+    with EdgexConfig(hw_config):
+        with tvm.contrib.edgex.build_config_nnp():
+            return tvm.lower(s.mod, name=funcname)
 
 
 def test_merge_kernel_objects():

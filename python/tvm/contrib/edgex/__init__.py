@@ -24,7 +24,5 @@ from . import relay
 from . import runtime
 from . import base
 from . import uniform_schedule
-from .config import get_cfg
+from .config import get_current_hw_config
 from .base.edgexlog import EdgexLog as el
-
-el.i("[TVM VERSION is {}]".format(get_cfg().TVM_VERSION))

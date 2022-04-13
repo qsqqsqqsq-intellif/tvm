@@ -110,7 +110,11 @@ TIR_DEFINE_BUILTIN_FUNC(nnp_lock_vcu)
 
 TIR_DEFINE_BUILTIN_FUNC(nnp_unlock_vcu)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
-    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::CU));
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU));
+
+TIR_DEFINE_BUILTIN_FUNC(nnp_switch_stack)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::ALL));
 
 TIR_DEFINE_BUILTIN_FUNC(nnp_inline_asm_vcu)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))

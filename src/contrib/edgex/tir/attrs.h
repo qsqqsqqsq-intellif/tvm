@@ -40,6 +40,7 @@ constexpr const char* kNlfcTableParams = "NlfcTableParams";
 constexpr const char* kNlfcTableData = "NlfcTableData";
 
 /******************************** Schedule pragma keys *********************************/
+
 /*! \brief Mark underlying block should lower to nnp dma intrinsic. */
 constexpr const char* nnp_dma_scope = "pragma_nnp_dma_scope";
 
@@ -63,6 +64,10 @@ constexpr const char* relay_op_attrs = "relay_op_attrs";
 
 /*! \brief Tag for op data layout format. */
 constexpr const char* nnp_data_layout = "pragma_nnp_data_layout";
+
+/*! \brief Mark underlying block should codegen as standalone function,
+    value=0 denotes cu func, value=1 denotes vcu func. */
+constexpr const char* nnp_local_func_scope = "pragma_nnp_local_func_scope";
 
 }  // namespace attr
 }  // namespace tir

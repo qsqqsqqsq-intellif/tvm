@@ -142,6 +142,11 @@ TVM_DLL const Op& nnp_iss_bind_input_buffer();
 TVM_DLL const Op& nnp_lock_vcu();
 
 /*!
+ * \brief tvm intrinsic for switch to a new stack pointer.
+ */
+TVM_DLL const Op& nnp_switch_stack();
+
+/*!
  * \brief tvm intrinsic for nnp vcu resource unlocking.
  */
 TVM_DLL const Op& nnp_unlock_vcu();

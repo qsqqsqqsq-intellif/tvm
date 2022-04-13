@@ -14,7 +14,9 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+import pytest
 import tvm
+from tvm._ffi.base import TVMError
 from tvm.script import tir as T
 from tvm.contrib.edgex.tir.transform import StorageRewriteNNP400
 
@@ -157,19 +159,19 @@ def simple_cube_dma() -> None:
     weight_buf = T.allocate([64, 16, 7, 7], dtype="int8", scope="wbuf")
     bias_dm = T.allocate([64], dtype="int32", scope="dm")
     bias_buf = T.allocate([64], dtype="int32", scope="bbuf")
-    T.evaluate(T.nnp_idma_load(T.type_annotation(dtype="int32"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), in_buf.data, 0, 16*224*224, 2, dtype="handle"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), in_dm.data, 0, 16*224*224, 1, dtype="handle"), dtype=""))
-    T.evaluate(T.nnp_wdma_load(T.type_annotation(dtype="int32"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), weight_buf.data, 0, 16*64*7*7, 2, dtype="handle"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), weight_dm.data, 0, 16*64*7*7, 1, dtype="handle"), dtype=""))
+    T.evaluate(T.nnp_idma_load(T.type_annotation(dtype="int8"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), in_buf.data, 0, 16*224*224, 2, dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), in_dm.data, 0, 16*224*224, 1, dtype="handle"), dtype=""))
+    T.evaluate(T.nnp_wdma_load(T.type_annotation(dtype="int8"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), weight_buf.data, 0, 16*64*7*7, 2, dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), weight_dm.data, 0, 16*64*7*7, 1, dtype="handle"), dtype=""))
     T.evaluate(T.nnp_bdma_load(T.type_annotation(dtype="int32"),
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), bias_buf.data, 0, 64, 2, dtype="handle"),
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), bias_dm.data, 0, 64, 1, dtype="handle"), dtype=""))
     T.evaluate(T.nnp_cube_compute(dtype=""))
-    T.evaluate(T.nnp_odma_store(T.type_annotation(dtype="int32"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), out_dm.data, 0, 64*112*112, 2, dtype="handle"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), out_buf.data, 0, 64*112*112, 1, dtype="handle"), dtype=""))
+    T.evaluate(T.nnp_odma_store(T.type_annotation(dtype="int8"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), out_dm.data, 0, 64*112*112, 2, dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), out_buf.data, 0, 64*112*112, 1, dtype="handle"), dtype=""))
 
 
 @T.prim_func
@@ -179,27 +181,27 @@ def simple_cube_dma_expect() -> None:
     weight_buf = T.allocate([50176],  dtype="int8", scope="wbuf")
     bias_buf = T.allocate([64],  dtype="int32", scope="bbuf")
     out_buf = T.allocate([802816],  dtype="int8", scope="iobuf")
-    T.evaluate(T.nnp_idma_load(T.type_annotation(dtype="int32"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), in_buf.data, 0, 16*224*224, 2, dtype="handle"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), in_dm.data, 0, 16*224*224, 1, dtype="handle"),
-        "feat_st_addr1_idma=0x0", "feat_end_addr1_idma=0x30ffff",
-        "feat_st_addr2_idma=0x0", "feat_end_addr2_idma=0x30ffff", dtype=""))
-    T.evaluate(T.nnp_wdma_load(T.type_annotation(dtype="int32"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), weight_buf.data, 0, 16*64*7*7, 2, dtype="handle"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), in_dm.data, 200704, 16*64*7*7, 1, dtype="handle"),
-        "wt_st_addr1_wdma=0xc4000", "wt_end_addr1_wdma=0xf4fff",
-        "wt_st_addr2_wdma=0xc4000", "wt_end_addr2_wdma=0xf4fff", dtype=""))
+    T.evaluate(T.nnp_idma_load(T.type_annotation(dtype="int8"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), in_buf.data, 0, 16*224*224, 2, dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), in_dm.data, 0, 16*224*224, 1, dtype="handle"),
+        "feat_st_addr1_idma=0x0", "feat_end_addr1_idma=0xc3fff",
+        "feat_st_addr2_idma=0x0", "feat_end_addr2_idma=0xc3fff", dtype=""))
+    T.evaluate(T.nnp_wdma_load(T.type_annotation(dtype="int8"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), weight_buf.data, 0, 16*64*7*7, 2, dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), in_dm.data, 802816, 16*64*7*7, 1, dtype="handle"),
+        "wt_st_addr1_wdma=0xc4000", "wt_end_addr1_wdma=0xd03ff",
+        "wt_st_addr2_wdma=0xc4000", "wt_end_addr2_wdma=0xd03ff", dtype=""))
     T.evaluate(T.nnp_bdma_load(T.type_annotation(dtype="int32"),
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), bias_buf.data, 0, 64, 2, dtype="handle"),
         T.tvm_access_ptr(T.type_annotation(dtype="int32"), in_dm.data, 213248, 64, 1, dtype="handle"),
         "st_addr1_bdma=0xd0400", "end_addr1_bdma=0xd04ff",
         "st_addr2_bdma=0xd0400", "end_addr2_bdma=0xd04ff", dtype=""))
     T.evaluate(T.nnp_cube_compute(dtype=""))
-    T.evaluate(T.nnp_odma_store(T.type_annotation(dtype="int32"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), in_dm.data, 213312, 64*112*112, 2, dtype="handle"),
-        T.tvm_access_ptr(T.type_annotation(dtype="int32"), out_buf.data, 0, 64*112*112, 1, dtype="handle"),
-        "rslt_st_addr1_odma=0xd0500", "rslt_end_addr1_odma=0x3e04ff",
-        "rslt_st_addr2_odma=0xd0500", "rslt_end_addr2_odma=0x3e04ff", dtype=""))
+    T.evaluate(T.nnp_odma_store(T.type_annotation(dtype="int8"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), in_dm.data, 853248, 64*112*112, 2, dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int8"), out_buf.data, 0, 64*112*112, 1, dtype="handle"),
+        "rslt_st_addr1_odma=0xd0500", "rslt_end_addr1_odma=0x1944ff",
+        "rslt_st_addr2_odma=0xd0500", "rslt_end_addr2_odma=0x1944ff", dtype=""))
 
 
 @T.prim_func
@@ -275,6 +277,14 @@ def access_can_not_inplace1() -> None:
         for j in range(128):
             Y1[j] = X[j] + 1.0
 
+
+@T.prim_func
+def dm_out_of_bound(A: T.Buffer[(5000000,), "int32"]) -> None:
+    DM = T.allocate([5000000], "int32", "dm")
+    T.evaluate(T.nnp_eidma_load(T.type_annotation(dtype="int32"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), DM.data, 0, 5000000, 2, dtype="handle"),
+        T.tvm_access_ptr(T.type_annotation(dtype="int32"), A.data, 0, 5000000, 1, dtype="handle"), dtype=""))
+
 # fmt: on
 
 
@@ -306,6 +316,11 @@ def test_inplace_behavior():
     do_test_storage_rewrite(standard_access_inplace, standard_access_inplace_expect)
     do_test_storage_rewrite(access_can_not_inplace0, access_can_not_inplace0)
     do_test_storage_rewrite(access_can_not_inplace1, access_can_not_inplace1)
+
+
+def test_check_dm_out_of_bound():
+    with pytest.raises(TVMError):
+        StorageRewriteNNP400()(tvm.IRModule.from_expr(dm_out_of_bound))
 
 
 if __name__ == "__main__":

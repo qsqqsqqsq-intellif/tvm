@@ -3,5 +3,7 @@
   "TVM_VERSION": "0.8.0",
   "HW_VER": "0.0.0",
   "DM_SIZE": 3145728,
-  "PE_NUM": 3
+  "PE_NUM": 3,
+
+  "DM_STACK_PER_VCU": 4096
 }

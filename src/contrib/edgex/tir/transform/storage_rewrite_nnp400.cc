@@ -38,7 +38,9 @@
 
 #include "../../../../runtime/thread_storage_scope.h"
 #include "../../../../tir/transforms/ir_utils.h"
+#include "../attrs.h"
 #include "../edgex_ir_utils.h"
+#include "../hardware_info.h"
 #include "../op/builtin.h"
 
 namespace tvm {
@@ -461,13 +463,28 @@ class NNP400StoragePlanRewriter : public StmtExprMutator {
     if (begin == nullptr || extent == nullptr) {
       return;  // skip dynamic buffer offset
     }
+
     DataType dtype = access_call->args[0].dtype();
     int elem_bytes = dtype.bits() * dtype.lanes() / 8;
     CHECK_EQ(elem_bytes * 8, dtype.bits() * dtype.lanes());
     int64_t bytes_begin = (*begin) * elem_bytes;
     int64_t bytes_end = bytes_begin + (*extent) * elem_bytes - 1;
-    // the dma addr should LE 0x3fffff.
-    CHECK_LE(bytes_end, 0x3fffff);
+
+    PrimExpr buf = access_call->args[1];
+    if (buf->IsInstance<VarNode>()) {
+      auto scope = GetStorageScope(Downcast<Var>(buf));
+      // check dm addr limit.
+      if (scope.rank == StorageRank::kDM) {
+        Range dm_user_range = edgex::GetDMUserAddrSpaceRange();
+        CHECK(analyzer_.CanProveGreaterEqual(dm_user_range->min + dm_user_range->extent - 1,
+                                             bytes_end) &&
+              analyzer_.CanProveLess(dm_user_range->min, bytes_begin + 1))
+            << "DMA access exceeds dm limit\n"
+            << "Access range: [" << bytes_begin << ", " << bytes_end << "]\n"
+            << "DM user space range: " << dm_user_range << "\n";
+      }
+    }
+
     auto to_hex = [](size_t i) -> std::string {
       std::stringstream ss;
       ss << "0x" << std::hex << i;
