@@ -685,7 +685,12 @@ class Realize(ExprMutator):
         # do nothing, ex all int32 centernet
         dtype_list = []
         for arg_ in realized_args:
-            dtype_list.append(relay.frontend.common.infer_type(arg_).checked_type.dtype)
+            if not isinstance(arg_, relay.Tuple):
+                dtype_list.append(relay.frontend.common.infer_type(arg_).checked_type.dtype)
+            else:
+                dtype_list.append(
+                    relay.frontend.common.infer_type(arg_).checked_type.fields[0].dtype
+                )
 
         realized_args_new = []
         if not config.quantized and not (

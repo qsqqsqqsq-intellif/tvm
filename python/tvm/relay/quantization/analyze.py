@@ -377,6 +377,9 @@ class Tuple:
             self.quantized = True
         else:
             self.quantized = False
+            for arg in node.fields:
+                if isinstance(arg, relay.Tuple) and vertex_config[arg].quantized:
+                    vertex_config[arg].quantized = False
 
         if "quantized" in config:
             self.quantized = config["quantized"]
