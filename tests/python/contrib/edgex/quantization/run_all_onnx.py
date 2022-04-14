@@ -32,31 +32,34 @@ def _run(
     params,
     quantize_config,
     input_name,
+    shape,
+    dtype,
     mean,
     std,
     axis,
     root_path,
 ):
-    mod = relay.transform.InferType()(mod)
+    def _get_data(shape, dtype):
+        if dtype == "float32":
+            data = numpy.random.uniform(-1, 1, shape).astype(dtype)
+        elif dtype == "uint8":
+            data = numpy.random.randint(0, 256, shape).astype(dtype)
+        else:
+            data = numpy.random.randint(0, 256, shape).astype(dtype)
+        return data
+
+    norm = {}
     single_data = {}
-    for param in mod["main"].params:
-        name_hint = param.name_hint
-        dtype = param.checked_type.dtype
-        shape = [int(_) for _ in param.checked_type.shape]
-        if params is not None and name_hint in params:
-            continue  # skip model weight params
-        data = numpy.random.randint(0, 256, shape).astype(dtype)
-        single_data[name_hint] = data
+    if isinstance(input_name, list):
+        for tmp1, tmp2, tmp3, tmp4, tmp5, tmp6 in zip(input_name, mean, std, axis, shape, dtype):
+            norm[tmp1] = {"mean": tmp2, "std": tmp3, "axis": tmp4}
+            single_data[tmp1] = _get_data(tmp5, tmp6)
+    else:
+        norm[input_name] = {"mean": mean, "std": std, "axis": axis}
+        single_data[input_name] = _get_data(shape, dtype)
 
     def eval_nothing():
         return 0.0
-
-    norm = {}
-    if isinstance(input_name, list):
-        for tmp1, tmp2, tmp3, tmp4 in zip(input_name, mean, std, axis):
-            norm[tmp1] = {"mean": tmp2, "std": tmp3, "axis": tmp4}
-    else:
-        norm[input_name] = {"mean": mean, "std": std, "axis": axis}
 
     quantize_search = relay.quantization.QuantizeSearch(
         model_name=model_name,
@@ -83,6 +86,7 @@ classification = {
     "mobilenet-v1": {
         "input": "input:0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -91,6 +95,7 @@ classification = {
     "mobilenet-v2": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -99,6 +104,7 @@ classification = {
     "mobilenet-v2_torchvision": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -107,6 +113,7 @@ classification = {
     "mobilenet-v3-small": {
         "input": "input_image",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -115,6 +122,7 @@ classification = {
     "resnet18-v1": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -123,6 +131,7 @@ classification = {
     "resnet18-v2": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -131,6 +140,7 @@ classification = {
     "resnet34-v1": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -139,6 +149,7 @@ classification = {
     "resnet34-v2": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -147,6 +158,7 @@ classification = {
     "resnet50-caffe2-v1": {
         "input": "gpu_0/data_0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -155,6 +167,7 @@ classification = {
     "resnet50-v1": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -163,6 +176,7 @@ classification = {
     "resnet50-v2": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -171,6 +185,7 @@ classification = {
     "resnet101-v1": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -179,6 +194,7 @@ classification = {
     "resnet101-v2": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -187,6 +203,7 @@ classification = {
     "resnet152-v1": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -195,6 +212,7 @@ classification = {
     "resnet152-v2": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -203,6 +221,7 @@ classification = {
     "resnext50_32x4d_torchvision": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -211,6 +230,7 @@ classification = {
     "resnest50": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -219,6 +239,7 @@ classification = {
     "wide_resnet50_torchvision": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -227,6 +248,7 @@ classification = {
     "seresnet50": {
         "input": "input_image",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -235,6 +257,7 @@ classification = {
     "squeezenet1.0": {
         "input": "data_0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -243,6 +266,7 @@ classification = {
     "squeezenet1.1": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -251,6 +275,7 @@ classification = {
     "vgg16": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -259,6 +284,7 @@ classification = {
     "vgg16-bn": {
         "input": "data",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -267,6 +293,7 @@ classification = {
     "alexnet": {
         "input": "data_0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -275,6 +302,7 @@ classification = {
     "googlenet": {
         "input": "data_0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -283,6 +311,7 @@ classification = {
     "caffenet": {
         "input": "data_0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -291,6 +320,7 @@ classification = {
     "rcnn": {
         "input": "data_0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -299,6 +329,7 @@ classification = {
     "densnet121": {
         "input": "data_0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -307,6 +338,7 @@ classification = {
     "inception-v1": {
         "input": "data_0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -315,6 +347,7 @@ classification = {
     "inception-v2": {
         "input": "data_0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -323,6 +356,7 @@ classification = {
     "inception_v3_torchvision": {
         "input": "x.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -331,6 +365,7 @@ classification = {
     "shufflenet-v1": {
         "input": "gpu_0/data_0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -339,6 +374,7 @@ classification = {
     "shufflenet-v2": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -347,6 +383,7 @@ classification = {
     "zfnet512": {
         "input": "gpu_0/data_0",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -355,6 +392,7 @@ classification = {
     "efficientnet-lite4": {
         "input": "images:0",
         "shape": [1, 224, 224, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -363,6 +401,7 @@ classification = {
     "efficientnet-b0": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -371,6 +410,7 @@ classification = {
     "EfficientNetV2: efficientnet_v2_m": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -379,6 +419,7 @@ classification = {
     "EfficientNetV2: efficientnet_v2_s": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -387,6 +428,7 @@ classification = {
     "mnist": {
         "input": "Input3",
         "shape": [1, 1, 28, 28],
+        "dtype": "uint8",
         "mean": None,
         "std": None,
         "axis": None,
@@ -395,6 +437,7 @@ classification = {
     "ghostnet": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -403,6 +446,7 @@ classification = {
     "condensenet-v2": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -411,6 +455,7 @@ classification = {
     "mnasnet1_0_torchvision": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -419,6 +464,7 @@ classification = {
     "DDRNet23_slim": {
         "input": "input_image",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -427,6 +473,7 @@ classification = {
     "DDRNet23": {
         "input": "input_image",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -435,6 +482,7 @@ classification = {
     "DDRNet39": {
         "input": "input_image",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -443,6 +491,7 @@ classification = {
     "HRNet_W18": {
         "input": "input_image",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -451,6 +500,7 @@ classification = {
     "vovnet19": {
         "input": "input_image",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -459,6 +509,7 @@ classification = {
     "vovnet27_slim": {
         "input": "input_image",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -467,6 +518,7 @@ classification = {
     "vovnet39": {
         "input": "input_image",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -475,6 +527,7 @@ classification = {
     "convnext: convnext_tiny": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -483,6 +536,7 @@ classification = {
     "convnext: convnext_small": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -491,6 +545,7 @@ classification = {
     "convnext: convnext_base": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -499,6 +554,7 @@ classification = {
     "r3d_18_torchvision": {
         "input": "0",
         "shape": [1, 3, 16, 112, 112],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -507,6 +563,7 @@ classification = {
     "mc3_18_torchvision": {
         "input": "0",
         "shape": [1, 3, 16, 112, 112],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -515,6 +572,7 @@ classification = {
     "r2plus1d_18_torchvision": {
         "input": "0",
         "shape": [1, 3, 16, 112, 112],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -526,6 +584,7 @@ transformer = {
     "detr": {
         "input": "samples",
         "shape": [1, 3, 256, 256],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -534,6 +593,7 @@ transformer = {
     "CvT": {
         "input": "input.48",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -542,6 +602,7 @@ transformer = {
     "DINO: dino_deits8": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -550,6 +611,7 @@ transformer = {
     "DINO: dino_vitb8": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -558,6 +620,7 @@ transformer = {
     "CaiT: cait_S24_224": {
         "input": "x",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -566,6 +629,7 @@ transformer = {
     "DeiT: deit_base_patch16_224": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -574,6 +638,7 @@ transformer = {
     "DeiT: deit_base_distilled_patch16_224": {
         "input": "x",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -582,6 +647,7 @@ transformer = {
     "PatchConvnet: S60": {
         "input": "x",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -590,6 +656,7 @@ transformer = {
     "ResMLP: resmlp_S24_dist": {
         "input": "x",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -598,6 +665,7 @@ transformer = {
     "loftr": {
         "input": ["data0.1", "data1.1"],
         "shape": [[1, 1, 480, 640], [1, 1, 480, 640]],
+        "dtype": ["float32", "float32"],
         "mean": [None, None],
         "std": [None, None],
         "axis": [None, None],
@@ -606,6 +674,7 @@ transformer = {
     "SuperGlue: superglue_v6": {
         "input": ["kpts0", "1", "2", "kpts1", "6", "7"],
         "shape": [[1, 1000, 2], [1, 1000], [1, 256, 1000], [1, 1000, 2], [1, 1000], [1, 256, 1000]],
+        "dtype": ["float32", "float32", "float32", "float32", "float32", "float32"],
         "mean": [None, None, None, None, None, None],
         "std": [None, None, None, None, None, None],
         "axis": [None, None, None, None, None, None],
@@ -614,6 +683,7 @@ transformer = {
     "conformer": {
         "input": "input.1",
         "shape": [1, 3, 256, 256],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -625,6 +695,7 @@ detection = {
     "ssd": {
         "input": "image",
         "shape": [1, 3, 1200, 1200],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -633,6 +704,7 @@ detection = {
     "ssd_mobilenet_v1": {
         "input": "image_tensor:0",
         "shape": [1, 512, 512, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -641,6 +713,7 @@ detection = {
     "FasterRCNN": {
         "input": "image",
         "shape": [3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 0,
@@ -649,6 +722,7 @@ detection = {
     "MaskRCNN": {
         "input": "image",
         "shape": [3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 0,
@@ -657,6 +731,7 @@ detection = {
     "retinanet": {
         "input": "input",
         "shape": [1, 3, 480, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -665,6 +740,7 @@ detection = {
     "retinanet_resnet50_fpn_torchvision": {
         "input": "images",
         "shape": [1, 3, 256, 256],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -673,6 +749,7 @@ detection = {
     "tiny-yolov2": {
         "input": "image",
         "shape": [1, 3, 416, 416],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -681,6 +758,7 @@ detection = {
     "yolov2": {
         "input": "input.1",
         "shape": [1, 3, 416, 416],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -689,6 +767,7 @@ detection = {
     "yolov3": {
         "input": ["input_1", "image_shape"],
         "shape": [[1, 3, 640, 640], [1, 2]],
+        "dtype": ["uint8", "int64"],
         "mean": [[123.675, 116.28, 103.53], None],
         "std": [[58.395, 57.12, 57.375], None],
         "axis": [1, None],
@@ -697,6 +776,7 @@ detection = {
     "tiny-yolov3": {
         "input": ["input_1", "image_shape"],
         "shape": [[1, 3, 640, 640], [1, 2]],
+        "dtype": ["uint8", "int64"],
         "mean": [[123.675, 116.28, 103.53], None],
         "std": [[58.395, 57.12, 57.375], None],
         "axis": [1, None],
@@ -705,6 +785,7 @@ detection = {
     "yolov3-lite": {
         "input": "input/input_data:0",
         "shape": [1, 416, 416, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -713,6 +794,7 @@ detection = {
     "yolov3-nano": {
         "input": "input/input_data:0",
         "shape": [1, 416, 416, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -721,6 +803,7 @@ detection = {
     "yolov4": {
         "input": "input_1:0",
         "shape": [1, 416, 416, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -729,6 +812,7 @@ detection = {
     "yolov4-Snapsort": {
         "input": "000_net",
         "shape": [1, 3, 416, 416],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -737,6 +821,7 @@ detection = {
     "tiny-yolov4-Snapsort": {
         "input": "000_net",
         "shape": [1, 3, 416, 416],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -745,6 +830,7 @@ detection = {
     "DUC": {
         "input": "data",
         "shape": [1, 3, 800, 800],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -753,6 +839,7 @@ detection = {
     "yolov5s_from_customer: best_conv": {
         "input": "images",
         "shape": [1, 3, 640, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -761,6 +848,7 @@ detection = {
     "yolov5s_from_customer: yolo-rotation": {
         "input": "images",
         "shape": [1, 3, 640, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -769,6 +857,7 @@ detection = {
     "deeplabv3": {
         "input": "ImageTensor:0",
         "shape": [1, 512, 512, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -777,6 +866,7 @@ detection = {
     "mobile-deeplabv3-plus: mv2": {
         "input": "Input:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -785,6 +875,7 @@ detection = {
     "mobile-deeplabv3-plus: mv3": {
         "input": "Input:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -793,6 +884,7 @@ detection = {
     "deeplabv3plus": {
         "input": "x.1",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -801,6 +893,7 @@ detection = {
     "deeplabv3_resnet50_torchvision": {
         "input": "input.1",
         "shape": [1, 3, 520, 520],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -809,6 +902,7 @@ detection = {
     "deeplabv3_mobilenet_v3_large_torchvision": {
         "input": "input.1",
         "shape": [1, 3, 520, 520],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -817,6 +911,7 @@ detection = {
     "PAN": {
         "input": "x.1",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -825,6 +920,7 @@ detection = {
     "mv3_detection": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -833,6 +929,7 @@ detection = {
     "OneClassAnomalyDetection": {
         "input": "input_1_orig",
         "shape": [1, 96, 96, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -841,6 +938,7 @@ detection = {
     "pfld-106": {
         "input": "input",
         "shape": [1, 3, 112, 112],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -849,6 +947,7 @@ detection = {
     "retinaface": {
         "input": "input0",
         "shape": [1, 3, 640, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -857,6 +956,7 @@ detection = {
     "retinaface_mnet025_v1": {
         "input": "data",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -865,6 +965,7 @@ detection = {
     "retinaface_r50_v1": {
         "input": "data",
         "shape": [1, 3, 480, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -873,6 +974,7 @@ detection = {
     "rfbnet": {
         "input": "inputdata",
         "shape": [1, 3, 300, 300],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -881,6 +983,7 @@ detection = {
     "UltraLightFaceDetection": {
         "input": "input",
         "shape": [1, 3, 480, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -889,6 +992,7 @@ detection = {
     "unet": {
         "input": "0",
         "shape": [1, 3, 256, 256],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -897,6 +1001,7 @@ detection = {
     "UnetPlusPlus": {
         "input": "x.1",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -905,6 +1010,7 @@ detection = {
     "yolov5s": {
         "input": "images",
         "shape": [1, 3, 640, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -913,6 +1019,7 @@ detection = {
     "yolov5_ultralytics": {
         "input": "images",
         "shape": [1, 3, 640, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -921,6 +1028,7 @@ detection = {
     "tiny-yolox": {
         "input": "inputs",
         "shape": [1, 3, 416, 416],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -929,6 +1037,7 @@ detection = {
     "yolox": {
         "input": "inputs",
         "shape": [1, 3, 416, 416],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -937,6 +1046,7 @@ detection = {
     "yolox_series: yolox_s": {
         "input": "images",
         "shape": [1, 3, 640, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -945,6 +1055,7 @@ detection = {
     "3d-unet": {
         "input": "input",
         "shape": [1, 4, 224, 224, 160],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53, 123],
         "std": [58.395, 57.12, 57.375, 55],
         "axis": 1,
@@ -953,6 +1064,7 @@ detection = {
     "centernet": {
         "input": "input.1",
         "shape": [1, 3, 1056, 1920],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -961,6 +1073,7 @@ detection = {
     "dla": {
         "input": "input.1",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -969,6 +1082,7 @@ detection = {
     "yolor: yolor_csp_x": {
         "input": "input",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -977,6 +1091,7 @@ detection = {
     "yolor: yolor_p6": {
         "input": "input_image",
         "shape": [1, 3, 1280, 1280],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -985,6 +1100,7 @@ detection = {
     "yolop": {
         "input": "images",
         "shape": [1, 3, 640, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -993,6 +1109,7 @@ detection = {
     "SafetyHelmet_yolov3": {
         "input": "input",
         "shape": [1, 3, 416, 416],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1001,6 +1118,7 @@ detection = {
     "SafetyHelmet_ssd": {
         "input": "input",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1009,6 +1127,7 @@ detection = {
     "pointnet_classification": {
         "input": "input_1:0",
         "shape": [2048, 2048, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 2,
@@ -1017,6 +1136,7 @@ detection = {
     "pointpillars": {
         "input": ["input.1", "indices_input"],
         "shape": [[1, 10, 30000, 20], [1, 30000, 2]],
+        "dtype": ["float32", "float32"],
         "mean": [None, None],
         "std": [None, None],
         "axis": [None, None],
@@ -1025,6 +1145,7 @@ detection = {
     "lanenet": {
         "input": "input_tensor",
         "shape": [1, 256, 512, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1033,6 +1154,7 @@ detection = {
     "M-LSD": {
         "input": "input_image_with_alpha:0",
         "shape": [1, 320, 320, 4],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53, 123],
         "std": [58.395, 57.12, 57.375, 55],
         "axis": 3,
@@ -1041,6 +1163,7 @@ detection = {
     "road-segmentation-adas": {
         "input": "data",
         "shape": [1, 512, 896, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1049,6 +1172,7 @@ detection = {
     "Selfie_Segmentation": {
         "input": "input_1:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1057,6 +1181,7 @@ detection = {
     "SFA3D": {
         "input": "input.1",
         "shape": [1, 3, 608, 608],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1065,6 +1190,7 @@ detection = {
     "fcn_resnet50": {
         "input": "input",
         "shape": [1, 3, 320, 480],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1073,6 +1199,7 @@ detection = {
     "fcn_resnet50_torchvision": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1081,6 +1208,7 @@ detection = {
     "yolact": {
         "input": "input.1",
         "shape": [1, 3, 256, 256],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1089,6 +1217,7 @@ detection = {
     "yolact_edge": {
         "input": "input_1",
         "shape": [1, 3, 550, 550],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1097,6 +1226,7 @@ detection = {
     "nanodet": {
         "input": "i",
         "shape": [1, 3, 320, 320],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1105,6 +1235,7 @@ detection = {
     "ENet": {
         "input": "imgs_ph:0",
         "shape": [1, 512, 1024, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1113,6 +1244,7 @@ detection = {
     "U2Net": {
         "input": "x:0",
         "shape": [1, 320, 320, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1121,6 +1253,7 @@ detection = {
     "BiSeNet": {
         "input": "input",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1129,6 +1262,7 @@ detection = {
     "BiSeNetV2": {
         "input": "input_tensor:0",
         "shape": [1, 480, 640, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1137,6 +1271,7 @@ detection = {
     "BiSeNetV1_coco": {
         "input": "input_image",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1145,6 +1280,7 @@ detection = {
     "BiSeNetV1_city": {
         "input": "input_image",
         "shape": [1, 3, 1024, 1024],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1153,6 +1289,7 @@ detection = {
     "BiSeNetV2_coco": {
         "input": "input_image",
         "shape": [1, 3, 640, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1161,6 +1298,7 @@ detection = {
     "BiSeNetV2_city": {
         "input": "input_image",
         "shape": [1, 3, 1024, 1024],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1169,6 +1307,7 @@ detection = {
     "TextBoxes++": {
         "input": "input_1:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1177,6 +1316,7 @@ detection = {
     "East_Text_Detection": {
         "input": "input_images:0",
         "shape": [1, 320, 320, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1185,6 +1325,7 @@ detection = {
     "Person_Reidentification": {
         "input": "inputs:0 ",
         "shape": [1, 256, 128, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1193,6 +1334,7 @@ detection = {
     "SpineNet": {
         "input": "Placeholder:0",
         "shape": [1, 384, 384, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1201,6 +1343,7 @@ detection = {
     "mtcnn: det1": {
         "input": "input",
         "shape": [1, 3, 12, 12],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1209,6 +1352,7 @@ detection = {
     "mtcnn: det2": {
         "input": "input",
         "shape": [1, 3, 24, 24],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1217,6 +1361,7 @@ detection = {
     "mtcnn: det3": {
         "input": "input",
         "shape": [1, 3, 48, 48],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1225,6 +1370,7 @@ detection = {
     "efficientdet-d0": {
         "input": "data",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1233,6 +1379,7 @@ detection = {
     "efficientdet-d1": {
         "input": "data",
         "shape": [1, 3, 640, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1241,6 +1388,7 @@ detection = {
     "DDRNet23_slim_seg": {
         "input": "input_image",
         "shape": [1, 3, 1024, 1024],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1249,6 +1397,7 @@ detection = {
     "DDRNet23_seg": {
         "input": "input_image",
         "shape": [1, 3, 1024, 1024],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1257,6 +1406,7 @@ detection = {
     "HRNet_W48_ocr_seg": {
         "input": "input_image",
         "shape": [1, 3, 520, 520],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1265,6 +1415,7 @@ detection = {
     "FCOS": {
         "input": "input_image",
         "shape": [1, 3, 800, 1216],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1273,6 +1424,7 @@ detection = {
     "faceboxes": {
         "input": "input_image",
         "shape": [1, 3, 1024, 1024],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1281,6 +1433,7 @@ detection = {
     "CascadeTableNet": {
         "input": "input",
         "shape": [1, 3, 320, 320],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1289,6 +1442,7 @@ detection = {
     "efficientdet_lite": {
         "input": "serving_default_images:0",
         "shape": [1, 320, 320, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1297,6 +1451,7 @@ detection = {
     "knift": {
         "input": "rgb_to_grayscale_1:0",
         "shape": [200, 32, 32, 1],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -1305,6 +1460,7 @@ detection = {
     "object_detection_mobile_object_localizer": {
         "input": "normalized_input_image_tensor",
         "shape": [1, 3, 192, 192],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1313,6 +1469,7 @@ detection = {
     "pedestrian_and-vehicle_detector_adas": {
         "input": "data",
         "shape": [1, 3, 384, 672],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1321,6 +1478,7 @@ detection = {
     "pedestrian_detection_adas": {
         "input": "data",
         "shape": [1, 3, 384, 672],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1329,6 +1487,7 @@ detection = {
     "person_detection": {
         "input": "image",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1337,6 +1496,7 @@ detection = {
     "person_detection_asl": {
         "input": "image",
         "shape": [1, 3, 320, 320],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1345,6 +1505,7 @@ detection = {
     "person_vehicle_bike_detection_crossroad": {
         "input": "input_1",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1353,6 +1514,7 @@ detection = {
     "spaghettinet_edgetpu": {
         "input": "normalized_input_image_tensor",
         "shape": [1, 3, 320, 320],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1361,6 +1523,7 @@ detection = {
     "text_detection_db": {
         "input": "input",
         "shape": [1, 3, 480, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1369,6 +1532,7 @@ detection = {
     "vehicle_detection": {
         "input": "image",
         "shape": [1, 3, 256, 256],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1377,6 +1541,7 @@ detection = {
     "vehicle_license_plate_detection_barrier": {
         "input": "Placeholder",
         "shape": [1, 3, 300, 300],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1385,6 +1550,7 @@ detection = {
     "yolact_resnet50_fpn": {
         "input": "input.1",
         "shape": [1, 3, 550, 550],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1393,6 +1559,7 @@ detection = {
     "YOLOF": {
         "input": "inputs",
         "shape": [1, 3, 608, 608],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1401,6 +1568,7 @@ detection = {
     "BackgroundMattingV2": {
         "input": ["src", "bgr"],
         "shape": [[1, 3, 720, 1280], [1, 3, 720, 1280]],
+        "dtype": ["uint8", "uint8"],
         "mean": [[123.675, 116.28, 103.53], [123.675, 116.28, 103.53]],
         "std": [[58.395, 57.12, 57.375], [58.395, 57.12, 57.375]],
         "axis": [1, 1],
@@ -1409,6 +1577,7 @@ detection = {
     "BodyPix": {
         "input": "sub_2",
         "shape": [1, 240, 320, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1417,6 +1586,7 @@ detection = {
     "DeeplabV3_plus": {
         "input": "input_1:0",
         "shape": [1, 200, 400, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1425,6 +1595,7 @@ detection = {
     "ERFNet": {
         "input": "input_1:0",
         "shape": [1, 256, 512, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1433,6 +1604,7 @@ detection = {
     "Fast_SCNN": {
         "input": "input.1",
         "shape": [1, 3, 192, 384],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1441,6 +1613,7 @@ detection = {
     "human_segmentation_pphumanseg": {
         "input": "x",
         "shape": [1, 3, 192, 192],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1449,6 +1622,7 @@ detection = {
     "MediaPipe_Meet_Segmentation": {
         "input": "input_1:0",
         "shape": [1, 96, 160, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1457,6 +1631,7 @@ detection = {
     "MODNet": {
         "input": "input",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1465,6 +1640,7 @@ detection = {
     "SUIM_Net": {
         "input": "input_1",
         "shape": [1, 3, 240, 320],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1473,6 +1649,7 @@ detection = {
     "vision_segmentation_default_argmax": {
         "input": "serving_default_input_2:0",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1481,6 +1658,7 @@ detection = {
     "vision_segmentation_fused_argmax": {
         "input": "serving_default_input_2:0",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1489,6 +1667,7 @@ detection = {
     "BASNet": {
         "input": "input_image",
         "shape": [1, 3, 256, 256],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1500,6 +1679,7 @@ body = {
     "arcfaceresnet": {
         "input": "data",
         "shape": [1, 3, 112, 112],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1508,6 +1688,7 @@ body = {
     "UltraFace": {
         "input": "input",
         "shape": [1, 3, 240, 320],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1516,6 +1697,7 @@ body = {
     "emotion-ferplus": {
         "input": "Input3",
         "shape": [1, 1, 64, 64],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -1524,6 +1706,7 @@ body = {
     "age_googlenet": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1532,6 +1715,7 @@ body = {
     "age_vgg16": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1540,6 +1724,7 @@ body = {
     "gender_googlenet": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1548,6 +1733,7 @@ body = {
     "gender_vgg16": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1556,6 +1742,7 @@ body = {
     "fsanet": {
         "input": "input",
         "shape": [1, 3, 64, 64],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1564,6 +1751,7 @@ body = {
     "selfdriving": {
         "input": "input_1_0",
         "shape": [1, 32, 32, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1572,6 +1760,7 @@ body = {
     "ssrnet": {
         "input": "input",
         "shape": [1, 3, 64, 64],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1580,6 +1769,7 @@ body = {
     "hopenet_lite": {
         "input": "input.1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1588,6 +1778,7 @@ body = {
     "hourglass_s2_b1_tiny": {
         "input": "0",
         "shape": [1, 3, 192, 192],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1596,6 +1787,7 @@ body = {
     "hourglass_s2_b1": {
         "input": "0",
         "shape": [1, 3, 256, 256],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1604,6 +1796,7 @@ body = {
     "FacialEmotionRecognition": {
         "input": "0",
         "shape": [1, 1, 48, 48],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -1612,6 +1805,7 @@ body = {
     "scrfd_10g_bnkps": {
         "input": "input.1",
         "shape": [1, 3, 512, 512],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1620,6 +1814,7 @@ body = {
     "centerface": {
         "input": "input.1",
         "shape": [1, 3, 480, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1628,6 +1823,7 @@ body = {
     "mnet_cov2": {
         "input": "data",
         "shape": [1, 3, 640, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1636,6 +1832,7 @@ body = {
     "glintr100": {
         "input": "input.1",
         "shape": [1, 3, 112, 112],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1644,6 +1841,7 @@ body = {
     "arcface_r100": {
         "input": "data",
         "shape": [1, 3, 112, 112],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1652,6 +1850,7 @@ body = {
     "FaceLandmark: FaceDetector": {
         "input": "input0",
         "shape": [1, 3, 640, 640],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1660,6 +1859,7 @@ body = {
     "FaceLandmark: FaceLandmark": {
         "input": "input0",
         "shape": [1, 1, 128, 128],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -1668,6 +1868,7 @@ body = {
     "openpose": {
         "input": "image:0",
         "shape": [1, 3, 368, 432],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1676,6 +1877,7 @@ body = {
     "movenet: multipose": {
         "input": "input",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1684,6 +1886,7 @@ body = {
     "movenet: singlepose": {
         "input": "input",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1692,6 +1895,7 @@ body = {
     "WHENet": {
         "input": "input_1:0",
         "shape": [1, 224, 224, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1700,6 +1904,7 @@ body = {
     "gaze-estimation-adas": {
         "input": ["right_eye_image:0", "left_eye_image:0", "head_pose_angles:0"],
         "shape": [[1, 60, 60, 3], [1, 60, 60, 3], [1, 3]],
+        "dtype": ["uint8", "uint8", "float32"],
         "mean": [[123.675, 116.28, 103.53], [123.675, 116.28, 103.53], None],
         "std": [[58.395, 57.12, 57.375], [58.395, 57.12, 57.375], None],
         "axis": [3, 3, None],
@@ -1708,6 +1913,7 @@ body = {
     "EfficientPoseI": {
         "input": "input_res1:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1716,6 +1922,7 @@ body = {
     "EfficientPoseII": {
         "input": "input_res1:0",
         "shape": [1, 368, 368, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1724,6 +1931,7 @@ body = {
     "EfficientPoseI_LITE": {
         "input": "input_1_0:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1732,6 +1940,7 @@ body = {
     "BlazePose": {
         "input": "input:0",
         "shape": [1, 128, 128, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1740,6 +1949,7 @@ body = {
     "BlazeFace: front": {
         "input": "input:0",
         "shape": [1, 128, 128, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1748,6 +1958,7 @@ body = {
     "BlazeFace: back": {
         "input": "input:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1756,6 +1967,7 @@ body = {
     "Hand_Detection_and_Tracking": {
         "input": "inputs:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1764,6 +1976,7 @@ body = {
     "DBFace": {
         "input": "input.1",
         "shape": [1, 3, 320, 320],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1772,6 +1985,7 @@ body = {
     "YuNet": {
         "input": "input",
         "shape": [1, 3, 120, 160],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1780,6 +1994,7 @@ body = {
     "age_gender_recognition": {
         "input": "data:0",
         "shape": [1, 62, 62, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1788,6 +2003,7 @@ body = {
     "anti_spoof_mn3": {
         "input": "actual_input_1",
         "shape": [1, 3, 128, 128],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1796,6 +2012,7 @@ body = {
     "face_recognition_resnet100_arcface_onnx": {
         "input": "data",
         "shape": [1, 3, 112, 112],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1804,6 +2021,7 @@ body = {
     "face_recognizer_fast": {
         "input": "data",
         "shape": [1, 3, 112, 112],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1812,6 +2030,7 @@ body = {
     "nsfw": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1820,6 +2039,7 @@ body = {
     "open_closed_eye": {
         "input": "input.1",
         "shape": [1, 3, 32, 32],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1828,6 +2048,7 @@ body = {
     "person_attributes_recognition_crossroad": {
         "input": ["unknown:0", "unknown_58:0", "unknown_59:0", "unknown_60:0"],
         "shape": [[1, 160, 80, 3], [2], [2], [2]],
+        "dtype": ["uint8", "float32", "float32", "float32"],
         "mean": [[123.675, 116.28, 103.53], None, None, None],
         "std": [[58.395, 57.12, 57.375], None, None, None],
         "axis": [3, None, None, None],
@@ -1836,6 +2057,7 @@ body = {
     "person_reid_youtu_2021nov": {
         "input": "input",
         "shape": [1, 3, 256, 128],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1844,6 +2066,7 @@ body = {
     "vehicle_attributes_recognition_barrier": {
         "input": "input",
         "shape": [1, 3, 72, 72],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1852,6 +2075,7 @@ body = {
     "3DMPPE_POSENET": {
         "input": "input.1",
         "shape": [1, 3, 192, 192],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1860,6 +2084,7 @@ body = {
     "FaceMesh": {
         "input": "input_1",
         "shape": [1, 192, 192, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1868,6 +2093,7 @@ body = {
     "face_detection_adas": {
         "input": "prior_based_hand/input:0",
         "shape": [1, 128, 128, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1876,6 +2102,7 @@ body = {
     "Face_Landmark": {
         "input": "images:0",
         "shape": [1, 160, 160, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1884,6 +2111,7 @@ body = {
     "Face_Mask_Detection": {
         "input": "data",
         "shape": [1, 3, 300, 300],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1892,6 +2120,7 @@ body = {
     "hand_recrop": {
         "input": "input_1:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1900,6 +2129,7 @@ body = {
     "head_pose_estimation_adas": {
         "input": "data",
         "shape": [1, 3, 384, 672],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1908,6 +2138,7 @@ body = {
     "Human_Pose_Estimation_3D": {
         "input": "data",
         "shape": [1, 3, 180, 320],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1916,6 +2147,7 @@ body = {
     "Iris_Landmark": {
         "input": "input_1",
         "shape": [1, 3, 64, 64],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1924,6 +2156,7 @@ body = {
     "Minimal_Hand": {
         "input": "input_1:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1932,6 +2165,7 @@ body = {
     "MobileHumanPose": {
         "input": "input",
         "shape": [1, 3, 256, 256],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1940,6 +2174,7 @@ body = {
     "Mobilenetv3_Pose_Estimation": {
         "input": "inputs:0",
         "shape": [1, 224, 224, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1948,6 +2183,7 @@ body = {
     "MoveNet": {
         "input": "input:0",
         "shape": [1, 192, 192, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1956,6 +2192,7 @@ body = {
     "tf_pose_estimation": {
         "input": "inputs:0",
         "shape": [1, 368, 656, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -1964,6 +2201,7 @@ body = {
     "ThreeDPoseUnityBarracuda": {
         "input": ["input.1", "input.4", "input.7"],
         "shape": [[1, 3, 448, 448], [1, 3, 448, 448], [1, 3, 448, 448]],
+        "dtype": ["uint8", "uint8", "uint8"],
         "mean": [[123.675, 116.28, 103.53], [123.675, 116.28, 103.53], [123.675, 116.28, 103.53]],
         "std": [[58.395, 57.12, 57.375], [58.395, 57.12, 57.375], [58.395, 57.12, 57.375]],
         "axis": [1, 1, 1],
@@ -1972,6 +2210,7 @@ body = {
     "bytetrack": {
         "input": "images",
         "shape": [1, 3, 608, 1088],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1983,6 +2222,7 @@ manipulation = {
     "super-resolution": {
         "input": "input",
         "shape": [1, 1, 224, 224],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -1991,6 +2231,7 @@ manipulation = {
     "style-transfer": {
         "input": "input1",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -1999,6 +2240,7 @@ manipulation = {
     "esrgan": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -2007,6 +2249,7 @@ manipulation = {
     "lite_hrnet": {
         "input": "input.1",
         "shape": [1, 3, 384, 288],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -2015,6 +2258,7 @@ manipulation = {
     "EnlightenGAN": {
         "input": "input",
         "shape": [1, 3, 224, 224],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -2023,6 +2267,7 @@ manipulation = {
     "Lightweight-GAN": {
         "input": "tensor.1",
         "shape": [1, 256],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2032,6 +2277,7 @@ manipulation = {
         "input": ["segmap", "input.1"],
         "shape": [[1, 36, 256, 512], [1, 36, 4, 8]],
         "mean": [None, None],
+        "dtype": ["float32", "float32"],
         "std": [None, None],
         "axis": [None, None],
         "file": "GauGAN/gaugan.onnx",
@@ -2039,6 +2285,7 @@ manipulation = {
     "MonocularDepthEstimator-midas": {
         "input": "inputs:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -2047,6 +2294,7 @@ manipulation = {
     "SketchColorization": {
         "input": ["line", "line_draft", "hint"],
         "shape": [[1, 1, 512, 512], [1, 1, 128, 128], [1, 4, 128, 128]],
+        "dtype": ["float32", "float32", "float32"],
         "mean": [None, None, None],
         "std": [None, None, None],
         "axis": [None, None, None],
@@ -2055,6 +2303,7 @@ manipulation = {
     "CFNet": {
         "input": ["input.1", "input.169"],
         "shape": [[1, 3, 256, 256], [1, 3, 256, 256]],
+        "dtype": ["uint8", "uint8"],
         "mean": [[123.675, 116.28, 103.53], [123.675, 116.28, 103.53]],
         "std": [[58.395, 57.12, 57.375], [58.395, 57.12, 57.375]],
         "axis": [1, 1],
@@ -2063,6 +2312,7 @@ manipulation = {
     "DeblurGANv2": {
         "input": "input.1",
         "shape": [1, 3, 320, 320],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -2071,6 +2321,7 @@ manipulation = {
     "hitnet: eth3d": {
         "input": "input",
         "shape": [1, 2, 240, 320],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2079,6 +2330,7 @@ manipulation = {
     "MobileStyleGAN: snet": {
         "input": "style",
         "shape": [1, 512],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2087,6 +2339,7 @@ manipulation = {
     "MobileStyleGAN: mnet": {
         "input": "var",
         "shape": [1, 512],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2095,6 +2348,7 @@ manipulation = {
     "backgroudmatv2": {
         "input": ["src", "bgr"],
         "shape": [[1, 3, 720, 1280], [1, 3, 720, 1280]],
+        "dtype": ["uint8", "uint8"],
         "mean": [[123.675, 116.28, 103.53], [123.675, 116.28, 103.53]],
         "std": [[58.395, 57.12, 57.375], [58.395, 57.12, 57.375]],
         "axis": [1, 1],
@@ -2103,6 +2357,7 @@ manipulation = {
     "Noise2Noise": {
         "input": "input:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -2111,6 +2366,7 @@ manipulation = {
     "AnimeGANv2": {
         "input": "input:0",
         "shape": [1, 256, 256, 3],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 3,
@@ -2119,6 +2375,7 @@ manipulation = {
     "gray2rgb": {
         "input": "input",
         "shape": [1, 3, 256, 256],
+        "dtype": "uint8",
         "mean": [123.675, 116.28, 103.53],
         "std": [58.395, 57.12, 57.375],
         "axis": 1,
@@ -2127,6 +2384,7 @@ manipulation = {
     "SRH-Net": {
         "input": ["input.1", "input.305"],
         "shape": [[1, 3, 320, 480], [1, 3, 320, 480]],
+        "dtype": ["uint8", "uint8"],
         "mean": [[123.675, 116.28, 103.53], [123.675, 116.28, 103.53]],
         "std": [[58.395, 57.12, 57.375], [58.395, 57.12, 57.375]],
         "axis": [1, 1],
@@ -2135,6 +2393,7 @@ manipulation = {
     "aslfeat": {
         "input": "input:0",
         "shape": [1, 480, 640, 1],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2145,23 +2404,26 @@ manipulation = {
 nlp = {
     "bidaf": {
         "input": ["context_word", "context_char", "query_word", "query_char"],
-        "shape": [[128, 1], [[128, 1, 1, 16]], [[128, 1]], [[128, 1, 1, 16]]],
-        "mean": None,
-        "std": None,
-        "axis": None,
+        "shape": [[128, 1], [128, 1, 1, 16], [128, 1], [128, 1, 1, 16]],
+        "dtype": ["float32", "float32", "float32", "float32"],
+        "mean": [None, None, None, None],
+        "std": [None, None, None, None],
+        "axis": [None, None, None, None],
         "file": "bidaf/bidaf-9.onnx",
     },
     "bertsquad": {
         "input": ["unique_ids_raw_output___9:0", "segment_ids:0", "input_mask:0", "input_ids:0"],
-        "shape": [],
-        "mean": None,
-        "std": None,
-        "axis": None,
+        "shape": [[1], [1, 256], [1, 256], [1, 256]],
+        "dtype": ["float32", "float32", "float32", "float32"],
+        "mean": [None, None, None, None],
+        "std": [None, None, None, None],
+        "axis": [None, None, None, None],
         "file": "bertsquad/bertsquad-10.onnx",
     },
     "RoBERTa": {
         "input": "input_ids",
         "shape": [1, 128],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2170,6 +2432,7 @@ nlp = {
     "gpt2": {
         "input": "input1",
         "shape": [1, 128],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2178,6 +2441,7 @@ nlp = {
     "gpt2-lm-head": {
         "input": "input1",
         "shape": [1, 128],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2186,6 +2450,7 @@ nlp = {
     "t5-encoder": {
         "input": "input_ids",
         "shape": [1, 128],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2194,6 +2459,7 @@ nlp = {
     "t5-decoder-with-lm-head": {
         "input": "input_ids",
         "shape": [1, 128],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2202,6 +2468,7 @@ nlp = {
     "crnn_lite_lstm: crnn_lite_lstm": {
         "input": "input",
         "shape": [1, 3, 32, 192],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2210,6 +2477,7 @@ nlp = {
     "crnn_lite_lstm: angle_net": {
         "input": "input",
         "shape": [1, 3, 32, 192],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2218,6 +2486,7 @@ nlp = {
     "crnn_lite_lstm: dbnet": {
         "input": "input0",
         "shape": [1, 3, 32, 192],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2226,22 +2495,25 @@ nlp = {
     "DTLN: model_1": {
         "input": ["input_2", "input_3"],
         "shape": [[1, 1, 257], [1, 2, 128, 2]],
-        "mean": None,
-        "std": None,
-        "axis": None,
+        "dtype": ["float32", "float32"],
+        "mean": [None, None],
+        "std": [None, None],
+        "axis": [None, None],
         "file": "DTLN/model_1.onnx",
     },
     "DTLN: model_2": {
         "input": ["input_4", "input_5"],
         "shape": [[1, 1, 512], [1, 2, 128, 2]],
-        "mean": None,
-        "std": None,
-        "axis": None,
+        "dtype": ["float32", "float32"],
+        "mean": [None, None],
+        "std": [None, None],
+        "axis": [None, None],
         "file": "DTLN/model_2.onnx",
     },
     "crnn": {
         "input": "images",
         "shape": [1, 1, 32, 128],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2250,6 +2522,7 @@ nlp = {
     "cptn": {
         "input": "images",
         "shape": [1, 3, 128, 128],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2258,6 +2531,7 @@ nlp = {
     "aclnet": {
         "input": "input",
         "shape": [1, 128, 1, 128],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2266,6 +2540,7 @@ nlp = {
     "moody-ser": {
         "input": "input",
         "shape": [1, 46305],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2274,6 +2549,7 @@ nlp = {
     "Silero": {
         "input": "input",
         "shape": [1, 128],
+        "dtype": "float32",
         "mean": None,
         "std": None,
         "axis": None,
@@ -2284,16 +2560,17 @@ nlp = {
 test = {}
 
 meta = {}
-# meta.update(classification)
-# meta.update(transformer)
-# meta.update(detection)
-# meta.update(body)
+meta.update(classification)
+meta.update(transformer)
+meta.update(detection)
+meta.update(body)
 meta.update(manipulation)
-# meta.update(nlp)
+meta.update(nlp)
 # meta.update(test)
 
 source_path = "/data/share/demodels-lfs/onnx"
 target_path = "/data/zhaojinxi/Documents/onnx_result"
+clean = True
 
 models = {}
 for name in os.listdir(source_path):
@@ -2319,7 +2596,6 @@ for name, v in meta.items():
 
     log_path = os.path.join(save_path, "log.txt")
 
-    rerun = True
     if os.path.exists(log_path):
         with open(log_path, "r") as f:
             line = f.readlines()
@@ -2341,9 +2617,10 @@ for name, v in meta.items():
                 rerun = False
 
     if rerun:
-        if os.path.exists(save_path):
+        if os.path.exists(save_path) and clean:
             shutil.rmtree(save_path)
-        os.makedirs(save_path)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
 
         log = open(log_path, "w")
         sys.stdout = log
@@ -2363,9 +2640,13 @@ for name, v in meta.items():
             else:
                 input_shape = {v["input"]: v["shape"]}
 
-            mod, params = relay.frontend.from_onnx(model, shape=input_shape)
-            log.write("ir:\n" + str(v["shape"]) + "\n\n")
-            log.write(mod["main"].__str__() + "\n\n")
+            path = os.path.join(save_path, "origin_mod.json")
+            if os.path.exists(path):
+                mod = None
+                params = None
+            else:
+                mod, params = relay.frontend.from_onnx(model, shape=input_shape)
+                log.write(mod["main"].__str__() + "\n\n")
 
             _run(
                 name,
@@ -2373,6 +2654,8 @@ for name, v in meta.items():
                 params,
                 quantize_config,
                 v["input"],
+                v["shape"],
+                v["dtype"],
                 v["mean"],
                 v["std"],
                 v["axis"],
