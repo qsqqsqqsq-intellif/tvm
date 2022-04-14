@@ -53,6 +53,7 @@ def verify_network_per_op(net):
                 check_cpu=True,
                 test_fused=True,
                 cpu_use_tir=False,
+                rmse=0.001,
             )
 
 
@@ -74,6 +75,7 @@ def verify_network_end2end(net):
             check_cpu=True,
             test_fused=True,
             cpu_use_tir=False,
+            rmse=0.001,
         )
 
 
@@ -90,5 +92,5 @@ def test_network_end2end(net):
 
 
 if __name__ == "__main__":
-    verify_network_per_op("mobilenet_v2")
-    verify_network_end2end("mobilenet_v2")
+    verify_network_per_op("mobilenet_v3")
+    verify_network_end2end("mobilenet_v3")
