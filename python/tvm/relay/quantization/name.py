@@ -124,7 +124,7 @@ class GetName(ExprVisitor):
             arg_id = self.node_id[arg]
             LOGGER.info(arg_id)
 
-            self.dot.node(name=arg_id, label=arg_id, color="green")
+            self.dot.node(name=arg_id, label=arg_id, color="red")
             self.dot.edge(arg_id, self.node_id[tup])
 
         self.tuple_num = self.tuple_num + 1

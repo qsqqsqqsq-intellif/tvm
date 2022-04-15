@@ -293,6 +293,8 @@ def quantize(
             quantize_search.calibrate_num = len(list(quantize_search.dataset()))
     else:
         quantize_search.calibrate_num = min(quantize_search.calibrate_num, similarity_img_num)
+        if quantize_search.calibrate_num == 0:
+            quantize_search.calibrate_num = 1
 
     if check_similarity:
         quantize_search.use_default_eval = True

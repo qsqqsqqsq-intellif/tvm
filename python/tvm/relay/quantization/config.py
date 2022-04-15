@@ -234,7 +234,7 @@ class ConfigSpace(ExprVisitor):
                         config[tmp]["quantized"] = False
                         break
 
-        if name == "clip" and call.attrs.a_min < 0:
+        if name == "clip" and (call.attrs.a_min < 0 or call.attrs.a_max > 6):
             config[tmp]["quantized"] = False
 
     def visit_call(self, call):
