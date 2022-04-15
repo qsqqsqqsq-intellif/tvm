@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 import tvm
+import pytest
 from tvm import relay
 from tvm.contrib.edgex.arith.nlfc import extract_nlfc_params
 import tvm.testing
@@ -68,7 +69,7 @@ def check_nlfc(name, primfunc, data_range):
         name,
         edgex_func,
         edgex_fschedule=lambda attrs, f, tgt: naive_vu_schedule(
-            f, enable_relay_rewrite=True, nlfc_buffers=nlfc_buffers
+            f, allow_multi_block=True, enable_relay_rewrite=True, nlfc_buffers=nlfc_buffers
         ),
         cpu_prim_func=cpu_func,
         check_cpu=True,
@@ -79,7 +80,8 @@ def check_nlfc(name, primfunc, data_range):
     )
 
 
-def test_sigmoid_tir():
+@pytest.mark.parametrize("shape", [[16], [31], [128]])
+def test_sigmoid_tir(shape):
     def do_test(shape, dtype):
         x = te.placeholder(shape, dtype, "x")
         y = topi.sigmoid(x)
@@ -88,9 +90,45 @@ def test_sigmoid_tir():
             f"nlfc_sigmoid_{dtype}_{'_'.join([str(_) for _ in shape])}", f, data_range=[-16, 16]
         )
 
-    do_test([16], "float16")
-    do_test([31], "float16")
-    do_test([128], "float16")
+    do_test(shape, "float16")
+
+
+@pytest.mark.parametrize("shape", [[16], [31], [128]])
+def test_exp_tir(shape):
+    def do_test(shape, dtype):
+        x = te.placeholder(shape, dtype, "x")
+        y = topi.exp(x)
+        f = te.create_prim_func([x, y])
+        check_nlfc(f"nlfc_exp_{dtype}_{'_'.join([str(_) for _ in shape])}", f, data_range=[-1, 1])
+
+    do_test(shape, "float16")
+
+
+@pytest.mark.parametrize("shape", [[16], [32], [128]])
+def test_recip_tir(shape):
+    def do_test(shape, dtype):
+        x = te.placeholder(shape, dtype, "x")
+        y = te.compute(shape, lambda i: 1 / x[i], name="y")
+        f = te.create_prim_func([x, y])
+
+        check_nlfc(
+            f"nlfc_recip_{dtype}_{'_'.join([str(_) for _ in shape])}", f, data_range=[1e-3, 1e3]
+        )
+
+    do_test(shape, "float16")
+
+
+@pytest.mark.parametrize("shape", [[16], [31], [128]])
+def test_softmax_tir(shape):
+    def do_test(shape, dtype):
+        x = te.placeholder(shape, dtype, "x")
+        y = topi.nn.softmax(x)
+        f = te.create_prim_func([x, y])
+        check_nlfc(
+            f"nlfc_softmax_{dtype}_{'_'.join([str(_) for _ in shape])}", f, data_range=[-16, 16]
+        )
+
+    do_test(shape, "float16")
 
 
 def test_relay_nlfc_rewrite():
@@ -116,5 +154,8 @@ def test_relay_nlfc_rewrite():
 
 
 if __name__ == "__main__":
-    test_sigmoid_tir()
+    test_exp_tir([16])
+    test_recip_tir([16])
+    test_softmax_tir([16])
+    test_sigmoid_tir([16])
     test_relay_nlfc_rewrite()

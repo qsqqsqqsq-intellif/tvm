@@ -21,6 +21,7 @@
  * \file rewrite_vcu_ops.cc
  */
 #include <llvm/IR/Intrinsics.h>
+#include <math.h>
 #include <tvm/arith/analyzer.h>
 #include <tvm/arith/pattern.h>
 #include <tvm/runtime/registry.h>
@@ -300,6 +301,19 @@ class VectorizedOpsRewritter : public StmtExprMutator {
       return updated_vint;
     }
     return StmtExprMutator::VisitExpr(expr);
+  }
+
+  // transform nnp_nlfc_exp to nnp_nlfc_exp2
+  PrimExpr VisitExpr_(const CallNode* op) final {
+    if (op->op.same_as(edgex::builtin::nnp_nlfc_exp())) {
+      auto dtype = op->dtype;
+      // exp(x) = exp2(x/ln2), x -> x/ln2
+      PrimExpr x = make_const(dtype, 1.0f / std::log(2)) * op->args[0];
+      Array<PrimExpr> new_args = {x, op->args[1]};
+      Call exp2 = Call(dtype, edgex::builtin::nnp_nlfc_exp2(), new_args);
+      return std::move(exp2);
+    }
+    return StmtExprMutator::VisitExpr_(op);
   }
 
   PrimExpr VisitExpr_(const BufferLoadNode* load) override {

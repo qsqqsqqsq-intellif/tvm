@@ -767,7 +767,7 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     size_t vf = Downcast<IntImm>(op->args[2])->value;
     size_t lanes = op->dtype.lanes();
     llvm::Type* func_res_ty = res_ty;
-    if (vf > 0) {
+    if (vf > 0 && lanes > 1) {
       ICHECK_EQ(vf & (vf - 1), 0) << "Vu inline asm's vectorize factor should be power of 2 " << vf;
       for (size_t i = 0; i < input_num; ++i) {
         PrimExpr arg = op->args[5 + state_num + i];
@@ -775,9 +775,6 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
             << "Inline asm op inputs must be of same lanes for non-zero vectorize factor";
         ICHECK(input_tys[i]->isVectorTy());
         input_tys[i] = llvm::FixedVectorType::get(input_tys[i]->getArrayElementType(), vf);
-      }
-      if (lanes == 1) {
-        ICHECK_EQ(vf, 1);  // sanity check for dummy case
       }
       ICHECK(res_ty->isVectorTy());
       func_res_ty = llvm::FixedVectorType::get(res_ty->getArrayElementType(), vf);
@@ -788,7 +785,7 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
         llvm::InlineAsm::get(func_ty, inline_asm->value, constraint->value, true);
     llvm::Value* res = nullptr;
 
-    if (vf == 0) {
+    if (vf == 0 || lanes == 1) {
       res = builder_->CreateCall(inline_asm_func, input_args);
       if (state_num > 0) {
         res = builder_->CreateExtractValue(res, {0});

@@ -444,9 +444,6 @@ class NNP400StoragePlanRewriter : public StmtExprMutator {
   PrimExpr VisitExpr_(const VarNode* op) final {
     auto it = alloc_map_.find(op);
     if (it != alloc_map_.end()) {
-      if (it->second->bits_offset != 0) {
-        LOG(ERROR) << "Use a merged buffer variable address";
-      }
       return it->second->alloc_var;
     } else {
       return GetRef<PrimExpr>(op);

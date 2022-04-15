@@ -171,6 +171,21 @@ TVM_DLL const Op& nnp_round_right_shift();
  */
 TVM_DLL const Op& nnp_nlfc_sigmoid();
 
+/*!
+ * \brief tvm intrinsic for nnp nlfc exp.
+ */
+TVM_DLL const Op& nnp_nlfc_exp();
+
+/*!
+ * \brief tvm intrinsic for nnp nlfc exp2.
+ */
+TVM_DLL const Op& nnp_nlfc_exp2();
+
+/*!
+ * \brief tvm intrinsic for nnp nlfc reciprocal.
+ */
+TVM_DLL const Op& nnp_nlfc_recip();
+
 }  // namespace builtin
 }  // namespace edgex
 }  // namespace tir

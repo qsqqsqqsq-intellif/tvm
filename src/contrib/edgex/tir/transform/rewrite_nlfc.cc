@@ -83,6 +83,21 @@ class NlfcPreScheduleConverter : public StmtExprMutator {
     return std::move(block);
   }
 
+  PrimExpr VisitExpr_(const DivNode* op) final {
+    auto dtype = op->dtype;
+    if (dtype != DataType::Float(32) && dtype != DataType::Float(16)) {
+      return StmtExprMutator::VisitExpr_(op);
+    }
+    if (Op::HasAttrMap(attr::kFEdgexGetNlfcOp)) {
+      // add nlfc table argument to floating point arithmetic call
+      Op nlfc_op = edgex::builtin::nnp_nlfc_recip();
+      Array<PrimExpr> new_args({op->b});
+      PrimExpr new_expr = op->a * GetNlfcCall(op, nlfc_op, &new_args);
+      return std::move(new_expr);
+    }
+    return StmtExprMutator::VisitExpr_(op);
+  }
+
   PrimExpr VisitExpr_(const CallNode* op) final {
     auto dtype = op->dtype;
     if (dtype != DataType::Float(32) && dtype != DataType::Float(16)) {
@@ -94,19 +109,8 @@ class NlfcPreScheduleConverter : public StmtExprMutator {
       if (f_nlfc_op != nullptr && op->op->IsInstance<OpNode>()) {
         // add nlfc table argument to floating point arithmetic call
         Op nlfc_op = f_nlfc_op(Downcast<Op>(op->op));
-        ICHECK(Op::HasAttrMap(attr::kNlfcOpInfo));
-        static auto info_map = Op::GetAttrMap<NlfcOpInfo>(attr::kNlfcOpInfo);
-        ICHECK(info_map.count(nlfc_op)) << attr::kNlfcOpInfo << " not registered for " << nlfc_op;
-        NlfcOpInfo nlfc_info = info_map[nlfc_op];
-        ICHECK(nlfc_info.defined());
         Array<PrimExpr> new_args(op->args);
-        Array<Buffer> nlfc_buffers =
-            GetNlfcBuffers(nlfc_op->name, nlfc_info->table_keys, op->dtype);
-        for (const Buffer& buffer : nlfc_buffers) {
-          new_args.push_back(buffer->data);
-          touched_nlfc_buffers_.insert(buffer.get());
-        }
-        auto new_call = Call(op->dtype, nlfc_op, new_args, op->span);
+        auto new_call = GetNlfcCall(op, nlfc_op, &new_args);
         return std::move(new_call);
       }
     }
@@ -140,6 +144,21 @@ class NlfcPreScheduleConverter : public StmtExprMutator {
     }
     buffer_cache_.insert(it, {nlfc_op_name, nlfc_buffers});
     return nlfc_buffers;
+  }
+
+  PrimExpr GetNlfcCall(const PrimExprNode* op, const Op& nlfc_op, Array<PrimExpr>* new_args) {
+    ICHECK(Op::HasAttrMap(attr::kNlfcOpInfo));
+    static auto info_map = Op::GetAttrMap<NlfcOpInfo>(attr::kNlfcOpInfo);
+    ICHECK(info_map.count(nlfc_op)) << attr::kNlfcOpInfo << " not registered for " << nlfc_op;
+    NlfcOpInfo nlfc_info = info_map[nlfc_op];
+    ICHECK(nlfc_info.defined());
+    Array<Buffer> nlfc_buffers = GetNlfcBuffers(nlfc_op->name, nlfc_info->table_keys, op->dtype);
+    for (const Buffer& buffer : nlfc_buffers) {
+      new_args->push_back(buffer->data);
+      touched_nlfc_buffers_.insert(buffer.get());
+    }
+    auto new_call = Call(op->dtype, nlfc_op, *new_args, op->span);
+    return std::move(new_call);
   }
 
   /*! \brief map nlfc_op_name to nlfc buffer array */

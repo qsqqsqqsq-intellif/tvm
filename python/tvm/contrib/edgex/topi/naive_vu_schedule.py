@@ -303,15 +303,17 @@ class NaiveVuSchedule:
                 )
 
                 # Phase3: tiling
-                pack_vf, inner_axes, _ = self.naive_loop_tiling_and_packing(
-                    s,
-                    axes,
-                    pack_axis,
-                    pack_vf,
-                    axes_info,
-                    write_bufs,
-                    read_bufs,
-                )
+                inner_axes = []
+                if pack_axis:
+                    pack_vf, inner_axes, _ = self.naive_loop_tiling_and_packing(
+                        s,
+                        axes,
+                        pack_axis,
+                        pack_vf,
+                        axes_info,
+                        write_bufs,
+                        read_bufs,
+                    )
 
                 # Phase4: try reverse compute_at
                 has_reverse_compute_at = False
@@ -357,7 +359,7 @@ class NaiveVuSchedule:
             self._buffer_pack_dims,
             self._cfg.is_tiling_divisible,
         ) = self.analyse_compute_axes(s, main_block, block_stmt, self._axes)
-        self._need_pack = self._axes[-1] != self._pack_axis
+        self._need_pack = self._axes[-1] != self._pack_axis and self._pack_axis
 
     def cache_read_and_cache_write(
         self,
@@ -391,7 +393,7 @@ class NaiveVuSchedule:
                     s.replace_buffer(main_block, buf, tmp_buf)
 
         for i in range(len(block_stmt.reads)):
-            buf = s.get_buffer_of(s.get_read_buffer_axes(main_block, i)[0])
+            buf = s.get_sref(main_block).stmt.reads[i].buffer
             if buf in write_bufs or buf.scope() == "vm":
                 continue
             if self._nlfc_buffers and buf in self._nlfc_buffers:
@@ -404,7 +406,11 @@ class NaiveVuSchedule:
             eidma = s.cache_read(vidma, 0, "dm")
             eidma_blocks[buf] = eidma
         for i in range(len(block_stmt.writes)):
-            buf = s.get_buffer_of(s.get_write_buffer_axes(main_block, i)[0])
+            buf = s.get_sref(main_block).stmt.writes[i].buffer
+            # set scalar buffer's scope to vm
+            if len(buf.shape) == 0 and buf.scope() == "global":
+                s.set_scope(main_block, i, "vm")
+                continue
             if buf.scope() == "vm":
                 continue
             vodma = s.cache_write(main_block, i, "vm")
@@ -490,10 +496,12 @@ class NaiveVuSchedule:
             if valid and len(buffer_pack_dim) > 0:
                 buffer_pack_dim_candidates.append((loop_rv, buffer_pack_dim))
 
+        if len(buffer_pack_dim_candidates) == 0:
+            return axes_info, None, None, None, True
+            # raise NaiveVUScheduleError("no vectorizable axis detected")
+
         # select pack axis with innermost buffer dim, thus pure elemwise
         # op's pack dim is just the innermost one
-        if len(buffer_pack_dim_candidates) == 0:
-            raise NaiveVUScheduleError("no vectorizable axis detected")
         pack_info = min(
             buffer_pack_dim_candidates,
             key=lambda p: min([len(buffer.shape) - p[1][buffer] for buffer in p[1]]),
@@ -679,7 +687,7 @@ class NaiveVuSchedule:
                         self._buffer_pack_dims,
                         is_tiling_divisible,
                     ) = self.analyse_compute_axes(s, main_block, block_stmt, self._axes)
-                    self._need_pack = self._axes[-1] != self._pack_axis
+                    self._need_pack = self._axes[-1] != self._pack_axis and self._pack_axis
 
                 # Phase2: load/save to dm/vm before loop_tiling when no compute_at
                 # and tiling not divisible
@@ -692,15 +700,18 @@ class NaiveVuSchedule:
                     ) = self.cache_read_and_cache_write(s, main_block, block_info, write_bufs)
 
                 # Phase3: tiling
-                self._pack_vf, inner_axes, outer_axes = self.naive_loop_tiling_and_packing(
-                    s,
-                    self._axes,
-                    self._pack_axis,
-                    self._pack_vf,
-                    self._axes_info,
-                    write_bufs,
-                    read_bufs,
-                )
+                outer_axes = []
+                inner_axes = []
+                if self._pack_axis:
+                    self._pack_vf, inner_axes, outer_axes = self.naive_loop_tiling_and_packing(
+                        s,
+                        self._axes,
+                        self._pack_axis,
+                        self._pack_vf,
+                        self._axes_info,
+                        write_bufs,
+                        read_bufs,
+                    )
                 self._axes = None
 
                 # Phase4: vector computation scheduling

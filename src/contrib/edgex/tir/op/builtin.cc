@@ -161,6 +161,26 @@ TIR_DEFINE_BUILTIN_FUNC(nnp_nlfc_sigmoid)
     .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU))
     .set_attr<NlfcOpInfo>(attr::kNlfcOpInfo, NlfcOpInfo({"non_iter"}, "vnlf", 0x4be0, 0, 0));
 
+TIR_REGISTER_NLFC_OP_CONVERSION(exp, nnp_nlfc_exp);
+TIR_DEFINE_BUILTIN_FUNC(nnp_nlfc_exp)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
+    .set_attr<TVectorizable>("TVectorizable", true)
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU))
+    .set_attr<NlfcOpInfo>(attr::kNlfcOpInfo, NlfcOpInfo({"non_iter"}, "vnlf", 0x4be0, 0, 0));
+
+TIR_REGISTER_NLFC_OP_CONVERSION(exp2, nnp_nlfc_exp2);
+TIR_DEFINE_BUILTIN_FUNC(nnp_nlfc_exp2)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
+    .set_attr<TVectorizable>("TVectorizable", true)
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU))
+    .set_attr<NlfcOpInfo>(attr::kNlfcOpInfo, NlfcOpInfo({"non_iter"}, "vexp2", 0x4be0, 0, 0));
+
+TIR_DEFINE_BUILTIN_FUNC(nnp_nlfc_recip)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
+    .set_attr<TVectorizable>("TVectorizable", true)
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU))
+    .set_attr<NlfcOpInfo>(attr::kNlfcOpInfo, NlfcOpInfo({"non_iter"}, "vrecip", 0x4be0, 0, 0));
+
 }  // namespace builtin
 }  // namespace edgex
 }  // namespace tir
