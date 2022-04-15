@@ -27,6 +27,7 @@ from .op_config import OPCONFIGS
 
 LOGGER = logging.getLogger("quantize")
 
+# only shape change
 IDENTITY_OP_LIST = [
     "expand_dims",
     "reshape",
@@ -38,14 +39,15 @@ IDENTITY_OP_LIST = [
     "reverse",
     "zeros_like",
     "ones_like",
+    "broadcast_to",
+    "nn.depth_to_space",
+    "nn.space_to_depth",
 ]
 
 # if fixed-point, two inputs identity scale
 FIXED_OP_TWOARGS_LIST = [
     "add",
     "subtract",
-    "maximum",
-    "minimum",
     "nn.bias_add",
 ]
 

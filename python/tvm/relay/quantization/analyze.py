@@ -175,7 +175,10 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
 
     # dtype set
     # arg not quantized and self not quantized: dtype:float16
-    if vertex_config[node].quantized or not vertex_config[node].quantized and quantized:
+    cond1 = (
+        isinstance(node, relay.Var) and "dtype" in config and config["dtype"] in ["uint8", "int16"]
+    )
+    if cond1 or vertex_config[node].quantized or not vertex_config[node].quantized and quantized:
         dtype = config["dtype"]
     else:
         dtype = DataType.Float16
@@ -192,9 +195,13 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
     # ----1, int32 input and quantized. some int32 case no need to do, ex cast.
     # ----2, fp16 to int8(as int8 to fp16, int8 must have his own scale)
     if (
-        vertex_config[node].output_config["dtype"] == DataType.Int32
-        and vertex_config[node].quantized
-    ) or (not vertex_config[node].quantized and quantized):
+        (
+            vertex_config[node].output_config["dtype"] == DataType.Int32
+            and vertex_config[node].quantized
+        )
+        or (not vertex_config[node].quantized and quantized)
+        or cond1
+    ):
         # check if input is already quantized(split-node may quantized already)
         # --the quantized_axis should be the smallest to all-possible axis
         # --notice! when do 'threshold' the input_axis is not really use axis,
@@ -214,7 +221,7 @@ def _quantized_judge(vertex_config, node, input_axis, quantized, config):
 
             tmp = {}
             tmp["operate"] = "requantize"
-            if not vertex_config[node].quantized and quantized:
+            if not vertex_config[node].quantized and quantized or cond1:
                 tmp["operate"] = "quantize"
             input_config.update(tmp)
 
@@ -269,10 +276,6 @@ def oneargdeal(cls, node, vertex_config, ci0):
         input0_axis = -1
 
     if cls.name == "nn.pad" and node.attrs.pad_mode == "constant" and node.attrs.pad_value != 0:
-        input0_axis = -1
-
-    # todo perch more consider (input_axis -> output_axis)
-    if cls.name in FLOAT_OP_LIST:
         input0_axis = -1
 
     input0_config = _quantized_judge(vertex_config, node.args[0], input0_axis, cls.quantized, ci0)
