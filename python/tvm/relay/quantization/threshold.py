@@ -660,8 +660,9 @@ class PercentileAbs:
         shape = node.checked_type.concrete_shape
         self.shape = shape
         self.node = node
+        self.calibrate_num = config["threshold_arg"]["calibrate_num"]
         nums = numpy.array(shape).prod()
-        self.nums = round((1 - self.percentile) * nums * config["threshold_arg"]["calibrate_num"])
+        self.nums = int(nums * self.calibrate_num * (1 - self.percentile))
         self.nums = 1 if self.nums == 0 else self.nums
         if self.axis == -1:
             self.collected_min = numpy.zeros(1, node.checked_type.dtype)
@@ -707,7 +708,12 @@ class PercentileAbs:
             temp_x = temp_x.reshape(temp_x.shape[0], -1)
             tmp = numpy.concatenate([self.collected_max, temp_x], 1)
 
-            nums = round(self.nums / self.collected_min.shape[0])
+            nums = int(
+                numpy.array(self.shape).prod()
+                / self.shape[self.axis]
+                * self.calibrate_num
+                * (1 - self.percentile)
+            )
             nums = 1 if nums == 0 else nums
 
             if tmp.size > self.nums:

@@ -178,8 +178,8 @@ class FloatOp:
             use_i32 = False
 
         if self.name in ["vision.non_max_suppression"]:
-            assert isinstance(realized_args[2], relay.Constant), "vision.nms arg2 should be const"
-            realized_args[2] = relay.const(realized_args[2].data.asnumpy().astype("int16"))
+            if isinstance(realized_args[2], relay.Constant):
+                realized_args[2] = relay.const(realized_args[2].data.asnumpy().astype("int16"))
             new_node = relay.Call(old_node.op, realized_args, old_node.attrs)
             LOGGER.debug("[realize] %s finish", self.name)
             return new_node

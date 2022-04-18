@@ -182,30 +182,38 @@ class QuantizeSearch:
         """get_default_config"""
         config = {}
         for name, v in self.config_space.items():
-            default_config = v["default_config"]
-            for one in default_config:
-                if default_config[one] == {}:
+            new_config = {}
+            for one in v["default_config"]:
+                if v["default_config"][one] == {}:
                     continue
 
+                default_config = v["default_config"][one]
+                new_config[one] = default_config.copy()
+
                 new_arg = {"calibrate_num": self.calibrate_num}
-                if isinstance(default_config[one]["threshold"], str):
-                    assert default_config[one]["threshold"].startswith(
+                if isinstance(default_config["threshold"], str):
+                    assert default_config["threshold"].startswith(
                         "percentile"
                     ), "if threshold is str, must be percentile_...!!!"
-                    percentile_value = float(default_config[one]["threshold"].split("_")[1])
-                    default_config[one]["threshold"] = Threshold.Percentile
-                    args = default_config[one]["threshold"].args
+                    percentile_value = float(default_config["threshold"].split("_")[1])
+                    new_config[one]["threshold"] = (
+                        Threshold.Percentile
+                        if not default_config["threshold"].startswith("percentilez0")
+                        else Threshold.PercentileAbs
+                    )
+                    args = new_config[one]["threshold"].args
                     for one_arg in args:
                         new_arg[one_arg["name"]] = percentile_value
                 else:
-                    args = default_config[one]["threshold"].args
+                    args = default_config["threshold"].args
                     for one_arg in args:
                         new_arg[one_arg["name"]] = one_arg["default"]
 
-                default_config[one].update({"threshold_arg": new_arg})
+                new_config[one].update({"threshold_arg": new_arg})
+
             if "quantized" in v:
-                default_config.update({"quantized": v["quantized"]})
-            config[name] = default_config
+                new_config.update({"quantized": v["quantized"]})
+            config[name] = new_config
 
         config["target"] = "nnp400"
         if isinstance(self.quantize_config, dict) and "target" in self.quantize_config:
