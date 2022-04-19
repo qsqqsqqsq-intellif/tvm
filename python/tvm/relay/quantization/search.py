@@ -213,6 +213,8 @@ class QuantizeSearch:
 
             if "quantized" in v:
                 new_config.update({"quantized": v["quantized"]})
+            if "bias_method" in v:
+                new_config.update({"bias_method": v["bias_method"]})
             config[name] = new_config
 
         config["target"] = "nnp400"
