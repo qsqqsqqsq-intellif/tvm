@@ -56,18 +56,20 @@ class Conv2DBiasAdd:
     controlable = True
 
     def __init__(self, node, vertex_config, config):
-        # todo add judge to modify self.quantized to be false
-        # todo -- ex: strides info, conv2d_idx, get from outside config
-        # todo get config to support partial-quantize
 
         LOGGER.debug("[analyze] conv2dBiasAdd start")
         self.quantized = True
+
         if "quantized" in config:
             self.quantized = config["quantized"]
 
-        # todo get outside
+        self.bias_method = 0
+        if "bias_method" in config:
+            self.bias_method = config["bias_method"]
+
         ci0 = config["input0"]
         ci1 = config["input1"]
+        ci2 = config["input2"]
 
         temp = []
 
@@ -170,20 +172,26 @@ class Conv2DBiasAdd:
             input2_config.update(_get_dtype_info(input2_config["dtype"]))
 
         input3_axis = 0
-        input3_config = {
-            "dtype": config["input2"]["dtype"] if self.quantized else DataType.Float16,
-            "axis": input3_axis,
-            "method": None,
-            "threshold": None,
-            "operate": "none",
-        }
-        vertex_config[node.args[2]].output_config.update(
-            {
-                "quantized_axis": input3_axis,
+        if self.bias_method == 0:
+            input3_config = {
+                "dtype": config["input2"]["dtype"] if self.quantized else DataType.Float16,
+                "axis": input3_axis,
+                "method": None,
+                "threshold": None,
+                "operate": "quantize" if self.quantized else "none",
             }
-        )
-        if self.quantized:
-            input3_config.update(_get_dtype_info(input3_config["dtype"]))
+            vertex_config[node.args[2]].output_config.update(
+                {
+                    "quantized_axis": input3_axis,
+                }
+            )
+            if self.quantized:
+                input3_config.update(_get_dtype_info(input3_config["dtype"]))
+        else:
+            input3_config = _quantized_judge(
+                vertex_config, node.args[2], input3_axis, self.quantized, ci2
+            )
+
         bias_input_config = {bias_add.args[0]: input2_config, bias_add.args[1]: input3_config}
 
         bias_out_axis = input2_config["axis"]
@@ -203,17 +211,6 @@ class Conv2DBiasAdd:
             node.args[1]: input1_config,
             node.args[2]: input3_config,
         }
-
-        # get 'operate'
-        # todo use self.quantized to do weight quantized
-        for arg in node.args[1:]:
-            tmp1 = {}
-            if not vertex_config[arg].quantized and self.quantized:
-                tmp1.update({"operate": "quantize"})
-            elif vertex_config[arg].quantized and self.quantized:
-                if self.input_config[arg]["threshold"] is not None:
-                    tmp1.update({"operate": "requantize"})
-            self.input_config[arg].update(tmp1)
 
         # get output_config
         output0_axis = conv2d_out_axis
@@ -238,7 +235,6 @@ class Conv2DBiasAdd:
         conv_scale = []
         LOGGER.debug("[calibrate]conv2d_biasadd start and quantized is %d", self.quantized)
 
-        # todo add fp16 no need to
         for arg in node.args[0:2]:
             input_config = self.input_config[arg]
             y = _calibrate_core(arg, input_config, vertex_config, self.quantized)
@@ -248,15 +244,33 @@ class Conv2DBiasAdd:
                 input_config.update(y)
                 conv_scale.append(y["scale"])
 
-        # self.d_scale = conv_scale[0]
-        # self.w_scale = conv_scale[1]
-
         if self.quantized:
             scale = conv_scale[0] * conv_scale[1]
             zero_point = numpy.zeros_like(scale, dtype=numpy.int32)
             new_y = {"scale": scale, "zero_point": zero_point}
             self.input_config[node.args[2]].update(new_y)
 
+            self.output_config.update(new_y)
+
+            # self.d_scale = conv_scale[0]
+            # self.w_scale = conv_scale[1]
+
+        if self.bias_method == 1 and self.quantized:
+            input_config = self.input_config[node.args[2]]
+            bias_scale = _calibrate_core(node.args[2], input_config, vertex_config, self.quantized)
+            maxscale = numpy.max([scale, bias_scale["scale"]], axis=0)
+            weigh_adjust = scale / maxscale
+            bias_adjust = bias_scale["scale"] / maxscale
+
+            self.input_config[node.args[1]]["scale"] = (
+                self.input_config[node.args[1]]["scale"] / weigh_adjust
+            )
+
+            zero_point = numpy.zeros_like(maxscale, dtype=numpy.int32)
+            self.input_config[node.args[2]]["scale"] = bias_scale["scale"] / bias_adjust
+            self.input_config[node.args[2]]["zero_point"] = zero_point
+
+            new_y = {"scale": maxscale, "zero_point": zero_point}
             self.output_config.update(new_y)
 
     def realize(self, old_node, new_node, vertex_config, n2o):

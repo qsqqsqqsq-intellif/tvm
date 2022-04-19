@@ -240,6 +240,7 @@ def quantize(
             "skip_conv_layers",
             "adaquant_enable",
             "net_in_dtype",
+            "bias_method",
         ]
         func_config = {}
 

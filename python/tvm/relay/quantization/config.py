@@ -239,6 +239,12 @@ class ConfigSpace(ExprVisitor):
         if name == "clip" and (call.attrs.a_min < 0 or call.attrs.a_max > 6):
             config[tmp]["quantized"] = False
 
+    def get_op_parameter(self, quantize_config, config, tmp):
+        # control conv2d+biasadd strategy
+        cond1 = tmp.split("_")[1].startswith("conv2d") and tmp.endswith("bias_add")
+        if "bias_method" in quantize_config and cond1:
+            config[tmp]["bias_method"] = quantize_config["bias_method"]
+
     def visit_call(self, call):
         for arg in call.args:
             self.visit(arg)
@@ -283,6 +289,8 @@ class ConfigSpace(ExprVisitor):
         self.get_whether_quantized(
             self.quantize_config, name, call_id_prefix, tmp, call, self.config
         )
+
+        self.get_op_parameter(self.quantize_config, self.config, tmp)
 
     def visit_tuple(self, tup):
 
