@@ -21,7 +21,7 @@ from tvm.contrib.edgex.utils import verify_model_precision
 
 if __name__ == "__main__":
 
-    path_prefix = "../../../../../../../demodels-lfs/onnx/"
+    path_prefix = "/data/share/demodels-lfs/onnx/"
 
     # model_config = {
     #     "framework": "onnx",
@@ -95,17 +95,17 @@ if __name__ == "__main__":
     # }
     # verify_model_precision(model_config)
 
-    # model_config = {
-    #     "framework": "onnx",
-    #     "input_names": ["input.1"],
-    #     "input_shapes": [(1, 3, 550, 550)],
-    #     "input_dtypes": ["float32"],
-    #     "layout": "NCHW",
-    #     "preproc_method": "pass_through",
-    #     "model_file": path_prefix + "yolact_resnet50_fpn/yolact-resnet50-fpn.onnx",
-    #     "dataset_dir": None,
-    # }
-    # verify_model_precision(model_config)
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input.1"],
+        "input_shapes": [(1, 3, 550, 550)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "yolact_resnet50_fpn/yolact-resnet50-fpn.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
 
     model_config = {
         "framework": "onnx",
@@ -143,17 +143,17 @@ if __name__ == "__main__":
     # }
     # verify_model_precision(model_config)
 
-    # model_config = {
-    #     "framework": "onnx",
-    #     "input_names": ["input_1:0"],
-    #     "input_shapes": [(1, 200, 400, 3)],
-    #     "input_dtypes": ["float32"],
-    #     "layout": "NCHW",
-    #     "preproc_method": "pass_through",
-    #     "model_file": path_prefix + "DeeplabV3_plus/DeeplabV3_plus.onnx",
-    #     "dataset_dir": None,
-    # }
-    # verify_model_precision(model_config)
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input_1:0"],
+        "input_shapes": [(1, 200, 400, 3)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "DeeplabV3_plus/DeeplabV3_plus.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
 
     # model_config = {
     #     "framework": "onnx",

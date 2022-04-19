@@ -21,7 +21,7 @@ from tvm.contrib.edgex.utils import verify_model_precision
 
 if __name__ == "__main__":
 
-    path_prefix = "../../../../../../../demodels-lfs/onnx/"
+    path_prefix = "/data/share/demodels-lfs/onnx/"
 
     # model_config = {
     #     "framework": "onnx",

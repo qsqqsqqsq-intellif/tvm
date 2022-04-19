@@ -33,6 +33,7 @@ def frontend_args(input_names, input_shapes, input_dtypes, framework):
         dtype_dict = dict(zip(input_names, input_dtypes))
         if framework == "onnx":
             args.update({"shape": shape_dict, "dtype": dtype_dict})
+            args.update({"freeze_params": True})
         else:
             args.update({"shape_dict": shape_dict, "dtype_dict": dtype_dict})
     elif framework == "pytorch":

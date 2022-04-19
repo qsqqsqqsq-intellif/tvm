@@ -21,7 +21,7 @@ from tvm.contrib.edgex.utils import verify_model_precision
 
 if __name__ == "__main__":
 
-    path_prefix = "../../../../../../../demodels-lfs/onnx/"
+    path_prefix = "/data/share/demodels-lfs/onnx/"
 
     # model_config = {
     #     "framework": "onnx",
@@ -107,17 +107,17 @@ if __name__ == "__main__":
     # }
     # verify_model_precision(model_config)
 
-    # model_config = {
-    #     "framework": "onnx",
-    #     "input_names": ["images"],
-    #     "input_shapes": [(1, 3, 640, 640)],
-    #     "input_dtypes": ["float32"],
-    #     "layout": "NCHW",
-    #     "preproc_method": "pass_through",
-    #     "model_file": path_prefix + "yolox_series/yolox_s.onnx",
-    #     "dataset_dir": None,
-    # }
-    # verify_model_precision(model_config)
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["images"],
+        "input_shapes": [(1, 3, 640, 640)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "yolox_series/yolox_s.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
 
     # model_config = {
     #     "framework": "onnx",
@@ -179,23 +179,23 @@ if __name__ == "__main__":
     # }
     # verify_model_precision(model_config)
 
-    # model_config = {
-    #     "framework": "onnx",
-    #     "input_names": ["samples"],
-    #     "input_shapes": [(1, 3, 256, 256)],
-    #     "input_dtypes": ["float32"],
-    #     "layout": "NCHW",
-    #     "preproc_method": "pass_through",
-    #     "model_file": path_prefix + "detr/detr.onnx",
-    #     "dataset_dir": None,
-    # }
-    # verify_model_precision(model_config)
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["samples"],
+        "input_shapes": [(1, 3, 256, 256)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "detr/detr.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
 
     # model_config = {
     #     "framework": "onnx",
     #     "input_names": ["serving_default_images:0"],
     #     "input_shapes": [(1, 320, 320, 3)],
-    #     "input_dtypes": ["float32"],
+    #     "input_dtypes": ["uint8"],
     #     "layout": "NCHW",
     #     "preproc_method": "pass_through",
     #     "model_file": path_prefix + "efficientdet_lite/efficientdet_lite.onnx",

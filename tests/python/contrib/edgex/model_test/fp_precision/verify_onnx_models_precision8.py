@@ -21,7 +21,7 @@ from tvm.contrib.edgex.utils import verify_model_precision
 
 if __name__ == "__main__":
 
-    path_prefix = "../../../../../../../demodels-lfs/onnx/"
+    path_prefix = "/data/share/demodels-lfs/onnx/"
 
     # model_config = {
     #     "framework": "onnx",
@@ -71,29 +71,31 @@ if __name__ == "__main__":
     # }
     # verify_model_precision(model_config)
 
-    # model_config = {
-    #     "framework": "onnx",
-    #     "input_names": ["input_res1:0"],
-    #     "input_shapes": [(1, 256, 256, 3)],
-    #     "input_dtypes": ["float32"],
-    #     "layout": "NCHW",
-    #     "preproc_method": "pass_through",
-    #     "model_file": path_prefix + "EfficientPoseI/model_float32.onnx",
-    #     "dataset_dir": None,
-    # }
-    # verify_model_precision(model_config)
+    # mismatch
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input_res1:0"],
+        "input_shapes": [(1, 256, 256, 3)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "EfficientPoseI/model_float32.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
 
-    # model_config = {
-    #     "framework": "onnx",
-    #     "input_names": ["input_res1:0"],
-    #     "input_shapes": [(1, 368, 368, 3)],
-    #     "input_dtypes": ["float32"],
-    #     "layout": "NCHW",
-    #     "preproc_method": "pass_through",
-    #     "model_file": path_prefix + "EfficientPoseII/model_float32.onnx",
-    #     "dataset_dir": None,
-    # }
-    # verify_model_precision(model_config)
+    # mismatch
+    model_config = {
+        "framework": "onnx",
+        "input_names": ["input_res1:0"],
+        "input_shapes": [(1, 368, 368, 3)],
+        "input_dtypes": ["float32"],
+        "layout": "NCHW",
+        "preproc_method": "pass_through",
+        "model_file": path_prefix + "EfficientPoseII/model_float32.onnx",
+        "dataset_dir": None,
+    }
+    verify_model_precision(model_config)
 
     # model_config = {
     #     "framework": "onnx",
