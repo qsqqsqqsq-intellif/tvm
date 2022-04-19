@@ -46,9 +46,20 @@ data_path = "/data/zhaojinxi/data/imagenet"
 
 all_op = [
     "conv2d_bias_add",
-    "nn.relu",
+    "reshape",
+    "transpose",
+    "nn.layer_norm",
+    "nn.dense",
+    "nn.bias_add",
+    "nn.batch_matmul",
+    "multiply",
     "add",
-    "mean",
+    "nn.softmax",
+    "GELU",
+    "gather",
+    "strided_slice",
+    "concatenate",
+    "nn.adaptive_avg_pool1d",
     "dense_bias_add",
 ]
 

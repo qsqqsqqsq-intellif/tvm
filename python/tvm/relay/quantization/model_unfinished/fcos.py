@@ -17,7 +17,6 @@
 
 import io
 import os
-import time
 import copy
 import contextlib
 import numpy
