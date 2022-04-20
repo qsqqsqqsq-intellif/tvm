@@ -49,6 +49,7 @@ DISABLE_PERCHANNEL_OP = [
     "gather_nd",
     "nn.depth_to_space",
     "nn.space_to_depth",
+    "nn.pad",
 ]
 
 # the input and output same dtype
@@ -114,7 +115,7 @@ IDENTITY_OP_LIST = [
     "nn.space_to_depth",
 ]
 
-# only support fp16
+# can't use int8
 FLOAT_OP_LIST = [
     "sigmoid",
     "nn.softmax",
@@ -339,8 +340,16 @@ class Common:
 
 
 class Var:
-    def __init__(self, node):
+    """var analyze"""
+
+    def __init__(self, node, net_in_dtype):
         self.quantized = False
+        if (
+            isinstance(net_in_dtype, dict)
+            and node.name_hint in net_in_dtype
+            and net_in_dtype[node.name_hint] in ["uint8", "int16"]
+        ) or (isinstance(net_in_dtype, str) and net_in_dtype in ["uint8", "int16"]):
+            self.quantized = True
 
         self.output_config = {
             "dtype": node.checked_type.dtype,
@@ -532,7 +541,7 @@ class AnalyzeGraph(ExprVisitor):
         self.collect_node.update(tmp)
 
     def visit_var(self, var):
-        self.vertex_config[var] = Var(var)
+        self.vertex_config[var] = Var(var, self.net_in_dtype)
 
     def visit_constant(self, const):
         self.vertex_config[const] = Constant(const)

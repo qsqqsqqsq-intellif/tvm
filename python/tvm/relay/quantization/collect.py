@@ -46,7 +46,7 @@ def _get_threshold_static(cls):
                 arg = node.tuple_value
                 input_config = vertex_config.input_config[arg]
                 tmp(arg, input_config)
-            else:
+            elif isinstance(node, relay.Call):
                 for arg in node.args:
                     input_config = vertex_config.input_config[arg]
                     tmp(arg, input_config)

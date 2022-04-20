@@ -305,7 +305,11 @@ def quantize(
         quantize_search.quantize_instance.dataset = quantize_search.dataset
         quantize_search.quantize_instance.calibrate_num = quantize_search.calibrate_num
         compare_statistics_api(
-            quantize_search.quantize_instance, "cosine", display_result, save_dir
+            quantize_search.quantize_instance,
+            "cosine",
+            display_result,
+            save_dir,
+            quantize_search.imgs,
         )
 
     return quantize_search.results[-1]["mod"], quantize_search.nnp300_pre_processed_mod

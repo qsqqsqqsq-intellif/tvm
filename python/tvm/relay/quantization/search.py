@@ -72,6 +72,7 @@ class QuantizeSearch:
         self.calibrate_batch = calibrate_batch
         self.root_path = root_path
         self.image_path = image_path
+        self.imgs = []
         self.image_size = image_size
         self.channel_last = channel_last
         self.rgb = rgb
@@ -315,11 +316,30 @@ class QuantizeSearch:
                 result2 = self.eval_func(runtime2)
 
                 tmp3 = []
+                img_idx = 0
                 for tmp1, tmp2 in zip(result1, result2):
-                    print("one image similairy:", cosine(tmp1, tmp2))
-                    tmp3.append(cosine(tmp1, tmp2))
+                    img_name = " "
+                    if len(self.imgs) > 0:
+                        img_name = self.imgs[img_idx]
+                        img_idx = img_idx + 1
+                    print(img_name + " similarity: ")
+                    out_idx = 0
+                    out_sim = []
+                    for v_1 in tmp1:
+                        v_2 = tmp2[out_idx]
+                        sim = cosine(v_1, v_2)
+                        out_sim.append(sim)
+                        print("output_" + str(out_idx) + ":", sim)
+                        out_idx = out_idx + 1
+                    out_sim_mean = numpy.array(out_sim).mean()
+                    if len(out_sim) > 1:
+                        print("output similarity mean is", out_sim_mean)
+                    tmp3.append(out_sim_mean)
+
                 tmp3 = numpy.array(tmp3).mean()
+                print("mean similarity of all imges is ", tmp3)
                 self.post_processed_performance = tmp3
+
             else:
                 mod = None
                 for quantize in self.results:

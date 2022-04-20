@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# pylint: disable=unused-argument,inconsistent-return-statements
+# pylint: disable=unused-argument,inconsistent-return-statements,unused-import
 """default data"""
 
 import logging
@@ -91,7 +91,7 @@ def default_data(cls):
     """default_data"""
     total_path = []
     traverse_image(total_path, cls.image_path)
-    random.shuffle(total_path)
+    # random.shuffle(total_path)
 
     precess_mod = (
         cls.pre_processed_mod["main"]
@@ -115,10 +115,13 @@ def default_data(cls):
         cls.calibrate_num = len(total_path)
 
     calibrate_data = []
+    cls.imgs = []
     for i, path in enumerate(total_path):
         if i >= cls.calibrate_num:
             break
         image = process_image(path, model_size, cls.channel_last, cls.rgb, im_info)
+        img_path = path.split("/")[-1]
+        cls.imgs.append(img_path)
         if im_info is not None:
             calibrate_data.append(
                 {
@@ -157,8 +160,11 @@ def default_eval(cls):
             # print("num_count_" + str(idx_count), data["data"])
             # idx_count = idx_count + 1
             runtime.run()
-            output = runtime.get_output(0)
-            output = output.asnumpy()
+            output_num = runtime.get_num_outputs()
+            output = []
+            for i in range(output_num):
+                output.append(runtime.get_output(i).asnumpy().flatten())
+
             total_output.append(output)
         return total_output
 

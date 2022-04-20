@@ -18,6 +18,7 @@
 """realize"""
 
 import logging
+import collections
 import math
 import numpy
 import tvm
@@ -632,7 +633,7 @@ class Realize(ExprMutator):
         super().__init__()
         self.mod = mod
         self.vertex_config = vertex_config
-        self.new2old = {}
+        self.new2old = collections.OrderedDict()
         self.idx = -1
         if not isinstance(self.mod, relay.Function):
             func = self.visit(self.mod["main"])

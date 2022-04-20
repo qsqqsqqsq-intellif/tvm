@@ -114,31 +114,31 @@ def _get_graph(nodes, ctx, target, optlevel=3):
 
 def pair_node(old_node, new_node, oc_, ic_, n2o, quantized):
     """pair_node"""
-    if new_node not in n2o:
-        n2o[new_node] = {"node": old_node}
-        if ic_["operate"] == "quantize":
+    # if new_node not in n2o:
+    n2o[new_node] = {"node": old_node}
+    if ic_["operate"] == "quantize":
+        assert ic_.get("scale") is not None
+        assert ic_.get("axis") is not None
+        scale = ic_.get("scale")
+        axis = ic_.get("axis")
+        n2o[new_node].update({"scale": scale, "axis": axis})
+    elif ic_["operate"] == "dequantize":
+        pass
+    elif ic_["operate"] == "requantize":
+        assert ic_.get("scale") is not None
+        assert ic_.get("axis") is not None
+        scale = ic_.get("scale")
+        axis = ic_.get("axis")
+        n2o[new_node].update({"scale": scale, "axis": axis})
+    elif ic_["operate"] == "none":
+        if quantized:
             assert ic_.get("scale") is not None
             assert ic_.get("axis") is not None
             scale = ic_.get("scale")
             axis = ic_.get("axis")
             n2o[new_node].update({"scale": scale, "axis": axis})
-        elif ic_["operate"] == "dequantize":
+        else:
             pass
-        elif ic_["operate"] == "requantize":
-            assert ic_.get("scale") is not None
-            assert ic_.get("axis") is not None
-            scale = ic_.get("scale")
-            axis = ic_.get("axis")
-            n2o[new_node].update({"scale": scale, "axis": axis})
-        elif ic_["operate"] == "none":
-            if quantized:
-                assert oc_.get("scale") is not None
-                assert oc_.get("axis") is not None
-                scale = oc_.get("scale")
-                axis = oc_.get("axis")
-                n2o[new_node].update({"scale": scale, "axis": axis})
-            else:
-                pass
 
 
 def plot_statistics(data1_, data2_, distance, name, path):
@@ -189,7 +189,7 @@ def compare_statistics(cls, method):
     new_node = []
     new_scale = []
     for new in cls.new2old:
-        if isinstance(cls.new2old[new], relay.Call):
+        if not isinstance(cls.new2old[new], dict):
             continue
         old = cls.new2old[new]["node"]
         # if isinstance(old, relay.Constant):
@@ -250,27 +250,34 @@ def compare_statistics(cls, method):
     return all_result
 
 
-def compare_statistics_api(cls, method, display_en, path):
+def compare_statistics_api(cls, method, display_en, path, imgs=None):
     """compare_statistics for custom"""
     old_node = []
     new_node = []
     new_scale = []
     for new in cls.new2old:
-        if isinstance(cls.new2old[new], relay.Call):
+        if not isinstance(cls.new2old[new], dict):
             continue
+
         old = cls.new2old[new]["node"]
         if isinstance(old, relay.Constant):
             continue
-        if old not in old_node:
-            old_node.append(old)
-            new_node.append(new)
-            tmp = {}
-            if cls.new2old[new].get("scale") is not None:
-                scale = cls.new2old[new].get("scale")
-                axis = cls.new2old[new].get("axis")
-                tmp.update({"scale": scale, "axis": axis})
-            new_scale.append(tmp)
+        if old in old_node:
+            old_idx = old_node.index(old)
+            del old_node[old_idx]
+            del new_node[old_idx]
+            del new_scale[old_idx]
 
+        old_node.append(old)
+        new_node.append(new)
+        tmp = {}
+        if cls.new2old[new].get("scale") is not None:
+            scale = cls.new2old[new].get("scale")
+            axis = cls.new2old[new].get("axis")
+            tmp.update({"scale": scale, "axis": axis})
+        new_scale.append(tmp)
+
+    print("cal layer similarity......")
     old_r, old_ik, old_no = _get_graph(old_node, cls.ctx, cls.target, cls.opt_level)
     new_r, new_ik, new_no = _get_graph(new_node, cls.ctx, cls.target, cls.opt_level)
 
@@ -293,6 +300,7 @@ def compare_statistics_api(cls, method, display_en, path):
     dataset = cls.dataset()
     all_result = []
     dataset_idx = -1
+
     while True:
         try:
             dataset_idx = dataset_idx + 1
@@ -305,6 +313,10 @@ def compare_statistics_api(cls, method, display_en, path):
                     dataset_idx,
                     cls.calibrate_num,
                 )
+
+            if imgs is not None and isinstance(imgs, list) and len(imgs) > 0:
+                img_name = imgs[dataset_idx]
+                print(img_name, " layer similarity is :")
 
             batch = next(dataset)
             old_result = _run_graph(batch, old_r, old_ik, old_no)
