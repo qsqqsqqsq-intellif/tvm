@@ -24,6 +24,9 @@ from .convert_multiply_to_conv import ConvertMultiplyToConv
 from .insert_norm import InsertNorm
 from .split_pad_before_conv import SplitPadBeforeConv
 from .fuse_ops import FuseOps
+from .move_reshape import MoveReshape
+
+# from .modify_slice import ModifySlice
 from ..relay_transforms import (
     FuseAdd,
     ConvertAdaptivepoolToNormpool,
@@ -54,6 +57,8 @@ def origin_pass(mod, norm):
     optimize_pass.append(transform.FoldExplicitPadding())
     optimize_pass.append(ConvertMultiplyToConv())
     optimize_pass.append(FuseOps())
+    optimize_pass.append(MoveReshape())
+    # optimize_pass.append(ModifySlice())
 
     optimize = tvm.transform.Sequential(optimize_pass, opt_level=3, name="optimize")
     with tvm.transform.PassContext(opt_level=3):
