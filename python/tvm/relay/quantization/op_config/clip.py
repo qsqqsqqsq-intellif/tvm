@@ -58,6 +58,9 @@ class Clip:
 
         LOGGER.debug("[anaylze] clip start")
         self.quantized = True
+        if not vertex_config[node.args[0]].quantized:
+            self.quantized = False
+
         if "quantized" in config:
             self.quantized = config["quantized"]
 
