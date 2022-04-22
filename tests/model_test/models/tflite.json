@@ -1,0 +1,211 @@
+{
+    "resnet50": {
+        "framework": "tflite",
+        "path": "Visual/resnet50/resnet50.tflite",
+        "input_names": ["serving_default_input_1:0"],
+        "input_shapes": [[1, 224, 224, 3]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NHWC",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["classification"],
+        "backend": {"skip": true}
+    },
+
+    "mobilenet_v1_1.0_224": {
+        "framework": "tflite",
+        "path": "Visual/mobilenet_v1_1.0_224/mobilenet_v1_1.0_224_1_default_1.tflite",
+        "input_names": ["input"],
+        "input_shapes": [[1, 224, 224, 3]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NHWC",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["classification"],
+        "backend": {"skip": true}
+    },
+
+    "mobilenet_v2_1.0_224": {
+        "framework": "tflite",
+        "path": "Visual/mobilenet_v2_1.0_224/mobilenet_v2_1.0_224_1_default_1.tflite",
+        "input_names": ["input"],
+        "input_shapes": [[1, 224, 224, 34]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NHWC",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["classification"],
+        "backend": {"skip": true}
+    },
+
+    "yolov3": {
+        "framework": "tflite",
+        "path": "Visual/yolov3/frozen_darknet_yolov3_model.tflite",
+        "input_names": ["inputs"],
+        "input_shapes": [[1, 416, 416, 3]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NHWC",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "yolov3-lite": {
+        "framework": "tflite",
+        "path": "Visual/yolov3-lite/yolov3-lite.tflite",
+        "input_names": ["input/input_data:0"],
+        "input_shapes": [[1, 256, 256, 3]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NHWC",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "yolov3-nano": {
+        "framework": "tflite",
+        "path": "Visual/yolov3-nano/yolov3-nano.tflite",
+        "input_names": ["input/input_data:0"],
+        "input_shapes": [[1, 256, 256, 3]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NHWC",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "yolov4": {
+        "framework": "tflite",
+        "path": "Visual/yolov4/yolov4.tflite",
+        "input_names": ["serving_default_input_1:0"],
+        "input_shapes": [[1, 416, 416, 3]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NHWC",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "yolox": {
+        "framework": "tflite",
+        "path": "Visual/yolox/yolox.tflite",
+        "input_names": ["images"],
+        "input_shapes": [[1, 320, 320, 3]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NHWC",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "yolov5_Face": {
+        "framework": "tflite",
+        "path": "Visual/yolov5_Face/YOLOv5_Face.tflite",
+        "input_names": ["data"],
+        "input_shapes": [[1,256,320,3]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NHWC",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "RetinaFace": {
+        "framework": "tflite",
+        "path": "Visual/RetinaFace/RetinaFace.tflite",
+        "input_names": ["serving_default_input_1:0"],
+        "input_shapes": [[1, 224, 224, 3]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NHWC",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    }
+}

@@ -1,0 +1,295 @@
+{
+    "resnet34-v1": {
+        "framework": "onnx",
+        "path": "resnet34-v1/resnet34-v1-7.onnx",
+        "input_names": ["data"],
+        "input_shapes": [[1,3,224,224]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "dataset_dir": null
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["classification"],
+        "backend": {}
+    },
+
+    "resnet50-v1": {
+        "framework": "onnx",
+        "path": "resnet50-v1/resnet50-v1-7.onnx",
+        "input_names": ["data"],
+        "input_shapes": [[1,3,224,224]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "mean_scale",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["classification"],
+        "backend": {}
+    },
+
+    "mobilenet-v1": {
+        "framework": "onnx",
+        "path": "mobilenet-v1/mobilenet_v1_1.0_224.onnx",
+        "input_names": ["input:0"],
+        "input_shapes": [[1,3,224,224]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["classification"],
+        "backend": {}
+    },
+
+    "mobilenet-v2": {
+        "framework": "onnx",
+        "path": "mobilenet-v2/mobilenetv2-7.onnx",
+        "input_names": ["input"],
+        "input_shapes": [[1,3,224,224]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["classification"],
+        "backend": {"skip": true}
+    },
+
+    "mobilenet-v3": {
+        "framework": "onnx",
+        "path": "mobilenet-v3-small/mobilenetv3_small_new.onnx",
+        "input_names": ["input_image"],
+        "input_shapes": [[1,3,224,224]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["classification"],
+        "backend": {"skip": true}
+    },
+
+    "yolov2": {
+        "framework": "onnx",
+        "path": "yolov2/yolov2-coco-9.onnx",
+        "input_names": ["input.1"],
+        "input_shapes": [[1, 3, 416, 416]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "yolov3": {
+        "framework": "onnx",
+        "path": "yolov3/yolov3-10.onnx",
+        "input_names": ["input_1", "image_shape"],
+        "input_shapes": [[1, 3, 416, 416], [1, 2]],
+        "input_dtypes": ["float32", "float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "yolov4": {
+        "framework": "onnx",
+        "path": "yolov4/yolov4.onnx",
+        "input_names": ["input_1:0"],
+        "input_shapes": [[1, 416, 416, 3]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NHWC",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "yolox": {
+        "framework": "onnx",
+        "path": "yolox/yolox_nano.onnx",
+        "input_names": ["inputs"],
+        "input_shapes": [[1, 3, 416, 416]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "yolov5s": {
+        "framework": "onnx",
+        "path": "yolov5s/yolov5s.onnx",
+        "input_names": ["images"],
+        "input_shapes": [[1, 3, 640, 640]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "RetinaNet": {
+        "framework": "onnx",
+        "path": "retinanet/retinanet-9.onnx",
+        "input_names": ["input"],
+        "input_shapes": [[1, 3, 480, 640]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "RetinaFace": {
+        "framework": "onnx",
+        "path": "retinaface/retinaface_640x640_opt.onnx",
+        "input_names": ["input0"],
+        "input_shapes": [[1, 3, 640, 640]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "Unet": {
+        "framework": "onnx",
+        "path": "unet/onnx_model_name.onnx",
+        "input_names": ["0"],
+        "input_shapes": [[1, 3, 256, 256]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    },
+
+    "centernet": {
+        "framework": "onnx",
+        "path": "centernet/centerface.onnx",
+        "input_names": ["input.1"],
+        "input_shapes": [[1, 3, 1056, 1920]],
+        "input_dtypes": ["float32"],
+        "frontend": {
+            "layout": "NCHW",
+            "preproc_method": "pass_through",
+            "means": [0,0,0],
+            "scales": [255,255,255]
+        },
+        "quantization": {
+            "mean": [123.675,116.28,103.53],
+            "std": [58.395,57.12,57.375],
+            "axis": 1
+        },
+        "tag": ["detection"],
+        "backend": {"skip": true}
+    }
+}
+ 

@@ -25,9 +25,6 @@ import numpy as np
 import tvm
 
 
-DEFAULT_MODEL_CONFIG = "./models.json"
-
-
 def load_module(mod, params):
     if isinstance(mod, str):
         if not os.path.exists(mod):
@@ -53,8 +50,6 @@ def save_module(output_dir, model_name, mod, params):
 
 
 def get_config(model_name, model_config_file):
-    if model_config_file is None:
-        model_config_file = DEFAULT_MODEL_CONFIG
     with open(model_config_file, "r") as fp:
         config_jsons = json.load(fp)
     config = config_jsons[model_name]
@@ -76,11 +71,11 @@ def convert_frontend_model(args):
         for i, name in enumerate(input_names):
             dtype_dict[name] = config["input_dtypes"][i]
 
+    kwargs = {}
+    if config.get("framework") == "onnx":
+        kwargs["dtype"] = dtype_dict
     tvmc_model = load_model(
-        args.input_file,
-        model_format=config["framework"],
-        shape_dict=shape_dict,
-        dtype=dtype_dict,
+        args.input_file, model_format=config["framework"], shape_dict=shape_dict, **kwargs
     )
     mod, params = tvmc_model.mod, tvmc_model.params
     if args.output_dir is not None:
@@ -99,7 +94,10 @@ def verify_frontend_model(args):
         frontend_flat_config[k] = config[k]
     frontend_flat_config["model_file"] = args.input_file
     mod, params = load_module(args.json, args.params)
-    lib = tvm.relay.build(mod, params=params, target="llvm")
+    opt_level = config.get("opt_level", 0)
+    with tvm.ir.transform.PassContext(opt_level=opt_level):
+        print(mod.astext(False))
+        lib = tvm.relay.build(mod, params=params, target="llvm")
     executor = tvm.contrib.graph_executor.GraphModule(lib["default"](tvm.cpu()))
     verify_model_precision(frontend_flat_config, executor=executor)
 

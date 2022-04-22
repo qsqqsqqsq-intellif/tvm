@@ -226,7 +226,7 @@ model_integration:
     - export LD_LIBRARY_PATH=${EDGEX_ROOT_DIR}/lib/:${EDGEX_SERVER_DIR}/lib
     - export TVM_CI_WORKING_DIR=/tvm_ci_working_dir/${CI_COMMIT_REF_NAME}
     - export TVM_CI_DEMODELS_DIR=${EDGEX_MODELS_DIR}/demodels-lfs
-    - export TVM_CI_PARALLELISM=2
+    - export TVM_CI_PARALLELISM=16
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   script:
@@ -235,12 +235,12 @@ model_integration:
       python3 tests/model_test/task_ci_integration.py
       echo "********** CLEAN MODEL INTEGRATION WORKING DIR **********"
       mv ${TVM_CI_WORKING_DIR}/integration ./integration_res
-      rm -rf integration_res/*/*.so  integration_res/*/converted
+      rm -rf integration_res/*/*/*.so  integration_res/*/*/converted
       if [ "$CI_COMMIT_REF_NAME" == "edgex_main" ]
       then
         cp -r integration_res ${EDGEX_MODELS_DIR}/ci_test/
       fi
-      rm -rf integration_res/*/quantized
+      rm -rf integration_res/*/*/quantized
   artifacts:
     when: on_success
     paths:

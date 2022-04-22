@@ -2,7 +2,7 @@
 
 
 ## 目录结构
-- models.json： 包含所有CI测试模型配置信息
+- models： 目录包含所有CI测试模型配置信息，每个框架一个json配置文件，按onnx.json, tflite.json等等命名
 
 示例如下，frontend段包含前端配置信息, quantization段包含量化所需配置信息; path指向demodels-lfs/$framework/下的相对路径
 ```json
@@ -28,6 +28,19 @@
 }
 ```
 
+如果需要忽略量化或模型编译，可以
+```json
+"modelname": {
+    ...
+    "backend": {"skip": true},
+    ...
+    "quantization": {"skip": true}
+    ...
+}
+```
+
+- ci_model_list.txt: 指定每个框架要测试的模型名，跨框架允许重名
+
 - tasks.py：包含各个测试步骤具体实现, 每个步骤通过启动子进程调用，用来隔离不同步骤的环境、日志等；通过命令行传递测试参数
 
 - task_ci_integration.py：集成测试入口脚本
@@ -44,7 +57,7 @@ python tests/model_test/task_ci_integration.py
 ### 自定义CI测试配置
 下述变量可由用户在运行自定义ci schedule pipeline时设置
 
-- TVM_CI_INTEGRATION_MODEL_LIST： 要测试的模型名称列表，逗号分隔，需要在models.json加入对应配置
+- TVM_CI_INTEGRATION_MODEL_LIST： 要测试的模型名称列表文件，参考ci_model_list.txt
 
 - TVM_CI_PARALLELISM： 测试并行度，默认2进程并发
 

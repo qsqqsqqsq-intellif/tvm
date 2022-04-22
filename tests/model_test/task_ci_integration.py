@@ -18,23 +18,42 @@
 """CI模型集成测试"""
 import os
 import json
+import signal
 import multiprocessing
 import subprocess
 import tempfile
+import threading
 import time
 import tvm
 
+
+TVM_HOME = os.path.abspath(os.environ.get("TVM_HOME", f"{tvm.__path__[0]}/../.."))
+MODEL_TEST_HOME = os.path.join(TVM_HOME, "tests/model_test")
+
 # 目标测试模型list
-DEFAULT_TEST_MODELS = "resnet34-v1,resnet50-v1"
-TEST_MODELS = os.environ.get("TVM_CI_INTEGRATION_MODEL_LIST", DEFAULT_TEST_MODELS)
-TEST_MODELS = [_.strip() for _ in TEST_MODELS.split(",") if _.strip() != ""]
+TEST_MODELS = []
+MODEL_LIST_FILE = os.environ.get(
+    "TVM_CI_INTEGRATION_MODEL_LIST", os.path.join(MODEL_TEST_HOME, "ci_model_list.txt")
+)
+with open(os.path.join(MODEL_LIST_FILE)) as fp:
+    framework = None
+    for line in fp:
+        if line.strip() == "":
+            continue
+        if line.startswith("["):
+            framework = line[1 : line.find("]")]
+            continue
+        TEST_MODELS.append((framework, line.strip()))
 print(f"【测试模型列表】{TEST_MODELS}")
 
 # 加载模型配置文件
-TVM_HOME = os.path.abspath(os.environ.get("TVM_HOME", f"{tvm.__path__[0]}/../.."))
-MODEL_TEST_HOME = os.path.join(TVM_HOME, "tests/model_test")
-with open(os.path.join(MODEL_TEST_HOME, "models.json")) as fp:
-    MODEL_CONFIGS = json.load(fp)
+MODEL_CONFIGS = {}
+for cfg_file in os.listdir(os.path.join(MODEL_TEST_HOME, "models")):
+    if not cfg_file.endswith(".json"):
+        continue
+    framework = cfg_file[:-5]
+    with open(os.path.join(MODEL_TEST_HOME, "models", cfg_file)) as fp:
+        MODEL_CONFIGS[framework] = json.load(fp)
 
 WORKER_NUM = int(os.environ.get("TVM_CI_PARALLELISM", "2"))
 print(f"【模型测试并发度】{WORKER_NUM}")
@@ -77,7 +96,10 @@ def launch_task(task_config, model_config, working_dir, task_records, timeout=30
         "result": os.path.join(working_dir, "result.txt"),
         "framework": model_config["framework"],
     }
-    task_records.append(record)
+    if isinstance(task_records, list):
+        task_records.append(record)
+    else:
+        task_records.put(record)
     with open(os.path.join(working_dir, task_config["task"] + ".record.json"), "w") as outf:
         json.dump(record, outf, indent=4)
     if proc.returncode != 0:
@@ -88,22 +110,29 @@ def launch_task(task_config, model_config, working_dir, task_records, timeout=30
 
 
 # 端到端测试流程
-def run_network(model_name, result_records):
-    model_config = MODEL_CONFIGS[model_name]
+def run_network(framework, model_name, result_records):
+    model_config = MODEL_CONFIGS[framework][model_name]
+    model_config_file = os.path.join(MODEL_TEST_HOME, "models", f"{framework}.json")
     print(f"【模型配置】【{model_name}】{model_config}")
-    working_dir = os.path.join(WORKING_DIR, model_name)
+    working_dir = os.path.join(WORKING_DIR, framework, model_name)
     if not os.path.isdir(working_dir):
         os.makedirs(working_dir)
 
     # task1: 测试前端转换模型graph_executor
-    task_config = {
-        "task": "convert_frontend_model",
-        "output-dir": os.path.join(working_dir, "converted"),
-        "input-file": os.path.join(DEMODELS_DIR, model_config["framework"], model_config["path"]),
-        "model-name": model_name,
-        "title": "前端模型转换",
-    }
-    convert_success = launch_task(task_config, model_config, working_dir, result_records)
+    if model_config["frontend"].get("skip", False):
+        convert_success = False
+    else:
+        task_config = {
+            "task": "convert_frontend_model",
+            "output-dir": os.path.join(working_dir, "converted"),
+            "input-file": os.path.join(
+                DEMODELS_DIR, model_config["framework"], model_config["path"]
+            ),
+            "model-name": model_name,
+            "model-config": model_config_file,
+            "title": "前端模型转换",
+        }
+        convert_success = launch_task(task_config, model_config, working_dir, result_records)
     if not convert_success:
         return
 
@@ -114,33 +143,43 @@ def run_network(model_name, result_records):
         "params": os.path.join(working_dir, "converted", model_name + ".params"),
         "input-file": os.path.join(DEMODELS_DIR, model_config["framework"], model_config["path"]),
         "model-name": model_name,
+        "model-config": model_config_file,
         "title": "前端框架浮点比对",
     }
     launch_task(task_config, model_config, working_dir, result_records)
 
     # task3: 量化模型
-    task_config = {
-        "task": "quantize_model",
-        "output-dir": os.path.join(working_dir, "quantized"),
-        "json": os.path.join(working_dir, "converted", model_name + ".json"),
-        "params": os.path.join(working_dir, "converted", model_name + ".params"),
-        "model-name": model_name,
-        "title": "模型量化",
-    }
-    quantize_success = launch_task(task_config, model_config, working_dir, result_records)
+    if model_config["quantization"].get("skip", False):
+        quantize_success = False
+    else:
+        task_config = {
+            "task": "quantize_model",
+            "output-dir": os.path.join(working_dir, "quantized"),
+            "json": os.path.join(working_dir, "converted", model_name + ".json"),
+            "params": os.path.join(working_dir, "converted", model_name + ".params"),
+            "model-name": model_name,
+            "model-config": model_config_file,
+            "title": "模型量化",
+        }
+        quantize_success = launch_task(task_config, model_config, working_dir, result_records)
     if not quantize_success:
         return
 
     # task4: nnp模型编译
-    task_config = {
-        "task": "compile_nnp_model",
-        "output-dir": working_dir,
-        "json": os.path.join(working_dir, "quantized", model_name + ".json"),
-        "params": os.path.join(working_dir, "quantized", model_name + ".params"),
-        "model-name": model_name,
-        "title": "nnp模型编译",
-    }
-    compile_success = launch_task(task_config, model_config, working_dir, result_records)
+    compile_config = model_config.get("backend", {})
+    if compile_config.get("skip", False):
+        compile_success = False
+    else:
+        task_config = {
+            "task": "compile_nnp_model",
+            "output-dir": working_dir,
+            "json": os.path.join(working_dir, "quantized", model_name + ".json"),
+            "params": os.path.join(working_dir, "quantized", model_name + ".params"),
+            "model-name": model_name,
+            "model-config": model_config_file,
+            "title": "nnp模型编译",
+        }
+        compile_success = launch_task(task_config, model_config, working_dir, result_records)
     if not compile_success:
         return
 
@@ -151,6 +190,7 @@ def run_network(model_name, result_records):
         "json": os.path.join(working_dir, "quantized", model_name + ".json"),
         "params": os.path.join(working_dir, "quantized", model_name + ".params"),
         "model-name": model_name,
+        "model-config": model_config_file,
         "title": "iss计算结果比对",
         "environments": {"EDGEX_DEBUG_ISS": "on"},
     }
@@ -168,37 +208,36 @@ def make_summary(all_records):
         "run_and_check_iss",
     ]
     # 按 框架 - 模型名 - 测试点 整理测试记录
-    for record_list in all_records:
-        for record in record_list:
-            if record["framework"] not in all_tables:
-                all_tables[record["framework"]] = {}
-            table = all_tables[record["framework"]]
-            if record["model"] not in table:
-                table[record["model"]] = {}
-            item = table[record["model"]]
-            if record["exitcode"] == 0:
-                summary = (
-                    f"<font color=\"green\">【成功】</font><br>运行时间: {record['time']:.1f} sec"
-                    + f"<br>日志: <a href=\"{record['log']}\">运行日志</a>"
-                )
-                if os.path.isfile(record["result"]):
-                    with open(record["result"], "r") as infile:
-                        res = infile.read().strip()
-                        if len(res) > 0:
-                            summary += "<br>验证结果: " + res
-            else:
-                summary = (
-                    f"<font color=\"red\">【失败】</font><br>运行时间: {record['time']:.1f} sec"
-                    + f"<br>日志: <a href=\"{record['log']}\">运行日志</a>"
-                )
-            item[record["task"]] = summary
+    for record in all_records:
+        if record["framework"] not in all_tables:
+            all_tables[record["framework"]] = {}
+        table = all_tables[record["framework"]]
+        if record["model"] not in table:
+            table[record["model"]] = {}
+        item = table[record["model"]]
+        if record["exitcode"] == 0:
+            summary = (
+                f"<font color=\"green\">【成功】</font><br>运行时间: {record['time']:.1f} sec"
+                + f"<br>日志: <a href=\"{record['log']}\">运行日志</a>"
+            )
+            if os.path.isfile(record["result"]):
+                with open(record["result"], "r") as infile:
+                    res = infile.read().strip()
+                    if len(res) > 0:
+                        summary += "<br>验证结果: " + res
+        else:
+            summary = (
+                f"<font color=\"red\">【失败】</font><br>运行时间: {record['time']:.1f} sec"
+                + f"<br>日志: <a href=\"{record['log']}\">运行日志</a>"
+            )
+        item[record["task"]] = summary
 
     # 写入html表格文件
     html_template = """
     <!DOCTYPE html><html>
     <head><meta charset="UTF-8"></head>
     <body>
-        <table border="1" cellpadding="0" cellspacing="0" width=800 padding-top=5 padding-bottom=5>
+        <table border="1" cellpadding="0" cellspacing="0" padding-top=5 padding-bottom=5>
         <tr>
             <th>模型名称</th>
             <th>前端转化</th>
@@ -229,42 +268,54 @@ def make_summary(all_records):
             outf.write(html)
 
 
-def run_sub_worker(model_list, records):
-    for model_name in model_list:
-        try:
-            run_network(model_name, records)
-        except Exception as e:
-            print(e)  # continue to skip error
-
-
 def run_integration():
-    workers = []
+    records = []
     if WORKER_NUM == 1:
-        records = [[]]
-        run_sub_worker(TEST_MODELS, records[0])
+        for framework, model_name in TEST_MODELS:
+            try:
+                run_network(framework, model_name, records)
+            except Exception as e:
+                print(e)  # continue to skip error
     else:
-        records = []
-        workload_cnt = (len(TEST_MODELS) + WORKER_NUM - 1) // WORKER_NUM
-        with multiprocessing.Manager() as manager:
-            record_lists = []
-            for i in range(WORKER_NUM):
-                record_lists.append(manager.list())
-                p = multiprocessing.Process(
-                    target=run_sub_worker,
-                    args=(
-                        TEST_MODELS[i * workload_cnt : i * workload_cnt + workload_cnt],
-                        record_lists[i],
-                    ),
-                    daemon=True,
-                )
-                workers.append(p)
-                p.start()
-            for i in range(WORKER_NUM):
-                workers[i].join()
+        is_stopping = False
+        with multiprocessing.Manager() as mgr:
+            PARENT_PID = os.getpid()
+            pool = multiprocessing.Pool(WORKER_NUM)
+            records_queue = mgr.Queue()
 
-            for l in record_lists:
-                records.append(list(l))
-        make_summary(records)
+            def at_exit(signum, _):
+                nonlocal is_stopping
+                is_stopping = True
+                if os.getpid() == PARENT_PID:
+                    make_summary(records)
+                    pool.close()
+                    exit(signum)
+
+            signal.signal(signal.SIGINT, at_exit)
+            signal.signal(signal.SIGTERM, at_exit)
+
+            def fetch_records():
+                nonlocal is_stopping
+                while not is_stopping:
+                    try:
+                        records.append(records_queue.get())
+                    except (ValueError, OSError, EOFError) as e:
+                        pass
+
+            fetch_thread = threading.Thread(target=fetch_records, daemon=True)
+            fetch_thread.start()
+
+            results = []
+            for framework, model_name in TEST_MODELS:
+                results.append(
+                    pool.apply_async(run_network, args=(framework, model_name, records_queue))
+                )
+            for res in results:
+                res.get(10000)  # 10000s per model
+
+            is_stopping = True
+            make_summary(records)
+            pool.close()
 
 
 if __name__ == "__main__":
