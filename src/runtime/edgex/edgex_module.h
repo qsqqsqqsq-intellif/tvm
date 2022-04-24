@@ -23,12 +23,18 @@
 #ifndef TVM_RUNTIME_EDGEX_EDGEX_MODULE_H_
 #define TVM_RUNTIME_EDGEX_EDGEX_MODULE_H_
 
+extern "C" {
+#include <libgen.h>
+#include <sys/stat.h>
+}
+
 #include <tvm/ir/module.h>
 #include <tvm/runtime/module.h>
 
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "../meta_data.h"
@@ -71,6 +77,34 @@ Module EdgeXModuleCreateFromAsm(tvm::IRModule mod,
 Module EdgeXModuleCreateFromObjects(tvm::IRModule mod,
                                     const std::unordered_map<std::string, std::string>& obj_map,
                                     const std::string& working_dir);
+
+/**
+ *! \brief Get the start address and total bytes of the allocated range
+ * the input address belongs to. Return (nullptr, 0) if the input address
+ * is not valid device address.
+ */
+std::pair<void*, size_t> EdgeXQueryDeviceAddress(void* addr);
+
+/**
+ *! \brief Return whether iss debug mode is enabled.
+ */
+bool EdgeXIsISSDebugMode();
+
+/*! \brief mkdir utility */
+inline int mkdir_recursive(const char* path, int mode = 0777) {
+  int status = 0;
+  char* tmp = strdup(path);
+  const char* parent = dirname(tmp);
+  struct stat st;
+  if (strcmp(parent, ".") != 0) {
+    if (stat(parent, &st) != 0) {
+      status = mkdir_recursive(parent, mode);
+    }
+  }
+  free(tmp);
+  if (status != 0) return status;
+  return mkdir(path, mode);
+}
 
 }  // namespace runtime
 }  // namespace tvm

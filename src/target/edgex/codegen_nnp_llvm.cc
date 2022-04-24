@@ -29,7 +29,6 @@
 #include "../../contrib/edgex/tir/attrs.h"
 #include "../../contrib/edgex/tir/edgex_ir_utils.h"
 #include "../../contrib/edgex/tir/op/builtin.h"
-#include "../../runtime/edgex/edgex_common.h"
 #include "../../runtime/edgex/edgex_module.h"
 #include "../build_common.h"
 #include "../llvm/codegen_llvm.h"

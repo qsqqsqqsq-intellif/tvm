@@ -20,20 +20,15 @@ if(USE_EDGEX)
   include_directories(SYSTEM ${EDGEX_ROOT_DIR}/include)
   include_directories(SYSTEM ${EDGEX_ROOT_DIR}/ass)
   message(STATUS "Build with EdgeX support")
-  if(DEFINED EDGEX_GRPC_LIB)
-    message(STATUS "Use EdgeX grpc dependency libraries at ${EDGEX_GRPC_LIB}")
-    file(GLOB EDGEX_LIB
-      ${EDGEX_ROOT_DIR}/lib/libdcl*.so
-      ${EDGEX_ROOT_DIR}/lib/libprotobuf.so
-      ${EDGEX_ROOT_DIR}/lib/liberror_string.so
-      ${EDGEX_ROOT_DIR}/lib/librpc.so
-      ${EDGEX_GRPC_LIB}/lib*.so)
+  if(EDGEX_USE_DYN_DCL)
+    add_definitions(-DEDGEX_USE_DYN_DCL)
   else()
+    message(STATUS "Use EdgeX dependency libraries at ${EDGEX_ROOT_DIR}/lib")
     file(GLOB EDGEX_LIB ${EDGEX_ROOT_DIR}/lib/*.so)
+    list(APPEND TVM_LINKER_LIBS ${EDGEX_LIB})
+    list(APPEND TVM_RUNTIME_LINKER_LIBS ${EDGEX_LIB})
   endif()
   file(GLOB RUNTIME_EDGEX_SRCS src/runtime/edgex/*.cc)
-  list(APPEND TVM_LINKER_LIBS ${EDGEX_LIB})
-  list(APPEND TVM_RUNTIME_LINKER_LIBS ${EDGEX_LIB})
   list(APPEND RUNTIME_SRCS ${RUNTIME_EDGEX_SRCS})
   message(STATUS "Build with contrib.edgex")
 

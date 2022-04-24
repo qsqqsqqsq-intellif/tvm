@@ -22,9 +22,6 @@
  */
 #include "edgex_module.h"
 
-extern "C" {
-#include <dcl.h>
-}
 #include <dmlc/parameter.h>
 #include <tvm/ir/module.h>
 #include <tvm/runtime/registry.h>
@@ -40,7 +37,7 @@ extern "C" {
 #include "../meta_data.h"
 #include "../pack_args.h"
 #include "../thread_storage_scope.h"
-#include "edgex_common.h"
+#include "./dcl_dependency.h"
 
 namespace tvm {
 namespace runtime {
@@ -111,6 +108,7 @@ class EdgeXModuleNode : public runtime::ModuleNode {
     stream->Write(bin_map_);
     stream->Write(lst_map_);
     stream->Write(asm_map_);
+    stream->Write(full_obj_);
   }
 
   // TODO(@yiheng): edgex's fmt
@@ -147,6 +145,9 @@ class EdgeXModuleNode : public runtime::ModuleNode {
 
 PackedFunc EdgeXModuleNode::GetFunction(const std::string& name,
                                         const ObjectPtr<Object>& sptr_to_self) {
+  /* ensure dcl library is already loaded */
+  InitDCLDependencies();
+
   ICHECK_EQ(sptr_to_self.get(), this);
   ICHECK_NE(name, symbol::tvm_module_main) << "Device function do not have main";
   if (f_map_.find(name) == f_map_.end()) {
@@ -362,13 +363,15 @@ Module EdgeXModuleLoadBinary(void* strm) {
   std::unordered_map<std::string, std::string> lst_map;
   std::unordered_map<std::string, FunctionInfo> fmap;
   std::unordered_map<std::string, std::string> asm_map;
+  std::string full_obj;
   std::string fmt;
   stream->Read(&fmt);
   stream->Read(&fmap);
   stream->Read(&bin_map);
   stream->Read(&lst_map);
   stream->Read(&asm_map);
-  return EdgeXModuleCreate(bin_map, lst_map, fmt, fmap, asm_map, "");
+  stream->Read(&full_obj);
+  return EdgeXModuleCreate(bin_map, lst_map, fmt, fmap, asm_map, full_obj);
 }
 
 TVM_REGISTER_GLOBAL("runtime.module.loadfile_exbin").set_body_typed(EdgeXModuleLoadFile);

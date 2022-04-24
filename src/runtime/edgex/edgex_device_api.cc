@@ -19,11 +19,8 @@
 
 /*!
  * \file edgex_device_api.cc
- * \brief GPU specific API
+ * \brief Edgex specific API
  */
-extern "C" {
-#include <dcl.h>
-}
 #include <dmlc/parameter.h>
 #include <dmlc/thread_local.h>
 #include <tvm/runtime/device_api.h>
@@ -32,7 +29,8 @@ extern "C" {
 #include <cstring>
 #include <map>
 
-#include "edgex_common.h"
+#include "./dcl_dependency.h"
+#include "./edgex_module.h"
 
 namespace tvm {
 namespace runtime {
@@ -198,6 +196,9 @@ class EdgeXDeviceAPI final : public DeviceAPI {
  private:
   // Ensure EdgeXDeviceAPI as singelaton with dcl environment initialized.
   EdgeXDeviceAPI() {
+    /* ensure dcl library is already loaded */
+    InitDCLDependencies();
+
     std::string cfg_file = dmlc::GetEnv("EDGEX_CLIENT_CONFIG", std::string(""));
     if (cfg_file.empty()) {
       EDGEX_CALL(dclInit(nullptr));

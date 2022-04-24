@@ -70,7 +70,7 @@ build:
       echo set\(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE}\) >> config.cmake
       echo set\(USE_LLVM ${DEP_ROOT}/llvm/bin/llvm-config\) >> config.cmake
       echo set\(USE_EDGEX ${DCL_ROOT_DIR}/client\) >> config.cmake
-      cmake .. && make -j32
+      cmake .. -DEDGEX_USE_DYN_DCL=ON && make -j32
       popd
   artifacts:
     when: on_success
