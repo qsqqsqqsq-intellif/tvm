@@ -251,7 +251,11 @@ class BufferLayoutUpdater : public IRMutatorWithAnalyzer {
       if (it != buffer_map_.end()) {
         const BufferUpdateSpec& spec = it->second;
         if (!spec.new_alloc_block) {
-          new_alloc_buffers.push_back(it->second.new_buffer);
+          if (!std::any_of(
+                  block->alloc_buffers.begin(), block->alloc_buffers.end(),
+                  [&it](const Buffer& buf) { return buf.same_as(it->second.new_buffer); })) {
+            new_alloc_buffers.push_back(it->second.new_buffer);
+          }
         }
       } else {
         new_alloc_buffers.push_back(buffer);

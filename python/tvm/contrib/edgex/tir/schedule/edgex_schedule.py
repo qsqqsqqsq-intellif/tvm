@@ -136,6 +136,10 @@ class EdgexSchedule(Schedule):
             self, block, origin_buffer, new_buffer, load_rewrite, store_rewrite, region_rewrite
         )
 
+    def inplace_buffer(self, block: BlockRV, read_idx=0, write_idx=0, unsafe: bool = False) -> None:
+        assert unsafe, "Inplace safety check is not implemented"
+        _ffi_api_schedule.ScheduleInplaceBuffer(self, block, read_idx, write_idx, unsafe)
+
     def can_compute_at(self, block: StmtSRef, loop: LoopRV) -> bool:
         return _ffi_api_schedule.CanComputeAt(self, block, loop)
 

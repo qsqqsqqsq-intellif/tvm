@@ -125,6 +125,15 @@ TVM_DLL void ReplaceBuffer(ScheduleState self, StmtSRef stmt_sref, Buffer origin
                            Buffer new_buffer, PackedFunc load_rewrite_func,
                            PackedFunc store_rewrite_func, PackedFunc region_rewrite_func);
 
+/*!
+ * \brief make block write buffer inplace to read buffer, without soundness check.
+ * \param block_sref the block sref
+ * \param read_idx the index of the block read region
+ * \param write_idx the index of the block write region
+ */
+TVM_DLL void InplaceBufferUnsafe(ScheduleState self, StmtSRef block_sref, size_t read_idx = 0,
+                                 size_t write_idx = 0);
+
 }  // namespace schedule
 }  // namespace tir
 }  // namespace tvm

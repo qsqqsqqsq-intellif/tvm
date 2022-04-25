@@ -96,6 +96,12 @@ class EdgexScheduleNode : public ConcreteScheduleNode {
                                    load_rewrite_func, store_rewrite_func, region_rewrite_func);
   }
 
+  void InplaceBuffer(const BlockRV& block_rv, size_t read_idx, size_t write_idx, bool unsafe) {
+    ICHECK(unsafe) << "Inplace safety check is not implemented";
+    StmtSRef stmt_sref = this->GetSRef(block_rv);
+    return schedule::InplaceBufferUnsafe(this->state(), stmt_sref, read_idx, write_idx);
+  }
+
   bool CanComputeAt(const BlockRV& block_rv, const LoopRV& loop_rv, bool preserve_unit_loop) {
     return tir::CanComputeAt(this->state(), this->GetSRef(block_rv), this->GetSRef(loop_rv),
                              preserve_unit_loop);
@@ -221,6 +227,14 @@ TVM_REGISTER_GLOBAL("tir.edgex.schedule.ScheduleReplaceBuffer")
       auto edgex_schd = const_cast<EdgexScheduleNode*>(self.as<EdgexScheduleNode>());
       return edgex_schd->ReplaceBuffer(block_rv, origin_buffer, new_buffer, load_rewrite_func,
                                        store_rewrite_func, region_rewrite_func);
+    });
+
+TVM_REGISTER_GLOBAL("tir.edgex.schedule.ScheduleInplaceBuffer")
+    .set_body_typed([](Schedule self, BlockRV block_rv, size_t read_idx, size_t write_idx,
+                       bool unsafe) {
+      ICHECK(unsafe) << "Inplace safety check is not implemented";
+      auto edgex_schd = const_cast<EdgexScheduleNode*>(self.as<EdgexScheduleNode>());
+      return edgex_schd->InplaceBuffer(block_rv, read_idx, write_idx, unsafe);
     });
 
 TVM_REGISTER_GLOBAL("tir.edgex.schedule.CanComputeAt")
