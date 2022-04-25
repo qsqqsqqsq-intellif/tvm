@@ -35,7 +35,7 @@ batch_size = 1
 calibrate_num = 500
 num_workers = 8
 model_name = "vit_b_32"
-performance = {"float": None, "int8": None}
+performance = {"float": 75.9020, "int8": 75.1660}
 root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/imagenet"
 
@@ -46,14 +46,12 @@ all_op = [
     "concatenate",
     "add",
     "nn.layer_norm",
-    "nn.dense",
-    "nn.bias_add",
+    "dense_bias_add",
     "multiply",
     "nn.batch_matmul",
     "nn.softmax",
     "GELU",
     "take",
-    "dense_bias_add",
 ]
 
 
@@ -122,6 +120,12 @@ else:
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
 
+quantize_config = {}
+quantize_config["float_list"] = [
+    "add",
+    "multiply",
+]
+
 quantize_search = relay.quantization.QuantizeSearch(
     model_name=model_name,
     mod=mod,
@@ -139,6 +143,7 @@ quantize_search = relay.quantization.QuantizeSearch(
             "axis": 1,
         },
     },
+    quantize_config=quantize_config,
     compare_statistics=False,
     verbose=True,
 )

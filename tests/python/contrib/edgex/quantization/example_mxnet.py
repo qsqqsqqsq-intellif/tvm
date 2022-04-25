@@ -36,7 +36,7 @@ else:
 batch_size = 1
 calibrate_num = 500
 model_name = "test_mxnet"
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 
 # kwargs = {}
 # if model_name.startswith("resnext"):
@@ -109,9 +109,6 @@ def prepare_data_loaders(data_path, batch_size):
             mxnet.gluon.data.vision.transforms.Resize(resize, keep_ratio=True),
             mxnet.gluon.data.vision.transforms.CenterCrop(224),
             mxnet.gluon.data.vision.transforms.ToTensor(),
-            # mxnet.gluon.data.vision.transforms.Normalize(
-            #     [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
-            # ),
         ]
     )
 
@@ -124,31 +121,6 @@ def prepare_data_loaders(data_path, batch_size):
         num_workers=0,
     )
     return val_data
-
-
-class AverageMeter:
-    """Computes and stores the average and current value"""
-
-    def __init__(self, name, fmt=":f"):
-        self.name = name
-        self.fmt = fmt
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-    def __str__(self):
-        fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
-        return fmtstr.format(**self.__dict__)
 
 
 data_path = "/data/zhaojinxi/data/imagenet"
@@ -168,19 +140,23 @@ def yield_calibrate_data():
 
 
 def evaluate(runtime):
-    top1 = AverageMeter("Acc@1", ":6.2f")
+    correct = 0
+    total = 0
+
+    t = tqdm.tqdm(data_loader)
     for image, label in tqdm.tqdm(data_loader):
         image = (image.asnumpy() * 255).astype(numpy.uint8)
         data = {"input": image}
         label = label.asnumpy()
         runtime.set_input(**data)
         runtime.run()
-        tvm_output = runtime.get_output(0)
-        output = tvm_output.asnumpy()
-        acc1 = (output.argmax(axis=1) == label).astype(numpy.float32).sum() / output.shape[0] * 100
-        top1.update(acc1, image.shape[0])
-        print(top1.avg)
-    return top1.avg
+        output = runtime.get_output(0).asnumpy()
+        result = output.argmax(axis=1) == label
+        correct = correct + result.astype(numpy.float32).sum()
+        total = total + label.shape[0]
+        acc = correct / total * 100
+        t.set_postfix({"accuracy": "{:.4f}".format(acc)})
+    return acc
 
 
 path = os.path.join(root_path, model_name, "origin")
@@ -201,16 +177,15 @@ quantize_search = relay.quantization.QuantizeSearch(
     ctx=ctx,
     target=target,
     root_path=root_path,
-    mean=[0.485 * 255, 0.456 * 255, 0.406 * 255],
-    scale=[0.229 * 255, 0.224 * 255, 0.225 * 255],
     norm={
         "input": {
-            "mean": [0.485 * 255, 0.456 * 255, 0.406 * 255],
-            "std": [0.229 * 255, 0.224 * 255, 0.225 * 255],
+            "mean": [123.675, 116.28, 103.53],
+            "std": [58.395, 57.12, 57.375],
             "axis": 1,
         },
     },
     compare_statistics=True,
+    verbose=True,
 )
 
 config = quantize_search.get_default_config()

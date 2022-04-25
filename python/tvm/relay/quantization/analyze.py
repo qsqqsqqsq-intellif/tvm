@@ -594,6 +594,7 @@ class AnalyzeGraph(ExprVisitor):
                 self.collect_node.update([fn.body])
                 self.vertex_config[fn.body].output_config["method"] = Method.Symmetry
                 self.vertex_config[fn.body].output_config["operate"] = "requantize"
+                self.vertex_config[fn.body].output_config["qmin"] = -128
                 self.vertex_config[fn.body].output_config["qmax"] = 127
             else:
                 self.vertex_config[fn.body].output_config["threshold"] = None

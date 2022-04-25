@@ -32,7 +32,7 @@ else:
 batch_size = 1
 calibrate_num = 2
 model_name = "test_pytorch"
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 
 
 class Example(torch.nn.Module):
@@ -109,6 +109,7 @@ quantize_search = relay.quantization.QuantizeSearch(
     channel_last=False,
     rgb="rgb",
     compare_statistics=True,
+    verbose=True,
 )
 
 config = quantize_search.get_default_config()

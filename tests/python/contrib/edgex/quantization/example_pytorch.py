@@ -40,7 +40,7 @@ calibrate_num = 50
 num_workers = 8
 model_name = "test_pytorch"
 performance = {"float": None, "int8": None}
-root_path = os.path.join(os.path.expanduser("~"), "Documents/quantize_result")
+root_path = "/data/zhaojinxi/Documents/quantize_result"
 data_path = "/data/zhaojinxi/data/imagenet"
 
 
@@ -147,7 +147,7 @@ else:
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
 
 quantize_config = {}
-quantize_config["calib_method"] = "min_max"
+quantize_config["float_list"] = [_ for _ in range(0, 1000)]
 
 quantize_search = relay.quantization.QuantizeSearch(
     model_name=model_name,
@@ -166,8 +166,9 @@ quantize_search = relay.quantization.QuantizeSearch(
             "axis": 1,
         },
     },
-    quantize_config=quantize_config,
     compare_statistics=False,
+    verbose=True,
+    quantize_config=quantize_config,
 )
 
 config = quantize_search.get_default_config()
