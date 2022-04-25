@@ -120,6 +120,10 @@ TIR_DEFINE_BUILTIN_FUNC(nnp_inline_asm_vcu)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
     .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::VCU));
 
+TIR_DEFINE_BUILTIN_FUNC(nnp_extract_field)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure))
+    .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::ALL));
+
 TIR_DEFINE_BUILTIN_FUNC(nnp_iss_bind_input_buffer)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
     .set_attr<TNNPUnitKind>("TNNPUnitKind", Integer(NNPUnitKind::CU));

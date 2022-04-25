@@ -16,6 +16,7 @@
 # under the License.
 import pytest
 import sys
+import numpy as np
 import tvm.script.tir as T
 from tvm.contrib.edgex.tir.schedule import EdgexSchedule
 from tvm.contrib.edgex.testing import check_edgex_tir_build
@@ -91,5 +92,41 @@ def test_vu_add_with_asm():
     )
 
 
+def test_fetch_tuple():
+    @T.prim_func
+    def add_and_sub(
+        X: T.Buffer[(64,), "int32"], Y: T.Buffer[(64,), "int32"], Z: T.Buffer[(128,), "int32"]
+    ) -> None:
+        with T.block("root"):
+            with T.block("compute"):
+                T.reads([X[0:64], Y[0:64]])
+                T.writes([Z[0:128]])
+                tuple: None = T.nnp_inline_asm_vcu(
+                    "={vv},={vv},{vv},{vv}",
+                    "nop.10\nvadd.s32 $0 $2 $3\nvsub.s32 $1 $2 $3\nnop.10\n",
+                    16,  # vectorize factor = 16
+                    0,  # no state regs
+                    2,  # two inputs
+                    X[T.ramp(0, 1, 64)],
+                    Y[T.ramp(0, 1, 64)],
+                    0,  # zero placeholder
+                    2,  # two outputs
+                    T.type_annotation(dtype="int32x64"),
+                    T.type_annotation(dtype="int32x64"),
+                    dtype="",  # dtype should be mark as ""
+                )
+                Z[T.ramp(0, 1, 64)] = T.nnp_extract_field(tuple, 0, dtype="int32x64")
+                Z[T.ramp(64, 1, 64)] = T.nnp_extract_field(tuple, 1, dtype="int32x64")
+
+    s = EdgexSchedule(add_and_sub)
+    do_simple_schedule(s)
+    check_edgex_tir_build(
+        "vu_fetch_tuple",
+        s.mod["main"],
+        numpy_func=lambda x, y: np.concatenate([x + y, x - y]),
+        check_cpu=False,
+    )
+
+
 if __name__ == "__main__":
-    sys.exit(pytest.main(sys.argv))
+    sys.exit(pytest.main([__file__] + sys.argv[1:]))

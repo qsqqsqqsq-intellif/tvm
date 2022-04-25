@@ -21,7 +21,6 @@
  * \file codegen_nnp400llvm.cc
  * \brief NNP400 llvm code generator.
  */
-
 #if (defined TVM_LLVM_VERSION)
 #include <llvm/IR/IntrinsicsNNP.h>
 #include <llvm/Support/CommandLine.h>
@@ -741,19 +740,24 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
   }
 
   llvm::Value* CreateNNPInlineAsmVcu(const CallNode* op) {
+    ICHECK_GE(op->args.size(), 4) << "Fail to get state num, expect at least 4 arguments";
     auto constraint = Downcast<StringImm>(op->args[0]);
     auto inline_asm = Downcast<StringImm>(op->args[1]);
-    size_t state_num = Downcast<IntImm>(op->args[3])->value;
-    size_t input_num = Downcast<IntImm>(op->args[4 + state_num])->value;
+    size_t vf = Downcast<IntImm>(op->args[2])->value;
 
-    std::vector<llvm::Type*> constraint_res_tys;
-    constraint_res_tys.push_back(GetLLVMType(GetRef<Call>(op)));
+    // parse state types
+    std::vector<llvm::Type*> state_tys;
+    size_t state_num = Downcast<IntImm>(op->args[3])->value;
+    ICHECK_GE(op->args.size(), 5 + state_num)
+        << "Fail to get state types, expect at least " << 5 + state_num << " arguments";
     for (size_t i = 0; i < state_num; ++i) {
-      constraint_res_tys.push_back(GetLLVMType(op->args[4 + i]));
+      state_tys.push_back(GetLLVMType(op->args[4 + i]));
     }
-    llvm::Type* res_ty =
-        state_num == 0 ? constraint_res_tys[0]
-                       : llvm::StructType::get(module_->getContext(), constraint_res_tys, false);
+
+    // parse inputs
+    size_t input_num = Downcast<IntImm>(op->args[4 + state_num])->value;
+    ICHECK_GE(op->args.size(), 6 + state_num + input_num)
+        << "Fail to get inputs, expect at least " << 5 + state_num + input_num << " arguments";
     std::vector<llvm::Type*> input_tys;
     std::vector<llvm::Value*> input_args;
     for (size_t i = 0; i < input_num; ++i) {
@@ -762,24 +766,84 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
       input_args.push_back(arg_value);
     }
 
-    // vectorize factor, if non-zero, partition input vector typed arguments
-    size_t vf = Downcast<IntImm>(op->args[2])->value;
+    // parse placeholders
+    size_t ph_num = 0;
+    if (op->args.size() > 5 + state_num + input_num) {
+      ph_num = Downcast<IntImm>(op->args[5 + state_num + input_num])->value;
+      ICHECK_GE(op->args.size(), 6 + state_num + input_num + ph_num)
+          << "Fail to get placeholders, expect at least " << 6 + state_num + input_num + ph_num
+          << " arguments";
+    }
+    size_t output_num = 0;
+    if (op->args.size() > 6 + state_num + input_num + ph_num) {
+      output_num = Downcast<IntImm>(op->args[6 + state_num + input_num + ph_num])->value;
+      ICHECK_GE(op->args.size(), 6 + state_num + input_num + ph_num + output_num)
+          << "Fail to get output types, expect at least "
+          << 6 + state_num + input_num + ph_num + output_num << " arguments";
+    }
+
+    // parse output types
     size_t lanes = op->dtype.lanes();
-    llvm::Type* func_res_ty = res_ty;
+    llvm::Type* final_out_ty = GetLLVMType(GetRef<Call>(op));
+    std::vector<llvm::Type*> out_tys;
+    if (output_num > 1) {
+      ICHECK(final_out_ty->isVoidTy()) << "Explicitly specify output type annotations, original "
+                                          "dtype should be void to mark opaqueness";
+      for (size_t i = 0; i < output_num; ++i) {
+        PrimExpr out_annotation = op->args[7 + state_num + input_num + ph_num + i];
+        if (i == 0) {
+          lanes = out_annotation->dtype.lanes();
+        } else {
+          ICHECK_EQ(out_annotation->dtype.lanes(), lanes)
+              << "Tuple output should be of same lanes on non-trivial vectorize factor";
+        }
+        out_tys.push_back(GetLLVMType(out_annotation));
+      }
+      final_out_ty = llvm::StructType::get(module_->getContext(), out_tys, false);
+    } else {
+      output_num = 1;
+      out_tys.push_back(final_out_ty);
+    }
+    std::vector<uint32_t> out_indices;
+    for (size_t i = 0; i < output_num; ++i) {
+      out_indices.push_back(i);
+    }
+
+    // vectorize factor, if non-zero, partition input vector typed arguments
     if (vf > 0 && lanes > 1) {
       ICHECK_EQ(vf & (vf - 1), 0) << "Vu inline asm's vectorize factor should be power of 2 " << vf;
       for (size_t i = 0; i < input_num; ++i) {
         PrimExpr arg = op->args[5 + state_num + i];
         ICHECK_EQ(lanes, arg->dtype.lanes())
             << "Inline asm op inputs must be of same lanes for non-zero vectorize factor";
-        ICHECK(input_tys[i]->isVectorTy());
-        input_tys[i] = llvm::FixedVectorType::get(input_tys[i]->getArrayElementType(), vf);
+        if (input_tys[i]->isVectorTy()) {
+          input_tys[i] = llvm::FixedVectorType::get(input_tys[i]->getArrayElementType(), vf);
+        }
       }
-      ICHECK(res_ty->isVectorTy());
-      func_res_ty = llvm::FixedVectorType::get(res_ty->getArrayElementType(), vf);
+      for (size_t i = 0; i < state_num; ++i) {
+        if (state_tys[i]->isVectorTy()) {
+          state_tys[i] = llvm::FixedVectorType::get(state_tys[i]->getArrayElementType(), vf);
+        }
+      }
+      for (size_t i = 0; i < output_num; ++i) {
+        if (out_tys[i]->isVectorTy()) {
+          out_tys[i] = llvm::FixedVectorType::get(out_tys[i]->getArrayElementType(), vf);
+        }
+      }
     }
 
-    auto func_ty = llvm::FunctionType::get(func_res_ty, input_tys, false);
+    std::vector<llvm::Type*> constraint_out_tys;
+    for (size_t i = 0; i < output_num; ++i) {
+      constraint_out_tys.push_back(out_tys[i]);
+    }
+    for (size_t i = 0; i < state_num; ++i) {
+      constraint_out_tys.push_back(state_tys[i]);
+    }
+    llvm::Type* func_ret_ty =
+        constraint_out_tys.size() == 1
+            ? constraint_out_tys[0]
+            : llvm::StructType::get(module_->getContext(), constraint_out_tys, false);
+    auto func_ty = llvm::FunctionType::get(func_ret_ty, input_tys, false);
     auto inline_asm_func =
         llvm::InlineAsm::get(func_ty, inline_asm->value, constraint->value, true);
     llvm::Value* res = nullptr;
@@ -787,15 +851,19 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     if (vf == 0 || lanes == 1) {
       res = builder_->CreateCall(inline_asm_func, input_args);
       if (state_num > 0) {
-        res = builder_->CreateExtractValue(res, {0});
+        res = builder_->CreateExtractValue(res, out_indices);
       }
     } else {
       llvm::Value* undef =
           input_args.empty() ? nullptr : llvm::UndefValue::get(input_args[0]->getType());
       std::vector<llvm::Value*> partition_input_args(input_args.size());
       std::vector<llvm::Constant*> partition_mask(vf);
-      res = llvm::UndefValue::get(res_ty);
-
+      std::vector<llvm::Value*> res_fields;
+      for (size_t i = 0; i < output_num; ++i) {
+        llvm::Type* field_ty =
+            output_num == 1 ? final_out_ty : final_out_ty->getStructElementType(i);
+        res_fields.push_back(llvm::UndefValue::get(field_ty));
+      }
       size_t num_partitions = (lanes + vf - 1) / vf;
       for (size_t i = 0; i < num_partitions; ++i) {
         for (size_t j = 0; j < vf; ++j) {
@@ -812,18 +880,43 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
         }
         llvm::Value* partition_res = builder_->CreateCall(inline_asm_func, partition_input_args);
         if (state_num > 0) {
-          partition_res = builder_->CreateExtractValue(partition_res, {0});
+          partition_res = builder_->CreateExtractValue(partition_res, out_indices);
         }
         for (size_t j = 0; j < vf; ++j) {
           if (i * vf + j >= lanes) {
             break;
           }
-          llvm::Value* elem = builder_->CreateExtractElement(partition_res, j);
-          res = builder_->CreateInsertElement(res, elem, i * vf + j);
+          if (output_num > 1) {
+            for (size_t k = 0; k < output_num; ++k) {
+              llvm::Value* elem = builder_->CreateExtractValue(partition_res, k);
+              elem = builder_->CreateExtractElement(elem, j);
+              res_fields[k] = builder_->CreateInsertElement(res_fields[k], elem, i * vf + j);
+            }
+          } else {
+            llvm::Value* elem = builder_->CreateExtractElement(partition_res, j);
+            res_fields[0] = builder_->CreateInsertElement(res_fields[0], elem, i * vf + j);
+          }
         }
+      }
+      if (output_num > 1) {
+        res = llvm::UndefValue::get(final_out_ty);
+        for (size_t k = 0; k < output_num; ++k) {
+          res = builder_->CreateInsertValue(res, res_fields[k], k);
+        }
+      } else {
+        res = res_fields[0];
       }
     }
     return res;
+  }
+
+  llvm::Value* CreateNNPLLVMExtractValue(const CallNode* op) {
+    ICHECK_EQ(op->args.size(), 2);
+    ICHECK(is_const_int(op->args[1]));
+    llvm::Value* tuple = MakeValue(op->args[0]);
+    ICHECK(tuple->getType()->isStructTy());
+    uint32_t field_idx = static_cast<uint32_t>(Downcast<IntImm>(op->args[1])->value);
+    return builder_->CreateExtractValue(tuple, {field_idx});
   }
 
   llvm::Value* CreateLockVcu(const CallNode* op) {
@@ -1018,6 +1111,8 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     RegisterNNPIntrinsic(edgex::builtin::nnp_vint(), &CodeGenNNP400LLVM::CreateVint);
     RegisterNNPIntrinsic(edgex::builtin::nnp_inline_asm_vcu(),
                          &CodeGenNNP400LLVM::CreateNNPInlineAsmVcu);
+    RegisterNNPIntrinsic(edgex::builtin::nnp_extract_field(),
+                         &CodeGenNNP400LLVM::CreateNNPLLVMExtractValue);
   }
 
   /*! \brief keep input buffer variables from tir function arguments. */

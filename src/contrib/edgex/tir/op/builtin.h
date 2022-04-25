@@ -121,15 +121,23 @@ TVM_DLL const Op& nnp_cuid();
  * nnp_inline_asm(constraint_str, asm_str, vector_factor,
  *                state_num, state_type_annotations...,
  *                input_num, input_args...,
- *                placeholder_num, placeholder_args...)
+ *                placeholder_num, placeholder_args...,
+ *                output_num, output_type_annotations...)
  * the inputs and states should match with constraint string, eg:
  * if the constraint_str is "={vv},=&{vv},=&{vv},={vacc},{vv},{vv}", then
  *    - the first "={vv}" denotes the output, resides in vv reg
  *    - the "=&{vv},=&{vv},={vacc}" part denotes there are 3 state arguments, the first two in vv
  * and the last in vacc
  *    - the final "{vv},{vv}" denotes there are two inputs, both in vv
+ * if non-zero output_num specified, the output type is specified by following output type
+ * annotations and the PrimExpr's dtype should be "" to mark as opaque multi-output dtype.
  */
 TVM_DLL const Op& nnp_inline_asm_vcu();
+
+/*!
+ * \brief tvm intrinsic for nnp extract value field of tuple result from instrinsics.
+ */
+TVM_DLL const Op& nnp_extract_field();
 
 /*!
  * \brief tvm intrinsic for nnp iss buffer handling.
