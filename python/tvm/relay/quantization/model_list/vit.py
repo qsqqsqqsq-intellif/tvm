@@ -123,7 +123,6 @@ else:
 quantize_config = {}
 quantize_config["float_list"] = [
     "add",
-    "multiply",
 ]
 
 quantize_search = relay.quantization.QuantizeSearch(
@@ -150,5 +149,4 @@ quantize_search = relay.quantization.QuantizeSearch(
 
 config = quantize_search.get_default_config()
 quantize_search.quantize(config)
-# quantize_search.visualize("post_process", config)
 quantize_search.evaluate("post_process", config)

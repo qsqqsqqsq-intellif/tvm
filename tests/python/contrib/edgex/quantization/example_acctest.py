@@ -94,6 +94,5 @@ quantize_search = relay.quantization.QuantizeSearch(
 
 config = quantize_search.get_default_config()
 quantize_search.quantize(config)
-quantize_search.visualize("post_processed", config)
 quantize_search.compare_statistics(config)
 quantize_search.evaluate("post_process", config)

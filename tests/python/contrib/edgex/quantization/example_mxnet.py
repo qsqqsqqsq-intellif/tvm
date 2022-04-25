@@ -34,17 +34,12 @@ else:
     target = "llvm"
 
 batch_size = 1
-calibrate_num = 500
+calibrate_num = 50
+num_workers = 8
 model_name = "test_mxnet"
+performance = {"float": None, "int8": None}
 root_path = "/data/zhaojinxi/Documents/quantize_result"
-
-# kwargs = {}
-# if model_name.startswith("resnext"):
-#     kwargs["use_se"] = True
-# model = gluoncv.model_zoo.get_model(
-#     model_name, pretrained=True, ctx=[mxnet.cpu()], classes=1000, **kwargs
-# )
-# model.hybridize()
+data_path = "/data/zhaojinxi/data/imagenet"
 
 
 class Example(mxnet.gluon.HybridBlock):
@@ -95,13 +90,6 @@ class Example(mxnet.gluon.HybridBlock):
         return x
 
 
-model = Example()
-model.initialize()
-model.hybridize()
-x = mxnet.random.uniform(low=-1, high=1, shape=(1, 3, 224, 224), dtype="float32")
-model(x)
-
-
 def prepare_data_loaders(data_path, batch_size):
     resize = int(math.ceil(224 / 0.875))
     transform_test = mxnet.gluon.data.vision.transforms.Compose(
@@ -123,7 +111,6 @@ def prepare_data_loaders(data_path, batch_size):
     return val_data
 
 
-data_path = "/data/zhaojinxi/data/imagenet"
 data_loader = prepare_data_loaders(data_path, 1)
 
 calibrate_data = []
@@ -164,7 +151,12 @@ if os.path.exists(path):
     mod = None
     params = None
 else:
-    shape_dict = {"input": (1, 3, 224, 224)}
+    model = Example()
+    model.initialize()
+    model.hybridize()
+    x = mxnet.random.uniform(low=-1, high=1, shape=(1, 3, 224, 224), dtype="float32")
+    model(x)
+    shape_dict = {"input": x.asnumpy().shape}
     mod, params = relay.frontend.from_mxnet(model, shape_dict)
 
 quantize_search = relay.quantization.QuantizeSearch(
@@ -190,5 +182,4 @@ quantize_search = relay.quantization.QuantizeSearch(
 
 config = quantize_search.get_default_config()
 quantize_search.quantize(config)
-# quantize_search.visualize("post_processed", config)
 quantize_search.evaluate("post_process", config)

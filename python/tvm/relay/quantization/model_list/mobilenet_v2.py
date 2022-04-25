@@ -115,9 +115,6 @@ else:
     shape_list = [("input", x.numpy().shape)]
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
 
-quantize_config = {}
-quantize_config["calib_method"] = "percentile_0.9999"
-
 quantize_search = relay.quantization.QuantizeSearch(
     model_name=model_name,
     mod=mod,
@@ -135,13 +132,10 @@ quantize_search = relay.quantization.QuantizeSearch(
             "axis": 1,
         },
     },
-    quantize_config=quantize_config,
     compare_statistics=False,
     verbose=True,
-    # net_in_dtype="int16",
 )
 
 config = quantize_search.get_default_config()
 quantize_search.quantize(config)
-# quantize_search.visualize("post_process", config)
 quantize_search.evaluate("post_process", config)
