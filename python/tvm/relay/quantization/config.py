@@ -239,6 +239,10 @@ class ConfigSpace(ExprVisitor):
         if name == "clip" and (call.attrs.a_min < 0 or call.attrs.a_max > 6):
             config[tmp]["quantized"] = False
 
+        if name == "stack":
+            tmp_arg = self.node_id[call.args[0]]
+            config[tmp_arg]["quantized"] = False
+
     def get_op_parameter(self, quantize_config, config, tmp):
         # control conv2d+biasadd strategy
         cond1 = tmp.split("_")[1].startswith("conv2d") and tmp.endswith("bias_add")

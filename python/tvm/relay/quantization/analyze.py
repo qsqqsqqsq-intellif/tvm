@@ -50,6 +50,7 @@ DISABLE_PERCHANNEL_OP = [
     "nn.depth_to_space",
     "nn.space_to_depth",
     "nn.pad",
+    "stack",
 ]
 
 # the input and output same dtype
@@ -80,6 +81,7 @@ IDENTITY_INPUT_DTYPE_OP = [
     "split",
     "nn.depth_to_space",
     "nn.space_to_depth",
+    "stack",
 ]
 
 # the in-out axis should be same and nodo requantize
@@ -113,6 +115,7 @@ IDENTITY_OP_LIST = [
     "broadcast_to",
     "nn.depth_to_space",
     "nn.space_to_depth",
+    "stack",
 ]
 
 # can't use int8

@@ -211,6 +211,13 @@ def _calibrate_core(arg, input_config, vertex_config, quantized=True):
     y = {}
     if input_config["method"] is not None:
         y = input_config["method"](input_config)
+        if (
+            "scale" in y
+            and isinstance(arg, relay.Var)
+            and "dtype" in input_config
+            and input_config["dtype"] in ["uint8", "int16"]
+        ):
+            y["scale"] = numpy.ones(y["scale"].size)
         tmp = {
             "quantized_scale": y["scale"].astype("float32"),
             "quantized_zero_point": y["zero_point"],
@@ -231,13 +238,7 @@ def _calibrate_core(arg, input_config, vertex_config, quantized=True):
             zero_point = vertex_config[arg].output_config["zero_point"]
             axis = vertex_config[arg].output_config["axis"]
             y = {"scale": scale.astype("float32"), "zero_point": zero_point, "axis": axis}
-    if (
-        "scale" in y
-        and isinstance(arg, relay.Var)
-        and "dtype" in input_config
-        and input_config["dtype"] in ["uint8", "int16"]
-    ):
-        y["scale"] = numpy.ones(y["scale"].size)
+
     return y
 
 
