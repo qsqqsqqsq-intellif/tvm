@@ -548,7 +548,6 @@ def _requantize_shift(node, multiplier):
                 new_scale = numpy.array(new_scale).reshape(s_shape)
                 all_new_b = numpy.array(all_new_b).reshape(s_shape)
             new_scale = relay.const(new_scale.astype("uint8"))
-            all_new_b = numpy.array(all_new_b).reshape(s_shape)
             all_new_b = relay.const(all_new_b.astype("int32"))
             data = relay.multiply(data, new_scale, out_dtype="int32")
             data = relay.round_right_shift(data, all_new_b, out_dtype="int32")

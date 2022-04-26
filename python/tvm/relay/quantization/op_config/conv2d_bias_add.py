@@ -258,6 +258,7 @@ class Conv2DBiasAdd:
         if self.bias_method == 1 and self.quantized:
             input_config = self.input_config[node.args[2]]
             bias_scale = _calibrate_core(node.args[2], input_config, vertex_config, self.quantized)
+            bias_scale["scale"][numpy.where(bias_scale["scale"] == 0.01 / 127)] = 0.01 / (2 ** 23)
             maxscale = numpy.max([scale, bias_scale["scale"]], axis=0)
             weigh_adjust = scale / maxscale
             bias_adjust = bias_scale["scale"] / maxscale
