@@ -58,6 +58,7 @@ def test_fusion_stitching(net):
         "mobilenet_v2",
         "mobilenet_v3",
         "mobilenet_v2_qat",
+        pytest.param("superglue", marks=[pytest.mark.skip("Too slow")]),
         "superpoint",
     ],
 )

@@ -501,6 +501,9 @@ class AtomicGraph {
                          {"add", ""},
                          {"clip", ""},
                          {"cast", ""}});
+    // for superglue
+    add_atomic_op_specs(&atomic_op_specs, ATOMIC_ELTWISE,
+                        {{"add"}, {"exp"}, {"sum"}, {"log"}, {"subtract"}, {"expand_dims"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_BIASADD,
                         {{"nn.bias_add"}, {"right_shift", ""}, {"clip", ""}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_RIGHTSHIFT, {{"right_shift", ""}, {"clip", ""}});
@@ -532,10 +535,11 @@ class AtomicGraph {
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_DEVICECOPY, {{"copy"}});
     add_atomic_op_specs(
         &atomic_op_specs, ATOMIC_ELTWISE,
-        {{"divide",      "equal",      "erf",      "exp",     "floor_mod", "log",     "logical_not",
-          "logical_and", "logical_or", "max",      "maximum", "mean",      "minimum", "multiply",
-          "mod",         "negative",   "nn.lrn",   "power",   "round",     "sqrt",    "sum",
-          "tanh",        "topk",       "variance", "where"}});
+        {{"argmax",     "divide",   "equal",   "erf",      "exp",         "floor_mod",
+          "gather",     "greater",  "less",    "log",      "logical_not", "logical_and",
+          "logical_or", "max",      "maximum", "mean",     "minimum",     "multiply",
+          "mod",        "negative", "nn.lrn",  "power",    "round",       "sqrt",
+          "sum",        "tanh",     "topk",    "variance", "where"}});
 
     return std::move(atomic_op_specs);
   }
