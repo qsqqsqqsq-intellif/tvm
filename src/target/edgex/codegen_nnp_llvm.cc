@@ -250,6 +250,9 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
       bool is_vcu = Downcast<Integer>(attr->value)->value > 0;
       CreateComputeScope(attr->body, is_vcu);
       return;
+    } else if (attr->attr_key == tvm::tir::attr::aliased_buffer_var) {
+      Var buffer_var = Downcast<Var>(attr->value);
+      disabled_tbaa_var_set_.insert(buffer_var.get());
     }
     return CodeGenLLVM::VisitStmt_(attr);
   }
@@ -307,6 +310,13 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     this->VisitStmt(body);
     builder_->CreateRetVoid();
     builder_->SetInsertPoint(restore_insert_point);
+  }
+
+  void AddAliasInfo(llvm::Instruction* inst, const VarNode* buffer_var, PrimExpr index) override {
+    if (disabled_tbaa_var_set_.count(buffer_var)) {
+      return;
+    }
+    CodeGenLLVM::AddAliasInfo(inst, buffer_var, index);
   }
 
   llvm::Value* CreateDMAOp(const std::vector<llvm::Intrinsic::ID> intrs, const CallNode* op) {
@@ -731,11 +741,24 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     NNPSetModeSpec spec = NNPSetModeSpec::FromCall(op);
     return WithSetModeScope<llvm::Value*>(spec, NNPSetModeSpec::TVM_APP_DEFAULT_SPEC, [this, op]() {
       ICHECK_GE(op->args.size(), 1);
+      size_t lanes = op->dtype.lanes();
       llvm::Value* value = VisitExpr(op->args[0]);
+      llvm::Type* ret_ty = DTypeToLLVMType(op->dtype);
+      if (lanes == 1) {
+        llvm::Value* vec = llvm::UndefValue::get(llvm::FixedVectorType::get(value->getType(), 1));
+        value = builder_->CreateInsertElement(vec, value, builder_->getInt32(0));
+        ret_ty = llvm::FixedVectorType::get(ret_ty, 1);
+      }
       llvm::Value* scale_num = builder_->getInt32(0);
-      auto vint_intrin = llvm::Intrinsic::getDeclaration(
-          module_.get(), llvm::Intrinsic::nnp_vint, {DTypeToLLVMType(op->dtype), value->getType()});
-      return builder_->CreateCall(vint_intrin, {value, scale_num});
+      auto vint_intrin = llvm::Intrinsic::getDeclaration(module_.get(), llvm::Intrinsic::nnp_vint,
+                                                         {ret_ty, value->getType()});
+      llvm::Value* res = builder_->CreateCall(vint_intrin, {value, scale_num});
+      if (lanes == 1) {
+        llvm::errs() << *res << "\n";
+        return builder_->CreateExtractElement(res, builder_->getInt32(0));
+      } else {
+        return res;
+      }
     });
   }
 
@@ -793,7 +816,7 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
         PrimExpr out_annotation = op->args[7 + state_num + input_num + ph_num + i];
         if (i == 0) {
           lanes = out_annotation->dtype.lanes();
-        } else {
+        } else if (vf > 0) {
           ICHECK_EQ(out_annotation->dtype.lanes(), lanes)
               << "Tuple output should be of same lanes on non-trivial vectorize factor";
         }
@@ -803,10 +826,6 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     } else {
       output_num = 1;
       out_tys.push_back(final_out_ty);
-    }
-    std::vector<uint32_t> out_indices;
-    for (size_t i = 0; i < output_num; ++i) {
-      out_indices.push_back(i);
     }
 
     // vectorize factor, if non-zero, partition input vector typed arguments
@@ -851,7 +870,16 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
     if (vf == 0 || lanes == 1) {
       res = builder_->CreateCall(inline_asm_func, input_args);
       if (state_num > 0) {
-        res = builder_->CreateExtractValue(res, out_indices);
+        if (output_num > 1) {
+          llvm::Value* full_res = res;
+          res = llvm::UndefValue::get(llvm::StructType::get(module_->getContext(), out_tys, false));
+          for (uint32_t i = 0; i < output_num; ++i) {
+            res =
+                builder_->CreateInsertValue(res, builder_->CreateExtractValue(full_res, {i}), {i});
+          }
+        } else {
+          res = builder_->CreateExtractValue(res, {0});
+        }
       }
     } else {
       llvm::Value* undef =
@@ -880,7 +908,17 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
         }
         llvm::Value* partition_res = builder_->CreateCall(inline_asm_func, partition_input_args);
         if (state_num > 0) {
-          partition_res = builder_->CreateExtractValue(partition_res, out_indices);
+          if (output_num > 1) {
+            llvm::Value* full_res = partition_res;
+            partition_res =
+                llvm::UndefValue::get(llvm::StructType::get(module_->getContext(), out_tys, false));
+            for (uint32_t i = 0; i < output_num; ++i) {
+              partition_res = builder_->CreateInsertValue(
+                  partition_res, builder_->CreateExtractValue(full_res, {i}), {i});
+            }
+          } else {
+            partition_res = builder_->CreateExtractValue(partition_res, {0});
+          }
         }
         for (size_t j = 0; j < vf; ++j) {
           if (i * vf + j >= lanes) {
@@ -1117,6 +1155,9 @@ class CodeGenNNP400LLVM : public CodeGenLLVM {
 
   /*! \brief keep input buffer variables from tir function arguments. */
   std::vector<const VarNode*> input_buffer_vars_;
+
+  /*! \brief buffer vars that do not use tbaa. */
+  std::unordered_set<const VarNode*> disabled_tbaa_var_set_;
 
   /*! \brief buffer var map for static storage allocation. */
   std::unordered_map<const VarNode*, llvm::Value*> storage_space_var_map_;

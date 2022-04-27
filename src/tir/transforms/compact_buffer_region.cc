@@ -106,6 +106,13 @@ class BufferAccessRegionCollector : public StmtExprVisitor {
     LOG(FATAL) << "Unexpected use of deprecated StoreNode.  Please use BufferStoreNode instead.";
   }
 
+  void VisitStmt_(const LetStmtNode* op) final {
+    dom_analyzer_.Bind(op->var, op->value);
+    dom_map_.emplace(op->var.get(), arith::IntSet::SinglePoint(op->value));
+    StmtExprVisitor::VisitStmt_(op);
+    dom_map_.erase(op->var.get());
+  }
+
   void VisitStmt_(const ForNode* op) final {
     ancestor_loops_.push_back(op);
     Range loop_range = Range::FromMinExtent(op->min, op->extent);

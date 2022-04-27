@@ -43,6 +43,7 @@ class PrimFuncBufferSubstituter : public StmtExprMutator {
   /*! \brief Record buffer replacement */
   void AddBufferRemap(const Buffer& origin_buffer, const Buffer& new_buffer) {
     buffer_remap_[origin_buffer.get()] = new_buffer;
+    AddVarRemap(origin_buffer->data, new_buffer->data);
   }
 
   /*! \brief Record var replacement */
@@ -58,27 +59,6 @@ class PrimFuncBufferSubstituter : public StmtExprMutator {
       return it->second;
     }
     return StmtExprMutator::VisitExpr_(v);
-  }
-
-  PrimExpr VisitExpr_(const BufferLoadNode* load) final {
-    auto it = buffer_remap_.find(load->buffer.get());
-    if (it != buffer_remap_.end()) {
-      auto n = make_object<BufferLoadNode>(*load);
-      n->buffer = it->second;
-      return std::move(BufferLoad(n));
-    }
-    return StmtExprMutator::VisitExpr_(load);
-  }
-
-  Stmt VisitStmt_(const BufferStoreNode* store) final {
-    auto it = buffer_remap_.find(store->buffer.get());
-    if (it != buffer_remap_.end()) {
-      auto n = CopyOnWrite(store);
-      n->buffer = it->second;
-      n->value = StmtExprMutator::VisitExpr(n->value);
-      return std::move(BufferStore(n));
-    }
-    return StmtExprMutator::VisitStmt_(store);
   }
 
   Buffer MutateBuffer(const Buffer& buffer) {
@@ -206,28 +186,52 @@ class PrimFuncBufferSubstituter : public StmtExprMutator {
     return std::move(BlockRealize(iter_values, predicate, std::move(Block(n))));
   }
 
-  Stmt VisitStmt_(const StoreNode* store) final {
-    auto it = var_remap_.find(store->buffer_var.get());
-    if (it != var_remap_.end()) {
+  Stmt VisitStmt_(const BufferStoreNode* store) final {
+    auto it = buffer_remap_.find(store->buffer.get());
+    if (it != buffer_remap_.end()) {
       auto n = CopyOnWrite(store);
-      ICHECK(it->second->IsInstance<VarNode>())
-          << "Can not inline opaque accessed buffer argument with non-var argument " << it->second;
-      n->buffer_var = Downcast<Var>(it->second);
-      return std::move(Store(n));
+      n->buffer = it->second;
+      n->indices = MutateArray(n->indices, std::bind(&PrimFuncBufferSubstituter::VisitExpr, this,
+                                                     std::placeholders::_1));
+      n->value = StmtExprMutator::VisitExpr(n->value);
+      return std::move(BufferStore(n));
     }
     return StmtExprMutator::VisitStmt_(store);
   }
 
-  PrimExpr VisitExpr_(const LoadNode* load) final {
-    auto it = var_remap_.find(load->buffer_var.get());
-    if (it != var_remap_.end()) {
-      auto n = make_object<LoadNode>(*load);
-      ICHECK(it->second->IsInstance<VarNode>())
-          << "Can not inline opaque accessed buffer argument with non-var argument " << it->second;
-      n->buffer_var = Downcast<Var>(it->second);
-      return std::move(Load(n));
+  PrimExpr VisitExpr_(const BufferLoadNode* load) final {
+    auto it = buffer_remap_.find(load->buffer.get());
+    if (it != buffer_remap_.end()) {
+      return std::move(BufferLoad(
+          it->second, MutateArray(load->indices, std::bind(&PrimFuncBufferSubstituter::VisitExpr,
+                                                           this, std::placeholders::_1))));
     }
     return StmtExprMutator::VisitExpr_(load);
+  }
+
+  Stmt VisitStmt_(const AttrStmtNode* attr) final {
+    if (attr->node.defined()) {
+      ObjectRef new_node = attr->node;
+      if (const BufferNode* buf = attr->node.as<BufferNode>()) {
+        auto it = buffer_remap_.find(buf);
+        if (it != buffer_remap_.end()) {
+          new_node = it->second;
+        }
+      } else if (const VarNode* var = attr->node.as<VarNode>()) {
+        auto it = var_remap_.find(var);
+        if (it != var_remap_.end()) {
+          new_node = it->second;
+        }
+      }
+      if (!new_node.same_as(attr->node)) {
+        auto n = CopyOnWrite(attr);
+        n->node = new_node;
+        n->value = VisitExpr(n->value);
+        n->body = VisitStmt(n->body);
+        return std::move(AttrStmt(n));
+      }
+    }
+    return StmtExprMutator::VisitStmt_(attr);
   }
 
   std::string GetUniqueBufferName(const std::string& name) {
@@ -254,6 +258,60 @@ class PrimFuncBufferSubstituter : public StmtExprMutator {
 };
 
 /*! \brief PrimFunc call inline mutator */
+class GlobalBufferCollector : public StmtExprVisitor {
+ public:
+  explicit GlobalBufferCollector(const PrimFuncNode* func) {
+    for (const auto& p : func->buffer_map) {
+      global_buffer_map_.Set(p.second->data, p.second);
+      buffer_name_cnt_[p.second->name] = 1;
+    }
+  }
+
+  void AddBuffer(const Buffer& buffer) {
+    global_buffer_map_.Set(buffer->data, buffer);
+    auto it = buffer_name_cnt_.find(buffer->name);
+    if (it == buffer_name_cnt_.end()) {
+      buffer_name_cnt_.insert(it, {buffer->name, 1});
+    } else {
+      it->second = it->second + 1;
+    }
+  }
+
+  void VisitStmt_(const BlockNode* block) final {
+    for (const Buffer& buffer : block->alloc_buffers) {
+      AddBuffer(buffer);
+    }
+    for (const MatchBufferRegion& match : block->match_buffers) {
+      AddBuffer(match->buffer);
+    }
+    StmtExprVisitor::VisitStmt_(block);
+  }
+
+  void VisitStmt_(const AllocateNode* allocate) final {
+    Var buffer_var = allocate->buffer_var;
+    Buffer ph_buffer = Buffer(buffer_var, allocate->dtype, allocate->extents, {}, 0,
+                              buffer_var->name_hint, 0, 0, BufferType::kDefault);
+    AddBuffer(ph_buffer);
+    StmtExprVisitor::VisitStmt_(allocate);
+  }
+
+  void VisitExpr_(const BufferLoadNode* op) final {
+    AddBuffer(op->buffer);
+    StmtExprVisitor::VisitExpr_(op);
+  }
+
+  void VisitStmt_(const BufferStoreNode* op) final {
+    AddBuffer(op->buffer);
+    StmtExprVisitor::VisitStmt_(op);
+  }
+
+  /*! \brief map var to the buffer of main func */
+  Map<Var, Buffer> global_buffer_map_;
+  /*! \brief helper dict to unique the buffer names */
+  std::unordered_map<std::string, size_t> buffer_name_cnt_;
+};
+
+/*! \brief PrimFunc call inline mutator */
 class PrimFuncInliner : public StmtExprMutator {
  public:
   PrimFunc Rewrite() {
@@ -267,31 +325,19 @@ class PrimFuncInliner : public StmtExprMutator {
   }
 
   PrimFuncInliner(IRModule m, PrimFuncNode* new_main_func, Map<String, PrimFunc> extern_prim_funcs)
-      : module_(m), new_main_func_(new_main_func), extern_prim_funcs_(extern_prim_funcs) {
-    for (const auto& p : new_main_func->buffer_map) {
-      global_buffer_map_.Set(p.second->data, p.second);
-      buffer_name_cnt_[p.second->name] = 1;
-    }
+      : module_(m),
+        new_main_func_(new_main_func),
+        extern_prim_funcs_(extern_prim_funcs),
+        buffer_collector_(new_main_func) {
     origin_body_ = new_main_func_->body;
+    buffer_collector_(origin_body_);
     if (const BlockRealizeNode* root_realize = new_main_func->body.as<BlockRealizeNode>()) {
       global_new_root_block_ = root_realize->block;
-      for (const Buffer& buffer : global_new_root_block_->alloc_buffers) {
-        global_buffer_map_.Set(buffer->data, buffer);
-        buffer_name_cnt_[buffer->name] = 1;
-      }
       origin_body_ = global_new_root_block_->body;
     }
   }
 
  private:
-  Stmt VisitStmt_(const BlockNode* block) final {
-    for (const Buffer& buffer : block->alloc_buffers) {
-      global_buffer_map_.Set(buffer->data, buffer);
-      buffer_name_cnt_[buffer->name] = 1;
-    }
-    return StmtExprMutator::VisitStmt_(block);
-  }
-
   Stmt VisitStmt_(const EvaluateNode* evaluate) final {
     if (const CallNode* call = evaluate->value.as<CallNode>()) {
       // if the call op is the global var, try inline the referenced primfunc into body.
@@ -316,7 +362,7 @@ class PrimFuncInliner : public StmtExprMutator {
 
   Stmt InlinePrimFunc(const PrimFuncNode* primfunc, const Array<PrimExpr>& args) {
     ICHECK_EQ(primfunc->params.size(), args.size());
-    PrimFuncBufferSubstituter substituter(&buffer_name_cnt_);
+    PrimFuncBufferSubstituter substituter(&buffer_collector_.buffer_name_cnt_);
     arith::Analyzer analyzer;
 
     for (size_t i = 0; i < args.size(); ++i) {
@@ -329,9 +375,12 @@ class PrimFuncInliner : public StmtExprMutator {
       Buffer local_buffer = (*it).second;
       const VarNode* argvar = args[i].as<VarNode>();
       ICHECK(argvar) << "This inliner only accept PrimFunc call with buffer var argument";
-      ICHECK(global_buffer_map_.count(GetRef<Var>(argvar)))
-          << "Can not find buffer bind to " << argvar->name_hint;
-      Buffer global_buffer = global_buffer_map_[GetRef<Var>(argvar)];
+
+      auto global_buf_it = buffer_collector_.global_buffer_map_.find(GetRef<Var>(argvar));
+      ICHECK(global_buf_it != buffer_collector_.global_buffer_map_.end())
+          << "Can not find buffer bind to " << argvar->name_hint << "\n"
+          << buffer_collector_.global_buffer_map_;
+      Buffer global_buffer = (*global_buf_it).second;
 
       // ensure buffer replacement is compatible, bind free vars if possible
       size_t ndim = local_buffer->shape.size();
@@ -347,8 +396,11 @@ class PrimFuncInliner : public StmtExprMutator {
       // check all other buffer fields be same
       auto n = make_object<BufferNode>(*global_buffer.get());
       n->data = local_buffer->data;
+      n->offset_factor = local_buffer->offset_factor;
+      n->elem_offset = local_buffer->elem_offset;
       n->shape = local_buffer->shape;
-      ICHECK(StructuralEqual()(local_buffer, Buffer(n)))
+      ICHECK(static_cast<bool>(
+          (*structural_equal_)(local_buffer, Buffer(n), /*assert=*/false, /*map_free_vars=*/true)))
           << "Buffer mismatch, expect " << i << "th argument buffer of primfunc call to be "
           << local_buffer << ", but get " << global_buffer << " in global scope";
       substituter.AddBufferRemap(local_buffer, global_buffer);
@@ -384,8 +436,6 @@ class PrimFuncInliner : public StmtExprMutator {
     return inlined;
   }
 
-  /*! \brief map var to the buffer of main func */
-  Map<Var, Buffer> global_buffer_map_;
   /*! \brief rewritten module */
   IRModule module_;
   /*! \brief the new PrimFunc to return after inline */
@@ -396,8 +446,11 @@ class PrimFuncInliner : public StmtExprMutator {
   Block global_new_root_block_;
   /*! \brief the function body of original main func, without root block */
   Stmt origin_body_;
-  /*! \brief helper dict to unique the buffer names */
-  std::unordered_map<std::string, size_t> buffer_name_cnt_;
+  /*! \brief global buffer collector */
+  GlobalBufferCollector buffer_collector_;
+  /*! \brief structural comparator */
+  const tvm::runtime::PackedFunc* structural_equal_ =
+      tvm::runtime::Registry::Get("node.StructuralEqual");
 };
 
 namespace transform {

@@ -48,6 +48,24 @@ def register_edgex_fschedule(op_name):
     return _wrapped_fschedule
 
 
+def register_edgex_fprimfunc(op_name):
+    """Workaround annotation for primfunc register"""
+
+    def _wrapped_fprimfunc(fprimfunc):
+        if (
+            _op.get(op_name).has_attr("FEdgeXPrimFunc")
+            and _op.get(op_name).get_attr("FEdgeXPrimFunc") is not None
+        ):
+            generic_fprimfunc = _op.get(op_name).get_attr("FEdgeXPrimFunc")
+        else:
+            generic_fprimfunc = get_native_generic_func(op_name + "_edgex_fprimfunc")
+            tvm.ir.register_op_attr(op_name, "FEdgeXPrimFunc", generic_fprimfunc)
+        generic_fprimfunc.register(fprimfunc, "edgex", allow_override=True)
+        return generic_fprimfunc
+
+    return _wrapped_fprimfunc
+
+
 def fschedule_general_vu(attrs, prim_func, tgt):
     """general fschedule function for non-conv ops"""
     scheduled_func = tvm.contrib.edgex.topi.naive_vu_schedule(
@@ -130,3 +148,17 @@ def schedule_reshape_edgex(attrs, prim_func, target):
 def schedule_transpose_edgex(attrs, prim_func, target):
     """transpose edgex schedule"""
     return tvm.contrib.edgex.topi.schedule_memcpy_style_edgex_impl(prim_func, target)
+
+
+@register_edgex_fprimfunc("topk")
+def fprimfunc_topk_edgex(attrs, inputs, out_type):
+    """topk edgex fprimfunc"""
+    return tvm.contrib.edgex.topi.wrap_fprimfunc_topk(
+        tvm.contrib.edgex.topi.sort_fprimfunc_naive_impl
+    )(attrs, inputs, out_type)
+
+
+@register_edgex_fschedule("topk")
+def schedule_topk_edgex(attrs, prim_func, target):
+    """topk edgex schedule"""
+    return prim_func

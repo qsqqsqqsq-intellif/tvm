@@ -269,6 +269,20 @@ class PrimitiveCallLowering : public backend::MemoizedExprTranslator<Array<PrimE
     Op op = Downcast<Op>(call_node->op);
     Array<PrimExpr> tir_inputs;
 
+    // anchor op info
+    static auto fpattern = Op::GetAttrMap<TOpPattern>("TOpPattern");
+    int op_pattern = fpattern[op];
+    if (op_pattern >= kCommReduce && !config_.allow_multi_anchor) {
+      ICHECK(!anchor_op_.defined() || anchor_op_pattern_ < kCommReduce)
+          << "Cannot apply TOPI schedule to a primitive function with two complicated ops"
+          << " anchor=" << anchor_op_ << " current=" << op;
+    }
+    if (op_pattern >= anchor_op_pattern_) {
+      anchor_op_ = op;
+      anchor_attrs_ = call_node->attrs;
+      anchor_op_pattern_ = op_pattern;
+    }
+
     // visit arguments
     for (Expr arg : call_node->args) {
       if (arg->checked_type().as<TupleTypeNode>()) {
@@ -280,14 +294,39 @@ class PrimitiveCallLowering : public backend::MemoizedExprTranslator<Array<PrimE
       }
     }
 
-    // currently we can only use TE based op implementation to create primfunc of subcall
-    auto te_result = ConvertRelayToTE(call_node, op, tir_inputs);
-    tir::Call subcall = te_result.first;
-    const Array<PrimExpr>& tir_outputs = te_result.second;
+    tir::PrimFunc sub_op_func;
+    Array<PrimExpr> tir_outputs;
+
+    if (Op::HasAttrMap("FEdgeXPrimFunc")) {
+      using FEdgeXSchedule = GenericFunc;
+      static auto edgex_fprimfunc_map_ = Op::GetAttrMap<FEdgeXSchedule>("FEdgeXPrimFunc");
+      if (edgex_fprimfunc_map_.count(op)) {
+        auto fprimfunc = edgex_fprimfunc_map_[op];
+        auto tir_result = ConvertRelayToPrimFunc(call_node, op, fprimfunc, tir_inputs);
+        sub_op_func = tir_result.first;
+        tir_outputs = tir_result.second;
+      }
+    }
+
+    if (!sub_op_func.defined()) {
+      // fallback to TE based op implementation to create primfunc of subcall
+      auto te_result = ConvertRelayToTE(call_node, op, tir_inputs);
+      sub_op_func = te_result.first;
+      tir_outputs = te_result.second;
+    }
+
+    // annotate sub-op's primfunc with relay graph level information
+    sub_op_func = AnnotateSubPrimFunc(sub_op_func, op, call_node->attrs);
+    ICHECK(config_.renamer);
+    std::string subfunc_name = config_.renamer("subcall_" + op->name);
+    GlobalVar gv =
+        AddPrimFunc(/*name=*/subfunc_name, /*primfunc=*/sub_op_func, /*checked_type=*/Type(),
+                    /*is_extern=*/!config_.inline_primfunc);
 
     // record current subcall
-    sub_calls_.push_back(tir::Evaluate(subcall));
     readable_name_stream_ << "_" << op->name;
+    tir::Call subcall(DataType::Void(), gv, Concat(tir_inputs, tir_outputs));
+    sub_calls_.push_back(tir::Evaluate(subcall));
     return tir_outputs;
   }
 
@@ -323,16 +362,8 @@ class PrimitiveCallLowering : public backend::MemoizedExprTranslator<Array<PrimE
     return {tuple[op->index]};
   }
 
-  /*! \brief Run te level conversion for relay sub-op, return tir level subcall and output arguments
-   */
-  std::pair<tir::Call, Array<PrimExpr>> ConvertRelayToTE(const CallNode* relay_call, const Op& op,
-                                                         const Array<PrimExpr>& tir_inputs) {
-    // get lower implementation: "relay.backend.lower_call"
-    static auto fpattern = Op::GetAttrMap<TOpPattern>("TOpPattern");
-    static auto flower_call = tvm::runtime::Registry::Get("relay.backend.lower_call");
-    ICHECK(flower_call) << "relay.backend.lower_call is not registered.";
-
-    // create te input placeholders
+  /*! \brief helper to convert tir primexpr to te tensor for inputs */
+  Array<te::Tensor> BuildInputTensors(const Array<PrimExpr>& tir_inputs) {
     Array<te::Tensor> te_inputs;
     for (const PrimExpr& e : tir_inputs) {
       te::Tensor tensor;
@@ -347,28 +378,51 @@ class PrimitiveCallLowering : public backend::MemoizedExprTranslator<Array<PrimE
       }
       te_inputs.push_back(tensor);
     }
+    return te_inputs;
+  }
 
-    OpImplementation impl;
+  /*! \brief Run tir primfunc conversion for relay sub-op, return tir primfunc and outputs */
+  std::pair<tir::PrimFunc, Array<PrimExpr>> ConvertRelayToPrimFunc(
+      const CallNode* relay_call, const Op& op, const GenericFunc& fprimfunc,
+      const Array<PrimExpr>& tir_inputs) {
+    With<Target> target_scope(target_);
+    tir::PrimFunc subfunc =
+        fprimfunc(relay_call->attrs, BuildInputTensors(tir_inputs), relay_call->checked_type());
+    size_t num_output = subfunc->params.size() - tir_inputs.size();
+
+    // collect outputs
+    Array<PrimExpr> tir_outputs;
+    for (size_t i = 0; i < num_output; ++i) {
+      tir::Var param = subfunc->params[i + tir_inputs.size()];
+      auto it = subfunc->buffer_map.find(param);
+      ICHECK(it != subfunc->buffer_map.end())
+          << "Output argument is expected to be buffer var: " << param << " in\n"
+          << subfunc;
+      tir::Buffer buffer =
+          tir::decl_buffer((*it).second->shape, (*it).second->dtype, param->name_hint, "global");
+      tir::Var buffer_var = buffer->data;
+      var2buffer_.Set(buffer_var, buffer);
+      tir_outputs.push_back(buffer_var);
+    }
+    return {subfunc, tir_outputs};
+  }
+
+  /*! \brief Run te conversion for relay sub-op, return tir primfunc and outputs */
+  std::pair<tir::PrimFunc, Array<PrimExpr>> ConvertRelayToTE(const CallNode* relay_call,
+                                                             const Op& op,
+                                                             const Array<PrimExpr>& tir_inputs) {
+    // get lower implementation: "relay.backend.lower_call"
+    static auto flower_call = tvm::runtime::Registry::Get("relay.backend.lower_call");
+    ICHECK(flower_call) << "relay.backend.lower_call is not registered.";
+
+    // create te input placeholders
+    Array<te::Tensor> te_inputs = BuildInputTensors(tir_inputs);
     tec::LoweredOutput lowered_out;
     {
       With<Target> target_scope(target_);
       lowered_out = (*flower_call)(GetRef<Call>(relay_call), te_inputs, target_);
     }
     Array<te::Tensor> te_outputs = lowered_out->outputs;
-
-    // update anchor op info
-    int op_pattern = fpattern[op];
-    if (op_pattern >= kCommReduce && !config_.allow_multi_anchor) {
-      ICHECK(!anchor_op_.defined() || anchor_op_pattern_ < kCommReduce)
-          << "Cannot apply TOPI schedule to a primitive function with two complicated ops"
-          << " anchor=" << anchor_op_ << " current=" << op;
-    }
-    if (op_pattern >= anchor_op_pattern_) {
-      anchor_op_ = op;
-      anchor_attrs_ = relay_call->attrs;
-      anchor_op_pattern_ = op_pattern;
-      anchor_implementation_ = impl;
-    }
     if (te_outputs.size() != 1) {
       const auto* tuple_type = relay_call->checked_type().as<TupleTypeNode>();
       ICHECK(tuple_type) << "Expected output to be a tuple type "
@@ -399,16 +453,7 @@ class PrimitiveCallLowering : public backend::MemoizedExprTranslator<Array<PrimE
     const auto* f_create_func = runtime::Registry::Get("te.CreatePrimFunc");
     ICHECK(f_create_func) << "te.CreatePrimFunc is not registered";
     tir::PrimFunc subfunc = (*f_create_func)(all_te_tensors);
-
-    // annotate sub-op's primfunc with relay graph level information
-    subfunc = AnnotateSubPrimFunc(subfunc, op, relay_call->attrs);
-
-    ICHECK(config_.renamer);
-    std::string subfunc_name = config_.renamer("subcall_" + op->name);
-    GlobalVar gv = AddPrimFunc(/*name=*/subfunc_name, /*primfunc=*/subfunc, /*checked_type=*/Type(),
-                               /*is_extern=*/!config_.inline_primfunc);
-    tir::Call subcall(DataType::Void(), gv, all_tir_args);
-    return {subcall, tir_outputs};
+    return {subfunc, tir_outputs};
   }
 
   /*! \brief annotate sub-op's primfunc with relay graph level information */
@@ -474,7 +519,6 @@ class PrimitiveCallLowering : public backend::MemoizedExprTranslator<Array<PrimE
   Op anchor_op_;
   Attrs anchor_attrs_;
   int anchor_op_pattern_{0};
-  OpImplementation anchor_implementation_;
 
   /*! \brief lower name of fused relay function */
   std::ostringstream readable_name_stream_;

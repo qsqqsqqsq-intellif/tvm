@@ -301,12 +301,12 @@ def get_fused_functions(relay_module, params=None, need_optimize=False, target=N
 class CheckResult:
     """Record the data check results"""
 
-    def __init__(self, inputs, outputs, expects, rmse, success):
-        self.inputs = inputs
-        self.outputs = outputs
-        self.expects = expects
-        self.rmse = rmse
-        self.success = success
+    def __init__(self):
+        self.inputs = []
+        self.outputs = []
+        self.expects = []
+        self.rmse = []
+        self.success = []
 
 
 class RelayToTIRAnnotator(relay.ExprMutator):
@@ -339,9 +339,7 @@ class OnDeviceDetector(relay.ExprVisitor):
         super().visit_call(call)
 
 
-def check_numpy_result(
-    result, expect, nothrow=False, ref_inputs=None, rmse=None, rtol=1e-5, atol=1e-5
-):
+def check_numpy_result(result, expect, nothrow=False, rmse=None, rtol=1e-5, atol=1e-5):
     """Helper function to compare result and expect tensor
     Parameters
     ----------
@@ -353,9 +351,6 @@ def check_numpy_result(
 
     nothrow : bool
         Do not raise error if check result failed.
-
-    ref_inputs : list
-        Input data list as a reference.
 
     rmse : float
         If specified, check root-mean-square deviation between results and expects
@@ -405,12 +400,19 @@ def check_numpy_result(
             print(exception)
     else:
         do_check()
-    return CheckResult(ref_inputs, [result], [expect], actual_rmse, success)
+    res = CheckResult()
+    res.outputs.append(result)
+    res.expects.append(expect)
+    res.rmse.append(actual_rmse)
+    res.success.append(success)
+    return res
 
 
-def wrap_relay_fused_function(relay_function):
+def wrap_relay_fused_function(relay_function, mark_edgex=False):
     """Wrap relay function into fused form for testing purpose"""
     relay_function = relay_function.with_attr("Primitive", 1)
+    if mark_edgex:
+        relay_function = relay_function.with_attr("Compiler", "edgex")
     new_args = [relay.Var(p.name_hint, p.type_annotation) for p in relay_function.params]
     return relay.Function(new_args, relay.Call(relay_function, new_args))
 
@@ -542,6 +544,8 @@ def check_edgex_relay_build(
     if numpy_func is not None:
         data_list = [arrs[p.name_hint] for p in function.params]
         expect = numpy_func(*data_list)
+        if not isinstance(expect, (list, tuple)):
+            expect = [expect]
 
     def get_relay_output(relay_mod_or_lib, target, ctx):
         if not isinstance(ctx, (tuple, list)):
@@ -557,7 +561,7 @@ def check_edgex_relay_build(
                 continue
             m.set_input(name, arr)
         m.run()
-        return m.get_output(0)
+        return [m.get_output(i).numpy() for i in range(m.get_num_outputs())]
 
     class OnDeviceCleaner(relay.ExprMutator):
         """Clean on device annotation"""
@@ -580,9 +584,12 @@ def check_edgex_relay_build(
                 cpu_mod = IRModule.from_expr(function)
             cpu_result = get_relay_output(cpu_mod, "llvm", tvm.cpu())
         if expect is None:
-            expect = cpu_result.numpy()
+            expect = cpu_result
         else:
-            check_numpy_result(cpu_result.numpy(), expect, rtol=rtol, atol=atol, rmse=rmse)
+            assert len(expect) == len(cpu_result)
+            num_results = len(cpu_result)
+            for k in range(num_results):
+                check_numpy_result(cpu_result[k], expect[k], rtol=rtol, atol=atol, rmse=rmse)
 
     edgex_target = tvm.target.edgex()
     cpu_target = tvm.target.Target("llvm")
@@ -628,9 +635,20 @@ def check_edgex_relay_build(
                 else:
                     edgex_result = get_relay_output(edgex_mod, edgex_target, tvm.edgex())
         if expect is not None:
-            return check_numpy_result(
-                edgex_result.numpy(), expect, rmse=rmse, rtol=rtol, atol=atol, nothrow=nothrow
-            )
+            assert len(expect) == len(edgex_result)
+            num_results = len(edgex_result)
+            check_res = CheckResult()
+            for k in range(num_results):
+                single_res = check_numpy_result(
+                    edgex_result[k], expect[k], rmse=rmse, rtol=rtol, atol=atol, nothrow=nothrow
+                )
+                check_res.inputs = arrs
+                check_res.outputs.extend(single_res.outputs)
+                check_res.expects.extend(single_res.expects)
+                check_res.rmse.extend(single_res.rmse)
+                check_res.success.extend(single_res.success)
+            return check_res
+
     return None
 
 

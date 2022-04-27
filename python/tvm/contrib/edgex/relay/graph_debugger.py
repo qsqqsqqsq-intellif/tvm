@@ -328,8 +328,10 @@ class RelayGraphDebugger:
         if check_result:
             if result_json is not None:
                 with open(result_json, "w") as outfile:
-                    outfile.write(json.dumps({"rmse": str(check_result.rmse)}))
-            if not check_result.success:
+                    outfile.write(
+                        json.dumps({"rmse": ",".join([str(_) for _ in check_result.rmse])})
+                    )
+            if not all(check_result.success):
                 sys.exit(-1)
         return check_result
 
@@ -362,7 +364,7 @@ class RelayGraphDebugger:
         check_result = self.simple_run(mod, params)
         info["status"] = "success"
         if check_result is not None:
-            info["rmse"] = str(check_result.rmse)
+            info["rmse"] = ",".join([str(_) for _ in check_result.rmse])
         self.dump_state()
 
     def run_end2end(self):

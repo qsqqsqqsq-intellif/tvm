@@ -21,3 +21,4 @@ from .op import *
 from .naive_vu_schedule import naive_vu_schedule
 from .conv2d import *
 from .general import *
+from .sort import *

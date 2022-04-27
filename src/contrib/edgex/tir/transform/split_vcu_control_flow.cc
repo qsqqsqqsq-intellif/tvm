@@ -109,7 +109,9 @@ class VcuControlFlowMarker : public StmtExprFunctor<CodeState> {
     CodeState right_state = op->else_case.defined() ? VisitStmt(op->else_case) : CodeState::ALL;
     if (cond_state != CodeState::ALL) {
       CHECK_EQ(cond_state, left_state);
-      CHECK_EQ(cond_state, right_state);
+      if (op->else_case.defined()) {
+        CHECK_EQ(cond_state, right_state);
+      }
       return MarkStmt(op, cond_state);
     }
     return MarkStmt(op, left_state == right_state ? left_state : CodeState::ALL);
@@ -127,10 +129,14 @@ class VcuControlFlowMarker : public StmtExprFunctor<CodeState> {
     CodeState min_state = VisitExpr(op->min);
     CodeState ext_state = VisitExpr(op->extent);
     CodeState body_state = VisitStmt(op->body);
-    if (min_state != CodeState::ALL || ext_state != CodeState::ALL) {
-      CHECK_EQ(min_state, ext_state);
+    if (min_state != CodeState::ALL) {
+      CHECK(ext_state == CodeState::ALL || ext_state == min_state);
       CHECK_EQ(min_state, body_state);
       return MarkStmt(op, min_state);
+    } else if (ext_state != CodeState::ALL) {
+      CHECK(min_state == CodeState::ALL || ext_state == min_state);
+      CHECK_EQ(ext_state, body_state);
+      return MarkStmt(op, ext_state);
     }
     return MarkStmt(op, body_state);
   }
@@ -192,6 +198,16 @@ class VcuControlFlowMarker : public StmtExprFunctor<CodeState> {
   }
 
   CodeState VisitStmt_(const EvaluateNode* op) final { return MarkStmt(op, VisitExpr(op->value)); }
+
+  CodeState VisitStmt_(const WhileNode* op) final {
+    CodeState cond_state = VisitExpr(op->condition);
+    CodeState body_state = VisitStmt(op->body);
+    if (cond_state != CodeState::ALL || body_state != CodeState::ALL) {
+      CHECK_EQ(cond_state, body_state);
+      return MarkStmt(op, body_state);
+    }
+    return MarkStmt(op, body_state);
+  }
 
   CodeState VisitExpr_(const VarNode* op) final { return GetVarState(op); }
 
@@ -319,7 +335,6 @@ class VcuControlFlowMarker : public StmtExprFunctor<CodeState> {
     return state;
   }
 
-  UNSUPPORTED_STMT(WhileNode);
   UNSUPPORTED_STMT(StoreNode);
   UNSUPPORTED_STMT(BufferRealizeNode);
   UNSUPPORTED_STMT(ProducerStoreNode);

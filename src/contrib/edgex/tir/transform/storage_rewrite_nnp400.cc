@@ -210,6 +210,9 @@ class NNP400LinearAccessPatternFinder final : public StmtExprVisitor {
       ICHECK(buf);
       alloc_info_[buf].align_bytes = op->value.as<IntImmNode>()->value;
       StmtExprVisitor::VisitStmt_(op);
+    } else if (op->attr_key == attr::aliased_buffer_var) {
+      // buffer var annotation is not actual access
+      StmtExprVisitor::VisitStmt(op->body);
     } else {
       StmtExprVisitor::VisitStmt_(op);
     }

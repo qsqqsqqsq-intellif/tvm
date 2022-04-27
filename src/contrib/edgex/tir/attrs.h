@@ -69,6 +69,9 @@ constexpr const char* nnp_data_layout = "pragma_nnp_data_layout";
     value=0 denotes cu func, value=1 denotes vcu func. */
 constexpr const char* nnp_local_func_scope = "pragma_nnp_local_func_scope";
 
+/*! \brief Mark a buffer var as maybe aliased, do not add non-trivial tbaa info. */
+constexpr const char* aliased_buffer_var = "pragma_aliased_buffer_var";
+
 }  // namespace attr
 }  // namespace tir
 }  // namespace tvm

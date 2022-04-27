@@ -237,7 +237,6 @@ class DMAIntrinScopeRewriter : public StmtExprMutator {
   }
 
   Stmt VisitStmt_(const ForNode* loop) final {
-    ICHECK(is_const_int(loop->extent));
     Range range = Range::FromMinExtent(loop->min, loop->extent);
     if (in_scope_) {
       loop_vars_.push_back(loop->loop_var);

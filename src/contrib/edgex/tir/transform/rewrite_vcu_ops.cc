@@ -207,14 +207,23 @@ static PrimExpr RewriteVintPattern(const PrimExpr& expr) {
   PVecDataType i8_vec_ty(DataType::Int(8));
   PVecDataType fp16_vec_ty(DataType::Float(16));
   PVarWithDataType<PrimExpr, PVecDataType> pat_input_fp16(fp16_vec_ty);
-  auto broadcast_upper_fp16 =
-      broadcast(PConst<PrimExpr>(make_const(DataType::Float(16), 127)), PConst<int64_t>(lanes));
-  auto broadcast_lower_fp16 =
-      broadcast(PConst<PrimExpr>(make_const(DataType::Float(16), -128)), PConst<int64_t>(lanes));
 
-  auto vint_pattern =
-      cast(i8_vec_ty, max(min(round(pat_input_fp16), broadcast_upper_fp16), broadcast_lower_fp16));
-  if (vint_pattern.Match(root)) {
+  bool match = false;
+  if (lanes == 1) {
+    auto upper_fp16 = PConst<PrimExpr>(make_const(DataType::Float(16), 127));
+    auto lower_fp16 = PConst<PrimExpr>(make_const(DataType::Float(16), -128));
+    auto vint_pattern = cast(i8_vec_ty, max(min(round(pat_input_fp16), upper_fp16), lower_fp16));
+    match = vint_pattern.Match(root);
+  } else {
+    auto broadcast_upper_fp16 =
+        broadcast(PConst<PrimExpr>(make_const(DataType::Float(16), 127)), PConst<int64_t>(lanes));
+    auto broadcast_lower_fp16 =
+        broadcast(PConst<PrimExpr>(make_const(DataType::Float(16), -128)), PConst<int64_t>(lanes));
+    auto vint_pattern = cast(
+        i8_vec_ty, max(min(round(pat_input_fp16), broadcast_upper_fp16), broadcast_lower_fp16));
+    match = vint_pattern.Match(root);
+  }
+  if (match) {
     PrimExpr input = pat_input_fp16.Eval();
     Call vint = Call(i8_vec_ty.Eval(), edgex::builtin::nnp_vint(), {input});
     auto n = const_cast<CallNode*>(vint.get());
