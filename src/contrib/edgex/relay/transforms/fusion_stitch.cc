@@ -503,7 +503,7 @@ class AtomicGraph {
                          {"cast", ""}});
     // for superglue
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_ELTWISE,
-                        {{"add"}, {"exp"}, {"sum"}, {"log"}, {"subtract"}, {"expand_dims"}});
+                        {{"add", ""}, {"exp"}, {"sum"}, {"log"}, {"subtract"}, {"expand_dims"}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_BIASADD,
                         {{"nn.bias_add"}, {"right_shift", ""}, {"clip", ""}});
     add_atomic_op_specs(&atomic_op_specs, ATOMIC_RIGHTSHIFT, {{"right_shift", ""}, {"clip", ""}});
