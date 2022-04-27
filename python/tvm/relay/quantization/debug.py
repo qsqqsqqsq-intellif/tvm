@@ -147,8 +147,14 @@ def plot_statistics(data1_, data2_, distance, name, path):
     data2 = data2_.reshape(-1)
     abs1 = numpy.abs(data1)
     abs2 = numpy.abs(data2)
-    hist1 = numpy.histogram(abs1, 2048, (0, abs1.max()))[0]
-    hist2 = numpy.histogram(abs2, 2048, (0, abs2.max()))[0]
+    abs1_max = abs1.max()
+    if abs1.max() in [numpy.inf]:
+        abs1_max = 3.072e8
+    abs2_max = abs1.max()
+    if abs2.max() in [numpy.inf]:
+        abs2_max = 3.072e8
+    hist1 = numpy.histogram(abs1, 2048, (0, abs1_max))[0]
+    hist2 = numpy.histogram(abs2, 2048, (0, abs2_max))[0]
 
     plt.figure(figsize=(10, 10))
     plt.subplot(221)
@@ -277,7 +283,7 @@ def compare_statistics_api(cls, method, display_en, path, imgs=None):
             tmp.update({"scale": scale, "axis": axis})
         new_scale.append(tmp)
 
-    print("cal layer similarity......")
+    print("--caluate layer similarity......")
     old_r, old_ik, old_no = _get_graph(old_node, cls.ctx, cls.target, cls.opt_level)
     new_r, new_ik, new_no = _get_graph(new_node, cls.ctx, cls.target, cls.opt_level)
 

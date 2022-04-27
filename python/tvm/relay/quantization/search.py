@@ -318,7 +318,7 @@ class QuantizeSearch:
                 tmp3 = []
                 img_idx = 0
                 for tmp1, tmp2 in zip(result1, result2):
-                    img_name = " "
+                    img_name = "one img"
                     if len(self.imgs) > 0:
                         img_name = self.imgs[img_idx]
                         img_idx = img_idx + 1
@@ -337,7 +337,7 @@ class QuantizeSearch:
                     tmp3.append(out_sim_mean)
 
                 tmp3 = numpy.array(tmp3).mean()
-                print("mean similarity of all imges is ", tmp3)
+                print("mean similarity of all imgs is ", tmp3)
                 self.post_processed_performance = tmp3
 
             else:

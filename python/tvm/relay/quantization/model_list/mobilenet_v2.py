@@ -139,3 +139,29 @@ quantize_search = relay.quantization.QuantizeSearch(
 config = quantize_search.get_default_config()
 quantize_search.quantize(config)
 quantize_search.evaluate("post_process", config)
+
+
+"""
+quantize_config = {"calib_method": "percentile_0.9999"}
+quant_mod, quan_params = relay.quantization.quantize(mod, params,
+                       dataset=data_path,
+                       # dataset=yield_calibrate_data,
+                       prof_img_num=1,
+                       rgb_en=0,
+                       norm={
+                            "input": {
+                                "mean": [123.675, 116.28, 103.53],
+                                "std": [58.395, 57.12, 57.375],
+                                "axis": 1,
+                            },
+                       },
+                       quantize_config=quantize_config,
+                       similarity_dataset=None,
+                       similarity_img_num=1,
+                       save_dir=root_path,
+                       eval_func=None,
+                       # eval_func=evaluate,
+                       verbose=False,
+                       debug_level=1)
+print("quant out", relay.frontend.common.infer_type(quant_mod["main"]))
+"""

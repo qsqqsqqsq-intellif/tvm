@@ -18,6 +18,7 @@
 """Automatic quantization toolkit."""
 
 import logging
+import warnings
 from collections.abc import Iterator
 import numpy as np
 import tvm
@@ -154,42 +155,7 @@ def run_quantization(
     return quantized_mod, quantized_params
 
 
-def quantize(
-    sym,
-    params=None,
-    dataset=None,
-    prof_img_num=0,
-    rgb_en=1,
-    norm=None,
-    channel_last=False,
-    quantize_config=None,
-    debug_level=-1,
-    similarity_dataset=None,
-    similarity_img_num=1,
-    save_dir=None,
-    eval_func=None,
-    sync_outdtype=True,
-):
-
-    """quantize api for customer"""
-    if params:
-        name_dict = {}
-        for arg in sym.params:
-            name = arg.name_hint
-            if name in name_dict:
-                name_dict[name] = None
-            else:
-                name_dict[name] = arg
-        bind_dict = {}
-        for k, v in params.items():
-            if k not in name_dict:
-                continue
-            arg = name_dict[k]
-            if arg is None:
-                raise ValueError("Multiple args in the function have name %s" % k)
-            bind_dict[arg] = tvm.relay.expr.const(v)
-        sym = tvm.relay.expr.bind(sym, bind_dict)
-
+def check_dataset(sym, dataset, channel_last):
     if len(sym.params) in [1, 2]:
         if len(sym.params[0].type_annotation.shape) == 4:
             param_shape_imm = sym.params[0].type_annotation.shape
@@ -231,6 +197,63 @@ def quantize(
         ), "inpu_num > 2 The dataset must be callable, like lambda:iter([dict])!!"
         assert isinstance(dataset(), Iterator), "inpu_num > 2 The dataset() must be iterator!!!"
 
+
+def quantize(
+    sym,
+    params=None,
+    dataset=None,
+    prof_img_num=0,
+    rgb_en=1,
+    norm=None,
+    channel_last=False,
+    quantize_config=None,
+    debug_level=-1,
+    similarity_dataset=None,
+    similarity_img_num=1,
+    save_dir=None,
+    eval_func=None,
+    verbose=False,
+    sync_outdtype=True,
+):
+
+    """quantize api for customer"""
+    IsIRModule = 0 if isinstance(sym, relay.Function) else 1
+    sym = sym["main"] if IsIRModule else sym
+
+    if params:
+        name_dict = {}
+        for arg in sym.params:
+            name = arg.name_hint
+            if name in name_dict:
+                name_dict[name] = None
+            else:
+                name_dict[name] = arg
+        bind_dict = {}
+        for k, v in params.items():
+            if k not in name_dict:
+                continue
+            arg = name_dict[k]
+            if arg is None:
+                raise ValueError("Multiple args in the function have name %s" % k)
+            bind_dict[arg] = tvm.relay.expr.const(v)
+        sym = tvm.relay.expr.bind(sym, bind_dict)
+
+    if dataset is None:
+        warnings.warn("the dataset is None!!!")
+        single_data = {}
+        sym = relay.frontend.common.infer_type(sym)
+        for param in sym.params:
+            input_name = param.name_hint
+            dtype = param.checked_type.dtype
+            shape = [int(_) for _ in param.checked_type.shape]
+            if params is not None and input_name in params:
+                continue  # skip model weight params
+            data = np.random.randint(0, 256, shape).astype(dtype)
+            single_data[input_name] = data
+        dataset = lambda: iter([single_data])
+    else:
+        check_dataset(sym, dataset, channel_last)
+
     def filter_config(quantize_config):
         """filter config"""
         func_config_name = [
@@ -254,12 +277,17 @@ def quantize(
     func_config = filter_config(quantize_config)
     real_dataset, real_img_dir = (None, dataset) if isinstance(dataset, str) else (dataset, None)
     rgb_str = "rgb" if rgb_en else "bgr"
-    net_in_dtype = quantize_config["dtype_net_input"]
+    if "dtype_net_input" in quantize_config:
+        net_in_dtype = quantize_config["dtype_net_input"]
+    else:
+        net_in_dtype = "uint8"
 
     debug_level_dict = {-1: (0, 0, 0), 0: (1, 0, 0), 1: (1, 1, 0), 2: (1, 1, 1)}
     check_similarity, check_layer_similarity, display_result = debug_level_dict[debug_level]
 
-    with relay.quantize.qconfig(**quantize_config):
+    sym = tvm.IRModule.from_expr(sym) if IsIRModule else sym
+
+    if "transform" in relay.__dict__:
         quantize_search = relay.quantization.QuantizeSearch(
             mod=sym,
             params=params,
@@ -274,7 +302,25 @@ def quantize(
             net_in_dtype=net_in_dtype,
             compare_statistics=False,
             quantize_config=func_config,
+            verbose=verbose,
         )
+    else:
+        with relay.quantize.qconfig(**quantize_config):
+            quantize_search = relay.quantization.QuantizeSearch(
+                mod=sym,
+                params=params,
+                dataset=real_dataset,
+                image_path=real_img_dir,
+                calibrate_num=prof_img_num,
+                eval_func=eval_func,
+                rgb=rgb_str,
+                norm=norm,
+                root_path=save_dir,
+                channel_last=channel_last,
+                net_in_dtype=net_in_dtype,
+                compare_statistics=False,
+                quantize_config=func_config,
+            )
     config = quantize_search.get_default_config()
     quantize_search.quantize(config)
 
@@ -299,6 +345,7 @@ def quantize(
 
     if check_similarity:
         quantize_search.use_default_eval = True
+        quantize_search.eval_func = relay.quantization.default_eval(quantize_search)
         quantize_search.evaluate("post_process", config)
 
     if check_layer_similarity:
@@ -311,5 +358,23 @@ def quantize(
             save_dir,
             quantize_search.imgs,
         )
+
+    if eval_func is not None:
+        quantize_search.use_default_eval = False
+        quantize_search.eval_func = eval_func
+        quantize_search.evaluate("post_process", config)
+
+    if "transform" in relay.__dict__:
+        quantized_mod = quantize_search.results[-1]["mod"]
+        quantized_mod = relay.transform.FoldConstant()(quantized_mod)
+
+        # test build and extract result
+        relay.build(quantized_mod, "llvm")
+        from tvm.relay.quantization.post_processes.extract_module import ExtractParamsPass
+
+        func, quantized_params = ExtractParamsPass().run(quantized_mod["main"])
+        func = relay.frontend.common.infer_type(func)
+        quantized_mod = tvm.ir.module.IRModule.from_expr(func)
+        return quantized_mod, quantized_params
 
     return quantize_search.results[-1]["mod"], quantize_search.nnp300_pre_processed_mod
