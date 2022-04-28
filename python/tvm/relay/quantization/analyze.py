@@ -391,7 +391,7 @@ class Tuple:
             if not isinstance(arg, relay.Constant):
                 cond1 = cond1 and vertex_config[arg].quantized
 
-        self.quantized = True if cond1 else False
+        self.quantized = cond1
 
         if "quantized" in config:
             self.quantized = config["quantized"]
