@@ -156,6 +156,7 @@ def run_quantization(
 
 
 def check_dataset(sym, dataset, channel_last):
+    """check the dataset format"""
     if len(sym.params) in [1, 2]:
         if len(sym.params[0].type_annotation.shape) == 4:
             param_shape_imm = sym.params[0].type_annotation.shape
@@ -217,8 +218,8 @@ def quantize(
 ):
 
     """quantize api for customer"""
-    IsIRModule = 0 if isinstance(sym, relay.Function) else 1
-    sym = sym["main"] if IsIRModule else sym
+    is_irmodule = 0 if isinstance(sym, relay.Function) else 1
+    sym = sym["main"] if is_irmodule else sym
 
     if params:
         name_dict = {}
@@ -285,7 +286,7 @@ def quantize(
     debug_level_dict = {-1: (0, 0, 0), 0: (1, 0, 0), 1: (1, 1, 0), 2: (1, 1, 1)}
     check_similarity, check_layer_similarity, display_result = debug_level_dict[debug_level]
 
-    sym = tvm.IRModule.from_expr(sym) if IsIRModule else sym
+    sym = tvm.IRModule.from_expr(sym) if is_irmodule else sym
 
     if "transform" in relay.__dict__:
         quantize_search = relay.quantization.QuantizeSearch(
