@@ -279,9 +279,6 @@ def oneargdeal(cls, node, vertex_config, ci0):
     if cls.name in DISABLE_PERCHANNEL_OP:
         input0_axis = -1
 
-    if cls.name == "nn.pad" and node.attrs.pad_mode == "constant" and node.attrs.pad_value != 0:
-        input0_axis = -1
-
     input0_config = _quantized_judge(vertex_config, node.args[0], input0_axis, cls.quantized, ci0)
     cls.input_config = {arg: input0_config}
 
