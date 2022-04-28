@@ -795,6 +795,8 @@ class KLDAbs:
             # histogram = numpy.histogram(x, self.bins, (self.min, self.max))[0]
 
             # identity to nnp300
+            if numpy.isnan(self.max) or numpy.isinf(self.max):
+                assert 0, print(f"threshold meet {self.max}, {x.shape}")
             x = x.flatten()
             width = self.max / (self.bins - 1)
             eps = 0 if width > 0 else 0.0001

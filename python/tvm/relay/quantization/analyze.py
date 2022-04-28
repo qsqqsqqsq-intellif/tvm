@@ -383,21 +383,23 @@ class Tuple:
         _axis = []
         _quantized = []
 
+        cond1 = True
         for arg in node.fields:
             _dtype.append(vertex_config[arg].output_config["dtype"])
             _axis.append(vertex_config[arg].output_config["axis"])
             _quantized.append(vertex_config[arg].quantized)
+            if not isinstance(arg, relay.Constant):
+                cond1 = cond1 and vertex_config[arg].quantized
 
-        if all(_quantized):
-            self.quantized = True
-        else:
-            self.quantized = False
-            for arg in node.fields:
-                if isinstance(arg, relay.Tuple) and vertex_config[arg].quantized:
-                    vertex_config[arg].quantized = False
+        self.quantized = True if cond1 else False
 
         if "quantized" in config:
             self.quantized = config["quantized"]
+
+        if not self.quantized:
+            for arg in node.fields:
+                if isinstance(arg, relay.Tuple) and vertex_config[arg].quantized:
+                    vertex_config[arg].quantized = False
 
         output_axis = max(_axis)
 
