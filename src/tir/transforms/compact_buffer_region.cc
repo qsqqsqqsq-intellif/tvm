@@ -241,15 +241,25 @@ class BufferAccessRegionCollector : public StmtExprVisitor {
       p.second.swap(regions);
     }
 
-    // Step 2. Record explicit read region annotation
-    auto it = op->annotations.find(attr::explicit_read_region);
-    if (it != op->annotations.end()) {
-      int buffer_index = Downcast<Integer>((*it).second)->value;
-      if (buffer_index >= 0 && buffer_index < static_cast<int>(op->reads.size())) {
-        const BufferRegion& explicit_region = op->reads[buffer_index];
-        explicit_access_annotations_[explicit_region->buffer] = explicit_region;
+    // Step 2. Record explicit read/write region annotations
+    auto record_explicit_region = [&](const String& attr_key, BufferIndexType index_type) {
+      auto it = op->annotations.find(attr_key);
+      if (it != op->annotations.end()) {
+        Array<Integer> buffer_indices = Downcast<Array<Integer>>((*it).second);
+        for (const auto& index : buffer_indices) {
+          int buffer_index = index->value;
+          if (buffer_index >= 0 && buffer_index < static_cast<int>(op->reads.size())) {
+            const BufferRegion& explicit_region = index_type == BufferIndexType::kRead
+                                                      ? op->reads[buffer_index]
+                                                      : op->writes[buffer_index];
+            explicit_access_annotations_[explicit_region->buffer] = explicit_region;
+          }
+        }
       }
-    }
+    };
+
+    record_explicit_region(attr::explicit_read_region, BufferIndexType::kRead);
+    record_explicit_region(attr::explicit_write_region, BufferIndexType::kWrite);
 
     // Step 3. Record relax position of ancestor_loops_
     for (const Buffer& buffer : op->alloc_buffers) {

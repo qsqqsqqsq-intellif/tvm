@@ -723,10 +723,11 @@ TVM_DLL void UnsafeHideBufferAccess(ScheduleState self, const StmtSRef& block_sr
  * \param self The state of the schedule
  * \param block_sref The sref of the block to be annotated
  * \param buffer_index The index of the buffer in block's read region
+ * \param buffer_index_type The type of the buffer index, kRead or kWrite
  * \param index_map The IndexMap that defines the new read region for the buffer
  */
-TVM_DLL void AnnotateReadRegion(ScheduleState self, const StmtSRef& block_sref, int buffer_index,
-                                const IndexMap& index_map);
+TVM_DLL void AnnotateBufferAccess(ScheduleState self, const StmtSRef& block_sref, int buffer_index,
+                                  BufferIndexType buffer_index_type, const IndexMap& index_map);
 }  // namespace tir
 }  // namespace tvm
 

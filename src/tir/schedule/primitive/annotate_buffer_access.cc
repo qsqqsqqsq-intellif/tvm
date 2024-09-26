@@ -3,25 +3,52 @@
 namespace tvm {
 namespace tir {
 
-class AnnotateReadRegionNode : public StmtExprMutator {
+class AnnotateRegionNode : public StmtExprMutator {
  public:
-  AnnotateReadRegionNode(Buffer buffer, int buffer_index, BufferRegion new_region)
-      : buffer_(buffer), buffer_index_(buffer_index), new_region_(new_region) {}
+  AnnotateRegionNode(Buffer buffer, int buffer_index, BufferRegion new_region,
+                     BufferIndexType buffer_index_type)
+      : buffer_(buffer),
+        buffer_index_(buffer_index),
+        new_region_(new_region),
+        buffer_index_type_(buffer_index_type) {}
 
   Stmt VisitStmt_(const BlockNode* op) final {
     Block block = Downcast<Block>(StmtExprMutator::VisitStmt_(op));
 
+    Array<BufferRegion> regions =
+        buffer_index_type_ == BufferIndexType::kWrite ? block->writes : block->reads;
     ICHECK_GE(buffer_index_, 0) << "Buffer index must be non-negative";
-    ICHECK_LT(buffer_index_, static_cast<int>(block->reads.size())) << "Buffer index out of range";
-    Array<BufferRegion> new_reads = block->reads;
-    new_reads.Set(buffer_index_, new_region_);
+    ICHECK_LT(buffer_index_, static_cast<int>(regions.size())) << "Buffer index out of range";
+    regions.Set(buffer_index_, new_region_);
 
     ObjectPtr<BlockNode> n = CopyOnWrite(block.get());
-    n->reads = std::move(new_reads);
+    if (buffer_index_type_ == BufferIndexType::kWrite) {
+      n->writes = std::move(regions);
+    } else {
+      n->reads = std::move(regions);
+    }
 
-    // Annotate the block with explicit_read_region
+    // Annotate the block with explicit_read_region or explicit_write_region
     Map<String, ObjectRef> new_annotations = n->annotations;
-    new_annotations.Set(attr::explicit_read_region, Integer(buffer_index_));
+    String annotation_key = buffer_index_type_ == BufferIndexType::kWrite
+                                ? attr::explicit_write_region
+                                : attr::explicit_read_region;
+    if (new_annotations.count(annotation_key)) {
+      Array<Integer> buffer_indices = Downcast<Array<Integer>>(new_annotations[annotation_key]);
+      bool found = false;
+      for (const Integer& index : buffer_indices) {
+        if (index->value == buffer_index_) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        buffer_indices.push_back(Integer(buffer_index_));
+        new_annotations.Set(annotation_key, buffer_indices);
+      }
+    } else {
+      new_annotations.Set(annotation_key, Array<Integer>{Integer(buffer_index_)});
+    }
     n->annotations = std::move(new_annotations);
 
     return Block(n);
@@ -31,13 +58,13 @@ class AnnotateReadRegionNode : public StmtExprMutator {
   Buffer buffer_;
   int buffer_index_;
   BufferRegion new_region_;
+  BufferIndexType buffer_index_type_;
 };
 
-void AnnotateReadRegion(ScheduleState self, const StmtSRef& block_sref, int buffer_index,
-                        const IndexMap& index_map) {
+void AnnotateBufferAccess(ScheduleState self, const StmtSRef& block_sref, int buffer_index,
+                          BufferIndexType buffer_index_type, const IndexMap& index_map) {
   const BlockNode* block = TVM_SREF_TO_BLOCK(block_sref);
-  Buffer buffer =
-      GetNthAccessBuffer(self, GetRef<Block>(block), buffer_index, BufferIndexType::kRead);
+  Buffer buffer = GetNthAccessBuffer(self, GetRef<Block>(block), buffer_index, buffer_index_type);
 
   arith::Analyzer analyzer;
   Array<PrimExpr> block_iter_vars;
@@ -61,24 +88,26 @@ void AnnotateReadRegion(ScheduleState self, const StmtSRef& block_sref, int buff
 
   BufferRegion new_region(buffer, new_ranges);
 
-  AnnotateReadRegionNode mutator(buffer, buffer_index, new_region);
+  AnnotateRegionNode mutator(buffer, buffer_index, new_region, buffer_index_type);
   Stmt new_stmt = mutator(GetRef<Stmt>(block_sref->stmt));
 
   self->Replace(block_sref, new_stmt, {{GetRef<Block>(block), Downcast<Block>(new_stmt)}});
 }
 
-struct AnnotateReadRegionTraits : public UnpackedInstTraits<AnnotateReadRegionTraits> {
-  static constexpr const char* kName = "AnnotateReadRegion";
+struct AnnotateBufferAccessTraits : public UnpackedInstTraits<AnnotateBufferAccessTraits> {
+  static constexpr const char* kName = "AnnotateBufferAccess";
   static constexpr bool kIsPure = false;
 
  private:
-  static constexpr size_t kNumInputs = 3;
+  static constexpr size_t kNumInputs = 4;
   static constexpr size_t kNumAttrs = 0;
   static constexpr size_t kNumDecisions = 0;
 
   static void UnpackedApplyToSchedule(Schedule sch, BlockRV block, Integer buffer_index,
-                                      IndexMap index_map) {
-    return sch->AnnotateReadRegion(block, buffer_index->value, index_map);
+                                      Integer buffer_index_type, IndexMap index_map) {
+    return sch->AnnotateBufferAccess(block, buffer_index->value,
+                                     static_cast<BufferIndexType>(buffer_index_type->value),
+                                     index_map);
   }
 
   static String IndexMap2GenNewRangesLambda(const IndexMap& index_map) {
@@ -102,10 +131,16 @@ struct AnnotateReadRegionTraits : public UnpackedInstTraits<AnnotateReadRegionTr
   }
 
   static String UnpackedAsPython(Array<String> outputs, String block, Integer buffer_index,
-                                 IndexMap index_map) {
-    PythonAPICall py("annotate_read_region");
+                                 Integer buffer_index_type, IndexMap index_map) {
+    PythonAPICall py("annotate_buffer_access");
     py.Input("block", block);
     py.Input("buffer_index", buffer_index->value);
+
+    std::ostringstream os;
+    os << "\"" << BufferIndexType2Str(static_cast<BufferIndexType>(buffer_index_type->value))
+       << "\"";
+    py.Input("buf_type", os.str());
+
     py.Input("gen_new_ranges", IndexMap2GenNewRangesLambda(index_map));
     return py.Str();
   }
@@ -114,7 +149,7 @@ struct AnnotateReadRegionTraits : public UnpackedInstTraits<AnnotateReadRegionTr
   friend struct ::tvm::tir::UnpackedInstTraits;
 };
 
-TVM_REGISTER_INST_KIND_TRAITS(AnnotateReadRegionTraits);
+TVM_REGISTER_INST_KIND_TRAITS(AnnotateBufferAccessTraits);
 
 }  // namespace tir
 }  // namespace tvm

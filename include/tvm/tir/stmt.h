@@ -1669,6 +1669,11 @@ constexpr const char* meta_schedule_inline_rule = "meta_schedule.inline_rule";
  */
 constexpr const char* explicit_read_region = "explicit_read_region";
 
+/*! \brief Mark that a block has an explicitly specified write region.
+ * This is used to override the default write region inference in TIR.
+ */
+constexpr const char* explicit_write_region = "explicit_write_region";
+
 /*!
  * \brief Check if attr_key is a pragma key extension
  * \param attr_key The attr key to be compared

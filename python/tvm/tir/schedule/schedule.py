@@ -3906,33 +3906,35 @@ class Schedule(Object):
         )
 
     @type_checked
-    def annotate_read_region(
-        self, block: BlockRV, buffer_index: int, gen_new_ranges: Callable
+    def annotate_buffer_access(
+        self, block: BlockRV, buffer_index: int, buf_type: str, gen_new_ranges: Callable
     ) -> None:
-        """Annotate the read region of a block
+        """Annotate the read or write region of a block
 
         Parameters
         ----------
         block : BlockRV
             The block to be annotated
         buffer_index : int
-            The index of the buffer in block's read region
+            The index of the buffer in block's read or write region
+        buf_type : str
+            The buffer type: "read" or "write"
         gen_new_ranges : Callable
             A function that takes the block's iter_vars and returns a Tuple[Union[PrimExpr, Tuple[PrimExpr, PrimExpr]], ...]
-            which defines the new read region for the buffer.
-            Each element can be:
+            which defines the new read or write region for the buffer.
+            Each element in the tuple can be:
             - A single PrimExpr representing the iter_var itself
             - A tuple of two PrimExprs representing the range (begin, end)
 
         Examples
         --------
         Annotate a 2D read region for a buffer.
-        Before annotate_read_region, in TensorIR, the IR is:
+        Before annotate_buffer_access, in TensorIR, the IR is:
 
         .. code-block:: python
 
             @T.prim_func
-            def before_annotate_read_region(
+            def before_annotate_buffer_access(
                 A: T.Buffer((128, 128), "float32"),
                 C: T.Buffer((128, 128), "float32")
             ) -> None:
@@ -3946,21 +3948,21 @@ class Schedule(Object):
                         vi, vj = T.axis.remap("SS", [i, j])
                         C[vi, vj] = B[vi, vj] + 1.0
 
-        Create the schedule and do annotate_read_region:
+        Create the schedule and do annotate_buffer_access:
 
         .. code-block:: python
 
-            sch = tir.Schedule(before_annotate_read_region)
+            sch = tir.Schedule(before_annotate_buffer_access)
             block = sch.get_block("B")
-            sch.annotate_read_region(block, 0, lambda vi, vj: ((vi - 1, vi + 1), (vj - 1, vj + 1)))
+            sch.annotate_buffer_access(block, 0, "read", lambda vi, vj: ((vi - 1, vi + 1), (vj - 1, vj + 1)))
             print(sch.mod["main"].script())
 
-        After applying annotate_read_region, the IR becomes:
+        After applying annotate_buffer_access, the IR becomes:
 
         .. code-block:: python
 
             @T.prim_func
-            def after_annotate_read_region(
+            def after_annotate_buffer_access(
                 A: T.Buffer((128, 128), "float32"),
                 C: T.Buffer((128, 128), "float32")
             ) -> None:
@@ -3982,22 +3984,26 @@ class Schedule(Object):
 
         Note
         ----
-        This function allows manual specification of read regions, which can be useful in cases where
+        This function allows manual specification of read or write regions, which can be useful in cases where
         the compiler cannot accurately infer the access pattern, such as complex data-dependent accesses.
-        It overrides the automatically inferred read region for the specified buffer.
+        It overrides the automatically inferred region for the specified buffer.
 
-        The function adds an annotation to the block, indicating that an explicit read region has been
+        The function adds an annotation to the block, indicating that an explicit region has been
         provided for the buffer at the given index. This annotation is used in the CompactBufferAllocation pass
         to respect the manually specified region instead of relying on automatic inference.
 
         Caution should be exercised when using this function, as incorrect annotations may lead to
-        incorrect code generation or runtime errors. It's crucial to ensure that the specified read
-        region covers all actual reads performed by the block for the given buffer.
+        incorrect code generation or runtime errors. It's crucial to ensure that the specified
+        region covers all actual reads or writes performed by the block for the given buffer.
 
         """
         block_obj = self.get(block)
         iter_vars = [x.var for x in block_obj.iter_vars]
         new_ranges_spec = gen_new_ranges(*iter_vars)
+        if len(iter_vars) != len(new_ranges_spec):
+            raise ValueError(
+                f"Number of iter_vars ({len(iter_vars)}) must match number of new_ranges_spec ({len(new_ranges_spec)})"
+            )
 
         result = []
         for rng in new_ranges_spec:
@@ -4019,4 +4025,11 @@ class Schedule(Object):
             inverse_index_map=None,
         )
 
-        return _ffi_api.ScheduleAnnotateReadRegion(self, block, buffer_index, index_map)
+        if buf_type == "read":
+            buffer_index_type = 0
+        elif buf_type == "write":
+            buffer_index_type = 1
+        else:
+            raise ValueError(f"Invalid buf_type: {buf_type}. Expected 'read' or 'write'.")
+
+        return _ffi_api.ScheduleAnnotateBufferAccess(self, block, buffer_index, buffer_index_type, index_map)
