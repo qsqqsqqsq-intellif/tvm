@@ -45,6 +45,16 @@ Array<arith::IntSet> AnalyzeRegionUpperBound(const BufferRegion& region,        
       /*low_inclusive=*/dom_low_inclusive,
       /*high_exclusive=*/dom_high_exclusive,
       /*extra_relax_scope=*/runtime::StorageScope::Create(region->buffer.scope()));
+  for (const auto& kv : var_dom) {
+    LOG(INFO) << "var_dom key: " << kv.first << ", value: " << kv.second;
+  }
+  LOG(INFO) << "AnalyzeRegionUpperBound region: " << region;
+  LOG(INFO) << "Region buffer: " << region->buffer;
+  LOG(INFO) << "Region ranges:";
+  for (const auto& range : region->region) {
+    LOG(INFO) << "  Range: [" << range->min << ", " << range->min + range->extent << ")";
+  }
+  LOG(INFO) << "Predicate: " << predicate;
   return EstimateRegionUpperBound(
       /*region=*/region->region,
       /*var_dom=*/var_dom,
@@ -70,6 +80,16 @@ Array<arith::IntSet> AnalyzeRegionLowerBound(const BufferRegion& region,        
       /*low_inclusive=*/dom_low_inclusive,
       /*high_exclusive=*/dom_high_exclusive,
       /*extra_relax_scope=*/runtime::StorageScope::Create(region->buffer.scope()));
+  for (const auto& kv : var_dom) {
+    LOG(INFO) << "var_dom key: " << kv.first << ", value: " << kv.second;
+  }
+  LOG(INFO) << "Analyzing region: " << region;
+  LOG(INFO) << "Region buffer: " << region->buffer;
+  LOG(INFO) << "Region ranges:";
+  for (const auto& range : region->region) {
+    LOG(INFO) << "  Range: [" << range->min << ", " << range->min + range->extent << ")";
+  }
+  LOG(INFO) << "Predicate: " << predicate;
   if (Optional<Array<arith::IntSet>> result = EstimateRegionLowerBound(
           /*region=*/region->region,
           /*var_dom=*/var_dom,
@@ -228,6 +248,20 @@ class BlockInfoCollector : private StmtVisitor {
       const BlockNode* consumer_block = TVM_SREF_TO_BLOCK(consumer_block_sref);
       const BlockRealize& consumer_realize = block2realize_.at(consumer_block);
       bool& region_cover = self_->block_info.at(consumer_block_sref).region_cover = true;
+
+      // Check for explicit_read_region attribute
+      bool has_explicit_read_region = consumer_block->annotations.count(attr::explicit_read_region);
+      Array<BufferRegion> explicit_reads;
+      if (has_explicit_read_region) {
+        Array<Integer> explicit_read_indices = Downcast<Array<Integer>>(consumer_block->annotations[attr::explicit_read_region]);
+        for (const Integer& index : explicit_read_indices) {
+          int i = index->value;
+          if (i >= 0 && i < static_cast<int>(consumer_block->reads.size())) {
+            explicit_reads.push_back(consumer_block->reads[i]);
+          }
+        }
+      }
+
       // Step 2.1. Extract the path to the scope root
       std::unordered_map<const StmtSRefNode*, std::vector<const StmtSRefNode*>> lca_loc;
       for (const StmtSRefNode* p = consumer_block_sref.get(); p != limit; p = p->parent) {
@@ -259,6 +293,7 @@ class BlockInfoCollector : private StmtVisitor {
       // then check if it could cover the consumed region
       for (StmtSRef lca = consumer_block_sref; region_cover && lca.get() != limit;
            lca = GetRef<StmtSRef>(lca->parent)) {
+        LOG(INFO) << "LCA: " << GetRef<Stmt>(lca->stmt);
         const std::vector<const StmtSRefNode*>& producer_block_srefs = lca_loc.at(lca.get());
         // Skip empty LCA positions
         if (producer_block_srefs.empty()) {
@@ -276,6 +311,10 @@ class BlockInfoCollector : private StmtVisitor {
           const BlockRealize& producer_realize = block2realize_.at(producer_block_sref->stmt);
           StmtSRef parent_sref = GetRef<StmtSRef>(producer_block_sref->parent);
           for (const BufferRegion& region : block_writes_unbound.at(producer_block_sref)) {
+            LOG(INFO) << "Producer region:";
+            for (const auto& range : region->region) {
+                LOG(INFO) << "  Range: [" << range->min << ", " << range->min + range->extent << ")";
+            }
             const BufferNode* buffer = region->buffer.get();
             auto it = touched_regions.find(buffer);
             // Skip the regions that is not read by the consumer
@@ -291,12 +330,17 @@ class BlockInfoCollector : private StmtVisitor {
                   /*dom_low_inclusive=*/parent_sref,
                   /*dom_high_exclusive=*/lca,
                   /*analyzer=*/&analyzer_));
+              LOG(INFO) << "Touched region:";
+              for (size_t i = 0; i < touched_region.back().size(); ++i) {
+                LOG(INFO) << "  Dimension " << i << ": " << touched_region.back()[i];
+              }
             }
           }
         }
         // Step 2.3.3. For each buffer, check the region cover property
         {
           StmtSRef parent_sref = GetRef<StmtSRef>(consumer_block_sref->parent);
+          LOG(INFO) << "Parent sref: " << GetRef<Stmt>(parent_sref->stmt);
           for (const BufferRegion& region : block_reads_unbound.at(consumer_block_sref.get())) {
             const BufferNode* buffer = region->buffer.get();
             const std::vector<Array<arith::IntSet>>& touched_region = touched_regions.at(buffer);
@@ -311,6 +355,17 @@ class BlockInfoCollector : private StmtVisitor {
                   /*analyzer=*/&analyzer_);
               if (!ProducerCoversConsumer(buffer->shape, produced_region, consumed_region,
                                           &analyzer_)) {
+                LOG(INFO) << "Region cover property violated for buffer " << buffer->name;
+                LOG(INFO) << "Region ranges for buffer " << buffer->name << ":";
+                for (const auto& range : region->region) {
+                    LOG(INFO) << " region Range: [" << range->min << ", " << range->min + range->extent << ")";
+                }
+                for (const auto& region : produced_region) {
+                  LOG(INFO) << "Produced region: [" << analyzer_.Simplify(region.min()) << ", " << analyzer_.Simplify(region.max()) << "]";
+                }
+                for (const auto& region : consumed_region) {
+                  LOG(INFO) << "Consumed region: [" << analyzer_.Simplify(region.min()) << ", " << analyzer_.Simplify(region.max()) << "]";
+                }
                 region_cover = false;
                 self_->block_info.at(consumer_block_sref).region_cover = region_cover;
                 break;
